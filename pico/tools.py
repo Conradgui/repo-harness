@@ -4,6 +4,7 @@
 如何做参数校验，以及最终如何执行，都是在这里定义的。
 """
 
+import os
 import shutil
 import subprocess
 import textwrap
@@ -59,6 +60,18 @@ TOOL_EXAMPLES = {
     "patch_file": '<tool name="patch_file" path="binary_search.py"><old_text>return -1</old_text><new_text>return mid</new_text></tool>',
     "delegate": '<tool>{"name":"delegate","args":{"task":"inspect README.md","max_steps":3}}</tool>',
 }
+
+
+def _preferred_shell_path():
+    for candidate in (
+        shutil.which("bash"),
+        shutil.which("sh"),
+        r"C:\Program Files\Git\bin\bash.exe",
+        r"C:\Program Files\Git\usr\bin\bash.exe",
+    ):
+        if candidate and os.path.exists(candidate):
+            return candidate
+    return ""
 
 
 def build_tool_registry(agent):
@@ -211,6 +224,26 @@ def tool_run_shell(agent, args):
     timeout = int(args.get("timeout", 20))
     if timeout < 1 or timeout > 120:
         raise ValueError("timeout must be in [1, 120]")
+    shell_env = agent.shell_env()
+    bash_path = _preferred_shell_path()
+    if bash_path:
+        result = subprocess.run(
+            [bash_path, "-lc", command],
+            cwd=agent.root,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=shell_env,
+        )
+        return textwrap.dedent(
+            f"""\
+            exit_code: {result.returncode}
+            stdout:
+            {result.stdout.strip() or "(empty)"}
+            stderr:
+            {result.stderr.strip() or "(empty)"}
+            """
+        ).strip()
     result = subprocess.run(
         command,
         cwd=agent.root,
@@ -220,7 +253,7 @@ def tool_run_shell(agent, args):
         timeout=timeout,
         # 这里传入的是过滤后的环境变量，而不是直接继承整个父 shell 环境，
         # 目的是减少敏感信息被意外带进命令执行环境的风险。
-        env=agent.shell_env(),
+        env=shell_env,
     )
     return textwrap.dedent(
         f"""\

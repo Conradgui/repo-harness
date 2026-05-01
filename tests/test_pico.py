@@ -1048,6 +1048,81 @@ def test_run_shell_nonzero_with_workspace_change_is_recorded_as_partial_success(
     assert agent._last_tool_result_metadata["workspace_changed"] is True
 
 
+def test_shell_env_keeps_windows_required_variables(tmp_path):
+    agent = build_agent(tmp_path, [], shell_env_allowlist=("PATH",))
+
+    with patch.dict(
+        os.environ,
+        {
+            "PATH": "C:\\Windows\\System32",
+            "ComSpec": "C:\\Windows\\System32\\cmd.exe",
+            "SystemRoot": "C:\\Windows",
+            "PATHEXT": ".COM;.EXE;.BAT;.CMD",
+            "USERPROFILE": "C:\\Users\\Administrator",
+            "APPDATA": "C:\\Users\\Administrator\\AppData\\Roaming",
+            "LOCALAPPDATA": "C:\\Users\\Administrator\\AppData\\Local",
+        },
+        clear=True,
+    ):
+        env = agent.shell_env()
+
+    assert env["PATH"] == "C:\\Windows\\System32"
+    assert env["ComSpec"] == "C:\\Windows\\System32\\cmd.exe"
+    assert env["SystemRoot"] == "C:\\Windows"
+    assert env["PATHEXT"] == ".COM;.EXE;.BAT;.CMD"
+    assert env["USERPROFILE"] == "C:\\Users\\Administrator"
+    assert env["APPDATA"] == "C:\\Users\\Administrator\\AppData\\Roaming"
+    assert env["LOCALAPPDATA"] == "C:\\Users\\Administrator\\AppData\\Local"
+    assert env["PWD"] == str(agent.root)
+
+
+def test_run_shell_prefers_posix_shell_when_available(tmp_path):
+    agent = build_agent(tmp_path, [])
+    captured = {}
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        return subprocess.CompletedProcess(command, 0, stdout="ok\n", stderr="")
+
+    with patch("pico.tools._preferred_shell_path", return_value="C:\\Program Files\\Git\\bin\\bash.exe"), patch(
+        "pico.tools.subprocess.run",
+        fake_run,
+    ):
+        result = agent.run_tool("run_shell", {"command": "printf 'ok\\n'", "timeout": 20})
+
+    assert captured["command"] == ["C:\\Program Files\\Git\\bin\\bash.exe", "-lc", "printf 'ok\\n'"]
+    assert captured["kwargs"]["cwd"] == agent.root
+    assert captured["kwargs"]["timeout"] == 20
+    assert captured["kwargs"]["env"]["PWD"] == str(agent.root)
+    assert "exit_code: 0" in result
+    assert "ok" in result
+
+
+def test_run_shell_falls_back_to_platform_shell_without_posix_shell(tmp_path):
+    agent = build_agent(tmp_path, [])
+    captured = {}
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        return subprocess.CompletedProcess(command, 0, stdout="platform\n", stderr="")
+
+    with patch("pico.tools._preferred_shell_path", return_value=""), patch(
+        "pico.tools.subprocess.run",
+        fake_run,
+    ):
+        result = agent.run_tool("run_shell", {"command": "echo platform", "timeout": 20})
+
+    assert captured["command"] == "echo platform"
+    assert captured["kwargs"]["shell"] is True
+    assert captured["kwargs"]["cwd"] == agent.root
+    assert captured["kwargs"]["timeout"] == 20
+    assert captured["kwargs"]["env"]["PWD"] == str(agent.root)
+    assert "exit_code: 0" in result
+    assert "platform" in result
+
+
 def test_resume_marks_workspace_mismatch_when_checkpoint_runtime_identity_is_stale(tmp_path):
     agent = build_agent(tmp_path, ["<final>checkpoint ready.</final>"])
     agent.session["checkpoints"] = {
@@ -1531,6 +1606,18 @@ def test_reviewer_skeleton_docs_exist():
     architecture_text = architecture.read_text(encoding="utf-8")
     assert "Agent Harness v1" in architecture_text
     assert "task state" in architecture_text.lower()
+
+
+def test_gitignore_keeps_publishable_docs_trackable():
+    lines = [
+        line.strip()
+        for line in Path(".gitignore").read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+
+    assert "docs/" not in lines
+    assert "docs/local/" in lines
+    assert ".pico/" in lines
 
 
 def test_package_import_surface_includes_cli_entrypoints():

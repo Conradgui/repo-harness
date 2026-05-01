@@ -1,8 +1,8 @@
 import hashlib
 import json
-import locale as locale_module
 import shutil
 import subprocess
+import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -119,14 +119,32 @@ def _git_value(args, fallback="", cwd=None):
 
 
 def _current_locale():
-    try:
-        return locale_module.setlocale(locale_module.LC_CTYPE)
-    except Exception:
-        return locale_module.getdefaultlocale()[0] or "C"
+    return "C.UTF-8"
 
 
 def _now_in_timezone(timezone_name):
     return datetime.now(ZoneInfo(timezone_name)).strftime("%Y-%m-%dT%H:%M:%S%z")
+
+
+def _run_verifier(command, cwd):
+    command = str(command).strip()
+    if command.startswith("python3 -c "):
+        script = command[len("python3 -c "):].strip()
+        if len(script) >= 2 and script[0] == script[-1] and script[0] in {'"', "'"}:
+            script = script[1:-1]
+        return subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+        )
+    return subprocess.run(
+        command,
+        cwd=cwd,
+        shell=True,
+        capture_output=True,
+        text=True,
+    )
 
 
 def _artifact_path_for_task(task):
@@ -484,13 +502,7 @@ class BenchmarkEvaluator:
         expected_artifact_exists = artifact_file.exists()
         artifact_digest = _digest_file(artifact_file) if expected_artifact_exists else ""
 
-        verifier = subprocess.run(
-            task["verifier"],
-            cwd=fixture_copy_root,
-            shell=True,
-            capture_output=True,
-            text=True,
-        )
+        verifier = _run_verifier(task["verifier"], fixture_copy_root)
 
         within_budget = task_state.tool_steps <= int(task["step_budget"])
         verifier_passed = verifier.returncode == 0

@@ -515,6 +515,9 @@ class Pico:
             for name in self.shell_env_allowlist
             if name in os.environ
         }
+        for name in ("ComSpec", "SystemRoot", "PATHEXT", "USERPROFILE", "APPDATA", "LOCALAPPDATA"):
+            if name in os.environ:
+                env[name] = os.environ[name]
         env["PWD"] = str(self.root)
         if "PATH" not in env and os.environ.get("PATH"):
             env["PATH"] = os.environ["PATH"]

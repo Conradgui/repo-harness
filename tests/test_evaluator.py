@@ -9,6 +9,7 @@ from pico.evaluator import (
     load_benchmark,
     run_harness_regression_v2,
     run_fixed_benchmark,
+    _run_verifier,
     summarize_rows,
 )
 
@@ -184,6 +185,13 @@ def test_run_task_anchors_paths_to_fixture_copy_even_inside_repo_workspace():
     fixture_copy = Path(row["fixture_copy_relpath"])
     readme_path = fixture_copy / "README.md"
     assert "This fixture is a locked benchmark workspace." in readme_path.read_text(encoding="utf-8")
+
+
+def test_run_verifier_uses_current_python_for_python3_inline_script(tmp_path):
+    result = _run_verifier("python3 -c \"from pathlib import Path; Path('marker.txt').write_text('ok', encoding='utf-8')\"", tmp_path)
+
+    assert result.returncode == 0
+    assert (tmp_path / "marker.txt").read_text(encoding="utf-8") == "ok"
 
 
 def test_summarize_rows_counts_failure_categories():
