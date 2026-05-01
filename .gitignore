@@ -36,7 +36,7 @@ artifacts/
 readme_intro_locked/
 
 # Local docs not intended for publication
-docs/
+docs/local/
 
 # OS files
 .DS_Store

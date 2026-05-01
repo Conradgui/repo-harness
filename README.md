@@ -55,6 +55,8 @@ pip install -e .
 
 ## 快速开始
 
+### macOS / Linux
+
 在当前仓库里启动交互模式：
 
 ```bash
@@ -79,6 +81,44 @@ uv run pico "inspect the test failures and propose a fix"
 python -m pico
 ```
 
+### Windows PowerShell
+
+PowerShell 使用 `$env:` 设置当前终端会话的环境变量：
+
+```powershell
+$env:OPENAI_API_KEY="your-api-key"
+$env:OPENAI_API_BASE="https://your-api.example/v1"
+$env:OPENAI_MODEL="gpt-5.4"
+uv run python -m pico --help
+uv run pico
+```
+
+也可以指定工作目录：
+
+```powershell
+uv run pico --cwd C:\path\to\repo
+```
+
+### Windows CMD
+
+CMD 使用 `set` 设置当前终端会话的环境变量：
+
+```bat
+set OPENAI_API_KEY=your-api-key
+set OPENAI_API_BASE=https://your-api.example/v1
+set OPENAI_MODEL=gpt-5.4
+uv run python -m pico --help
+uv run pico
+```
+
+也可以指定工作目录：
+
+```bat
+uv run pico --cwd C:\path\to\repo
+```
+
+Windows 用户可以从 CMD 或 PowerShell 启动 `pico`。如果机器上安装了 Git Bash，`pico` 内部执行 shell 工具时会优先使用兼容 shell 来处理模型常见的 POSIX 风格命令；Git Bash 不是启动 `pico` 的硬依赖。
+
 ## 模型后端
 
 ### Ollama
@@ -91,6 +131,8 @@ uv run pico --provider ollama --model qwen3.5:4b
 
 ### OpenAI 兼容接口
 
+macOS / Linux：
+
 ```bash
 export OPENAI_API_BASE="https://your-api.example/v1"
 export OPENAI_API_KEY="your-api-key"
@@ -98,12 +140,50 @@ export OPENAI_MODEL="gpt-5.4"
 uv run pico --provider openai
 ```
 
+Windows PowerShell：
+
+```powershell
+$env:OPENAI_API_BASE="https://your-api.example/v1"
+$env:OPENAI_API_KEY="your-api-key"
+$env:OPENAI_MODEL="gpt-5.4"
+uv run pico --provider openai
+```
+
+Windows CMD：
+
+```bat
+set OPENAI_API_BASE=https://your-api.example/v1
+set OPENAI_API_KEY=your-api-key
+set OPENAI_MODEL=gpt-5.4
+uv run pico --provider openai
+```
+
 ### Anthropic 兼容接口
+
+macOS / Linux：
 
 ```bash
 export ANTHROPIC_API_BASE="https://www.right.codes/claude/v1"
 export ANTHROPIC_API_KEY="your-api-key"
 export ANTHROPIC_MODEL="claude-sonnet-4-6"
+uv run pico --provider anthropic
+```
+
+Windows PowerShell：
+
+```powershell
+$env:ANTHROPIC_API_BASE="https://www.right.codes/claude/v1"
+$env:ANTHROPIC_API_KEY="your-api-key"
+$env:ANTHROPIC_MODEL="claude-sonnet-4-6"
+uv run pico --provider anthropic
+```
+
+Windows CMD：
+
+```bat
+set ANTHROPIC_API_BASE=https://www.right.codes/claude/v1
+set ANTHROPIC_API_KEY=your-api-key
+set ANTHROPIC_MODEL=claude-sonnet-4-6
 uv run pico --provider anthropic
 ```
 
@@ -140,3 +220,5 @@ uv run pico --provider anthropic
 ```bash
 uv run ruff check .
 ```
+
+新维护者可以从 [吃透 pico 项目的 SOP](docs/maintainer-prep/project-study-sop.md) 开始，按 CLI、runtime、tools、state、tests 的顺序建立项目地图。
