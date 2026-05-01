@@ -55,11 +55,14 @@ pip install -e .
 
 ## 快速开始
 
+下面的 `uv run ...` 命令需要在 `pico` 项目根目录执行，也就是当前目录下能看到 `pyproject.toml` 和 `pico/` 包目录。比如这个仓库在 Windows 上位于 `C:\Users\Administrator\Desktop\cc\P1test` 时，先进入该目录，再运行命令。
+
 ### macOS / Linux
 
 在当前仓库里启动交互模式：
 
 ```bash
+cd /path/to/pico
 uv run pico
 ```
 
@@ -86,6 +89,7 @@ python -m pico
 PowerShell 使用 `$env:` 设置当前终端会话的环境变量：
 
 ```powershell
+cd C:\Users\Administrator\Desktop\cc\P1test
 $env:OPENAI_API_KEY="your-api-key"
 $env:OPENAI_API_BASE="https://your-api.example/v1"
 $env:OPENAI_MODEL="gpt-5.4"
@@ -104,6 +108,7 @@ uv run pico --cwd C:\path\to\repo
 CMD 使用 `set` 设置当前终端会话的环境变量：
 
 ```bat
+cd /d C:\Users\Administrator\Desktop\cc\P1test
 set OPENAI_API_KEY=your-api-key
 set OPENAI_API_BASE=https://your-api.example/v1
 set OPENAI_MODEL=gpt-5.4
