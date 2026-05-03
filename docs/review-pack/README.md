@@ -1,5 +1,7 @@
 # Review Pack
 
+Snapshot note: this review pack is a maintainer-facing snapshot for the current pre-RepoHarness-rename codebase. If the package name, CLI command, or local state directory changes, update this file in the same commit as the public documentation.
+
 ## Project pitch
 
 `pico` is a small local coding agent that works inside a repository with constrained tools, resumable sessions, and local audit artifacts.

@@ -1,5 +1,7 @@
 # Agent Harness v1 Overview
 
+Version note: this overview describes the current Agent Harness v1 behavior before the planned RepoHarness rename. It should be updated when runtime artifact paths, CLI entrypoints, or benchmark semantics change.
+
 ## Summary
 
 Agent Harness v1 evaluates the local agent against deterministic fixture tasks and records reproducible benchmark artifacts.

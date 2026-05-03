@@ -2,6 +2,8 @@
 
 这份说明记录本轮 Windows 适配的边界、根因和验证方式。它的目标是帮助维护者评审变更，而不是把 `pico` 拆成 Windows 版和类 Unix 版。
 
+版本管理口径：本文件描述的是当前 Windows 适配阶段的兼容策略。后续如果执行 `RepoHarness` 重命名、改变 CLI 入口或改变本地状态目录，需要新增变更说明并同步更新验证命令。
+
 ## 适配原则
 
 - 保持 `Pico.ask()` 主循环、工具白名单、approval 模型、memory、checkpoint、trace、report、prompt cache 和 benchmark 口径不变。
@@ -43,3 +45,7 @@ uv run pytest -q
 - Git Bash 不是 Windows 必装项。没有 Git Bash 时，平台 shell 仍会被使用，但模型生成的 POSIX 风格命令可能需要用户或模型改写。
 - CircleCI 第一版只保护 Linux/Python 基线；Windows 入口通过本地 CMD / PowerShell 验证和单元测试覆盖。
 - 本轮不改变 `uv.lock` 的忽略策略。
+
+## 变更记录
+
+- `2026-05-03`：记录 Windows CMD / PowerShell 适配边界、验证命令和已知限制；该记录属于 `RepoHarness` 重命名前的兼容性基线。
