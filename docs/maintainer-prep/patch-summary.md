@@ -1,11 +1,13 @@
 # 修复摘要
 
+这份摘要用于维护者复盘本轮 Windows 适配和工程化补强。它既是当前维护者的工作记录，也给未来维护者提供代码定位、修复原因和验证依据。这里记录的是“为什么这样改”，不是完整 diff。
+
 ## 根因与代码位置
 
 ### 1. 缺少时区数据依赖声明
 
 - 文件：[pyproject.toml](/C:/Users/Administrator/Desktop/cc/P1test/pyproject.toml:10)
-- 现象：benchmark 和 evaluator 相关测试在真正执行前就失败，因为 `ZoneInfo("Asia/Shanghai")` 在 Windows 上无法解析。
+- 现象：benchmark 和 evaluator 相关测试在真正执行前失败，因为 `ZoneInfo("Asia/Shanghai")` 在 Windows 上无法解析。
 - 问题：项目实际依赖 IANA 时区数据，但没有声明 `tzdata` 依赖。
 - 更正方式：把 `tzdata` 加入运行时依赖。
 - 更正原因：这样可以把时区能力要求显式化，避免依赖宿主机是否自带时区数据。
@@ -38,7 +40,7 @@
 
 - 文件：[pico/tools.py](/C:/Users/Administrator/Desktop/cc/P1test/pico/tools.py:65)、[pico/tools.py](/C:/Users/Administrator/Desktop/cc/P1test/pico/tools.py:220)
 - 现象：使用 POSIX 引号和 `printf` 的命令在 Windows 默认 shell 下执行失败。
-- 问题：测试和命令内容默认使用 POSIX shell 语义，但 runtime 实际交给平台默认 shell 处理。
+- 问题：测试和部分模型生成命令默认使用 POSIX shell 语义，但 runtime 实际交给平台默认 shell 处理。
 - 更正方式：优先选择 POSIX 兼容 shell，并为常见 Git Bash 路径提供显式兜底。
 - 更正原因：这能让执行语义与测试和命令本身隐含的 contract 保持一致。
 
@@ -52,6 +54,18 @@
 - 更正方式：补齐测试要求的文档骨架和基础内容。
 - 更正原因：测试不应依赖缺失的受版本管理文件。
 
-## 给维护者的建议备注
+### 7. 首次使用文档不够集中
 
-建议把本地机器描述为“复现环境”，而不是“问题根因”。真正的根因是一组偏向类 Unix 假设、对宿主机状态有依赖的代码和工程约束。
+- 文件：
+  - [README.md](/C:/Users/Administrator/Desktop/cc/P1test/README.md:7)
+  - [docs/getting-started.md](/C:/Users/Administrator/Desktop/cc/P1test/docs/getting-started.md:1)
+- 现象：README 里已有安装和启动命令，但第一次使用者仍容易混淆项目根目录、PowerShell / CMD 环境变量、API Key 和 REPL 指令的边界。
+- 问题：README 作为快速入口不适合承载完整新手教育；信息继续堆在 README 中会降低可读性。
+- 更正方式：新增 `docs/getting-started.md`，并在 README 顶部和快速开始处加入入口链接。
+- 更正原因：README 保持简洁，新手指南承接完整配置、使用技巧和产品化说明，维护成本更低。
+
+## 维护者备注
+
+- 建议把本地机器描述为“复现环境”，而不是“问题根因”。真正的根因是一组偏向类 Unix 假设、对宿主机状态有依赖的代码和工程约束。
+- 这份摘要可以作为后续 review、release note、简历项目复盘的事实来源，但具体措辞需要按场景裁剪。
+- 如果后续执行 `RepoHarness` 全量重命名，路径和类名会变化；这份摘要记录的是重命名前的修复位置。
