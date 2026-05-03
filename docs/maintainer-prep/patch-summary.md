@@ -1,12 +1,31 @@
-# 修复摘要
+# 修复摘要记录
 
-这份摘要用于维护者复盘本轮 Windows 适配和工程化补强。它既是当前维护者的工作记录，也给未来维护者提供代码定位、修复原因和验证依据。这里记录的是“为什么这样改”，不是完整 diff。
+## 文档说明
 
-版本管理口径：本文件是阶段性修复摘要，不是最终架构文档。新增修复请追加新编号小节；后续如果包名、路径或品牌名发生变化，保留这里的旧路径作为重命名前事实，并在维护者备注中说明新的当前路径。
+这份文档用于记录项目维护过程中的重要修复摘要。它帮助维护者复盘每次修复的背景、根因、涉及位置、处理方式和验证结果。
 
-## 根因与代码位置
+本文不是完整 diff，也不是最终 release note。每次阶段性修复应按日期追加记录，保留当时的路径、命令和判断口径，避免后续修改覆盖历史事实。
 
-### 1. 缺少时区数据依赖声明
+## 更新规则
+
+- 每次修复批次新增一个日期小节，标题格式为 `YYYY-MM-DD：修复主题`。
+- 旧记录中的路径、包名、命令和状态目录代表当时版本事实；后续重命名时不要直接改写旧记录。
+- 如果新修复修正了旧判断，应新增“修正说明”，并明确说明旧判断为何不再适用。
+- 每条记录尽量包含背景、修复内容、验证结果和后续注意。
+
+## 修复记录
+
+### 2026-05-03：Windows 适配与工程化补强
+
+#### 背景
+
+本次修复由 Windows 环境验证触发，暴露出项目在跨平台兼容性、benchmark 可复现性、shell 执行语义和维护者文档管理上的问题。
+
+Windows 是复现环境，不是根因本身。真正需要修复的是代码库中隐含的类 Unix 假设、宿主机状态依赖和缺失的文档资产。
+
+#### 修复内容
+
+##### 1. 缺少时区数据依赖声明
 
 - 文件：[pyproject.toml](/C:/Users/Administrator/Desktop/cc/P1test/pyproject.toml:10)
 - 现象：benchmark 和 evaluator 相关测试在真正执行前失败，因为 `ZoneInfo("Asia/Shanghai")` 在 Windows 上无法解析。
@@ -14,7 +33,7 @@
 - 更正方式：把 `tzdata` 加入运行时依赖。
 - 更正原因：这样可以把时区能力要求显式化，避免依赖宿主机是否自带时区数据。
 
-### 2. 可复现性元数据依赖宿主机 locale
+##### 2. 可复现性元数据依赖宿主机 locale
 
 - 文件：[pico/evaluator.py](/C:/Users/Administrator/Desktop/cc/P1test/pico/evaluator.py:121)
 - 现象：benchmark 产物中的元数据会随着宿主机 locale 改变。
@@ -22,7 +41,7 @@
 - 更正方式：为 benchmark 的可复现性元数据输出稳定 locale 值。
 - 更正原因：同一份 benchmark 在不同电脑上应尽量产出可比较、可复核的结果。
 
-### 3. benchmark verifier 默认假设存在 `python3`
+##### 3. benchmark verifier 默认假设存在 `python3`
 
 - 文件：[pico/evaluator.py](/C:/Users/Administrator/Desktop/cc/P1test/pico/evaluator.py:129)、[pico/evaluator.py](/C:/Users/Administrator/Desktop/cc/P1test/pico/evaluator.py:505)
 - 现象：即使任务本身已正确完成，Windows 上 verifier 仍会失败。
@@ -30,7 +49,7 @@
 - 更正方式：识别 `python3 -c ...` 形式的 verifier，并改用 `sys.executable` 执行。
 - 更正原因：当前解释器路径比依赖命令名更可靠，也更适合托管测试环境。
 
-### 4. shell 安全过滤误删 Windows 启动所需变量
+##### 4. shell 安全过滤误删 Windows 启动所需变量
 
 - 文件：[pico/runtime.py](/C:/Users/Administrator/Desktop/cc/P1test/pico/runtime.py:512)
 - 现象：shell 执行时报错，提示缺少 `%ComSpec%` 或 `%SystemRoot%`。
@@ -38,7 +57,7 @@
 - 更正方式：在过滤环境中保留 `ComSpec`、`SystemRoot` 和 `PATHEXT`。
 - 更正原因：安全收敛应减少敏感暴露，但不能破坏 shell 的最小可运行条件。
 
-### 5. runtime 没有保证与命令语法兼容的 shell
+##### 5. runtime 没有保证与命令语法兼容的 shell
 
 - 文件：[pico/tools.py](/C:/Users/Administrator/Desktop/cc/P1test/pico/tools.py:65)、[pico/tools.py](/C:/Users/Administrator/Desktop/cc/P1test/pico/tools.py:220)
 - 现象：使用 POSIX 引号和 `printf` 的命令在 Windows 默认 shell 下执行失败。
@@ -46,7 +65,7 @@
 - 更正方式：优先选择 POSIX 兼容 shell，并为常见 Git Bash 路径提供显式兜底。
 - 更正原因：这能让执行语义与测试和命令本身隐含的 contract 保持一致。
 
-### 6. 测试依赖的文档骨架缺失
+##### 6. 测试依赖的文档骨架缺失
 
 - 文件：
   - [docs/review-pack/README.md](/C:/Users/Administrator/Desktop/cc/P1test/docs/review-pack/README.md:1)
@@ -56,7 +75,7 @@
 - 更正方式：补齐测试要求的文档骨架和基础内容。
 - 更正原因：测试不应依赖缺失的受版本管理文件。
 
-### 7. 首次使用文档不够集中
+##### 7. 首次使用文档不够集中
 
 - 文件：
   - [README.md](/C:/Users/Administrator/Desktop/cc/P1test/README.md:7)
@@ -66,8 +85,14 @@
 - 更正方式：新增 `docs/getting-started.md`，并在 README 顶部和快速开始处加入入口链接。
 - 更正原因：README 保持简洁，新手指南承接完整配置、使用技巧和产品化说明，维护成本更低。
 
-## 维护者备注
+#### 验证结果
 
-- 建议把本地机器描述为“复现环境”，而不是“问题根因”。真正的根因是一组偏向类 Unix 假设、对宿主机状态有依赖的代码和工程约束。
-- 这份摘要可以作为后续 review、release note、简历项目复盘的事实来源，但具体措辞需要按场景裁剪。
-- 如果后续执行 `RepoHarness` 全量重命名，路径和类名会变化；这份摘要记录的是重命名前的修复位置。
+- `uv run pytest tests/test_pico.py -q`：通过。
+- `uv run ruff check .`：通过。
+- `uv run pytest -q`：通过。
+- Windows CMD / PowerShell 下 `uv run python -m pico --help`：通过。
+
+#### 后续注意
+
+- 如果后续执行 `RepoHarness` 全量重命名，本记录中的 `pico/`、`.pico/` 和 `uv run pico` 属于 2026-05-03 当时的历史事实，不应直接改写。
+- 后续修复应继续追加新的日期记录，并在新记录中使用当时的当前包名、路径和命令。
