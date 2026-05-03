@@ -1608,6 +1608,28 @@ def test_reviewer_skeleton_docs_exist():
     assert "task state" in architecture_text.lower()
 
 
+def test_getting_started_guide_is_linked_and_covers_onboarding_basics():
+    guide = Path("docs/getting-started.md")
+    readme = Path("README.md")
+
+    assert guide.exists()
+    assert "docs/getting-started.md" in readme.read_text(encoding="utf-8")
+
+    guide_text = guide.read_text(encoding="utf-8")
+    for required in [
+        "PowerShell",
+        "CMD",
+        "Ollama",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "/help",
+        ".pico/runs",
+        "v2.0 历史实验结果",
+        "AI 产品经理",
+    ]:
+        assert required in guide_text
+
+
 def test_gitignore_keeps_publishable_docs_trackable():
     lines = [
         line.strip()
