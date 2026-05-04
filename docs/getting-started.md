@@ -146,10 +146,6 @@ repo-harness> update the docs for Windows PowerShell usage
 
 注意：在 `repo-harness>` 里输入 `cd C:\path\to\repo` 或 `uv run repo-harness`，RepoHarness 会把它当成给 agent 的自然语言任务，不会像普通终端那样直接执行。要切换目录或重新启动 RepoHarness，请先 `/exit` 回到 PowerShell / CMD / shell。
 
-## Agent 指令文件是不是必需的
-
-不必需。RepoHarness 会优先读取仓库里的 `AGENTS.md`（复数）作为可选的 agent 指令文件；当前仓库没有提交 `AGENTS.md` 或 `AGENT.md` 时，会回退到内置 runtime 规则、README 和 `pyproject.toml`。如果后续要为 agent 增加仓库级维护规则，再新增根目录 `AGENTS.md` 即可。
-
 ## 常见使用场景
 
 ### 分析测试失败
@@ -236,7 +232,7 @@ Agent Harness 不是某一个模型，而是模型之外的执行编排层。Rep
 
 ### Q：从 0 到 1 主导 RepoHarness 能体现哪些 AI 产品经理能力？
 
-这个项目体现的是从问题定义到可运行系统的完整闭环：识别本地代码助手的真实使用场景，拆解 Agent Harness 的关键模块，定义工具权限和安全边界，设计 session / memory / report 等可复盘机制，建立 benchmark 和测试基线，并继续推进 Windows 适配这类工程化迭代。对 AI 产品经理来说，价值不只在“会用模型”，而在能把模型能力产品化、工程化、可验证化。
+这个项目体现的是从问题定义到可运行系统的完整闭环：识别本地代码助手的真实使用场景，拆解 Agent Harness 的关键模块，定义工具权限和安全边界，设计 session / memory / report 等可复盘机制，建立 benchmark 和测试基线，并继续推进 Windows 适配这类工程化迭代。对 AI 产品经理来说，价值在能把模型能力产品化、工程化、可验证化。
 
 ## 指标口径说明
 
