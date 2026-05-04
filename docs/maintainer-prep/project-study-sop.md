@@ -14,6 +14,76 @@
 
 ## SOP 记录
 
+### 2026-05-03：RepoHarness 项目学习路径
+
+#### 1. 先建立运行基线
+
+先确认当前公开入口和测试套件都能工作：
+
+```bash
+uv sync
+uv run repo-harness --help
+uv run python -m repo_harness --help
+uv run pytest -q
+```
+
+完成这一轮后，应该能确认：
+
+- Python 包名是 `repo_harness`。
+- CLI 命令是 `repo-harness`，模块入口是 `python -m repo_harness`。
+- 本地状态目录是 `.repo-harness/`。
+- 如果仓库根目录存在历史 `.pico/`，启动时只会复制 `.repo-harness/` 中缺失的文件，不覆盖、不删除旧目录。
+
+#### 2. 先读主链路
+
+RepoHarness 的核心链路是：
+
+```text
+repo_harness/cli.py
+  -> build_agent()
+  -> RepoHarness runtime
+  -> model output: <tool> or <final>
+  -> run_tool()
+  -> session / trace / report / memory
+```
+
+阅读时按这个顺序走：
+
+1. `repo_harness/cli.py`：看参数解析、provider 选择、旧 `.pico/` 状态迁移、`build_agent()` 装配、one-shot 与 REPL 分流。
+2. `repo_harness/runtime.py`：看 `RepoHarness.__init__`、`build_prefix`、`ask`、`parse`、`run_tool`。
+3. `repo_harness/tools.py`：看工具白名单、参数校验、risky 标记、路径边界和 shell 环境过滤。
+4. `repo_harness/task_state.py`、`repo_harness/run_store.py`、`repo_harness/memory.py`、`repo_harness/context_manager.py`：看状态、持久化、记忆和上下文压缩。
+
+读完这一层后，应该能口头说明一次用户请求如何从 CLI 输入变成模型提示、工具执行、最终答案和本地运行工件。
+
+#### 3. 用测试反推行为
+
+从 `tests/test_repo_harness.py` 开始，不要先追求覆盖所有源码。优先读测试名和断言：
+
+- RepoHarness 如何调用工具并把结果写回 history。
+- malformed model output 如何触发 retry。
+- session resume 和 checkpoint 如何判断 stale 或 mismatch。
+- risky tool 如何通过 approval policy 控制。
+- trace、report 和 task state 如何记录运行过程。
+- durable memory 如何保存长期事实，以及如何拒绝敏感或临时内容。
+- 旧 `.pico/` 状态如何迁移到 `.repo-harness/`。
+
+#### 4. 常用验证命令
+
+```bash
+uv run python -m repo_harness --help
+uv run repo-harness --help
+uv run pytest tests/test_repo_harness.py -q
+uv run pytest -q
+uv run ruff check .
+```
+
+这些命令分别覆盖模块入口、CLI 入口、核心 harness 行为、全量回归和静态检查。
+
+#### 5. Agent 指令文件约定
+
+`AGENTS.md` 是可选的仓库级 agent 指令文件，不是运行必需文件。当前仓库没有提交 `AGENTS.md` 或 `AGENT.md` 时，RepoHarness 会使用内置 runtime 规则、README 和 `pyproject.toml`。如果未来需要新增仓库级规则，优先使用 `AGENTS.md`。
+
 ### 2026-05-03：pico 项目学习路径
 
 #### 1. 先建立运行基线

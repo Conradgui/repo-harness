@@ -1,4 +1,4 @@
-# Agent Harness v1 Overview
+﻿# Agent Harness v1 Overview
 
 ## Document Purpose
 
@@ -13,6 +13,20 @@ This file should evolve by dated architecture records. If runtime artifact paths
 - Keep this overview aligned with maintainer docs and tests that assert review-pack and architecture coverage.
 
 ## Architecture Records
+
+### 2026-05-03: RepoHarness Rename Snapshot
+
+#### Summary
+
+RepoHarness is the current public name for the local Agent Harness. Public entrypoints are `repo-harness`, `python -m repo_harness`, the `repo_harness` package, and `.repo-harness/` local state.
+
+#### Migration semantics
+
+On startup, RepoHarness copies missing files from a legacy `.pico/` state directory into `.repo-harness/`. Existing `.repo-harness/` files are not overwritten, and `.pico/` is not deleted.
+
+#### Agent instruction files
+
+`AGENTS.md` is an optional workspace document. If it is absent, RepoHarness still runs using the built-in runtime rules plus README and project metadata.
 
 ### 2026-05-03: Agent Harness v1 Snapshot
 
@@ -32,3 +46,4 @@ Agent Harness v1 evaluates the local agent against deterministic fixture tasks a
 - task state snapshots describe progress and stop reasons
 - trace events capture prompt, tool, and checkpoint activity
 - reports summarize the final runtime outcome
+

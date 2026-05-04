@@ -1,4 +1,4 @@
-"""模型后端适配层。
+﻿"""模型后端适配层。
 
 runtime 只关心一件事：给我一个 prompt，我拿回一段文本。
 不同 provider 在 HTTP 接口、响应结构、是否支持 prompt cache 上都有差异，
@@ -247,7 +247,7 @@ class OpenAICompatibleModelClient:
           `self.last_completion_metadata`
 
         在 agent 链路里的位置：
-        它位于 `Pico.ask()` 的模型调用阶段，是稳定前缀缓存复用链路真正
+        它位于 `RepoHarness.ask()` 的模型调用阶段，是稳定前缀缓存复用链路真正
         落到 provider API 的地方。
         """
         self.last_completion_metadata = {}
@@ -433,3 +433,4 @@ class AnthropicCompatibleModelClient:
         if text:
             return text
         raise RuntimeError("Anthropic-compatible error: could not extract text from response")
+

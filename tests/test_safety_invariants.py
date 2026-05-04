@@ -1,11 +1,11 @@
-import os
+﻿import os
 import shlex
 import sys
 from unittest.mock import patch
 
-from pico import FakeModelClient, MiniAgent, SessionStore, WorkspaceContext
-from pico import cli as mini_cli
-from pico.task_state import TaskState
+from repo_harness import FakeModelClient, RepoHarness, SessionStore, WorkspaceContext
+from repo_harness import cli as mini_cli
+from repo_harness.task_state import TaskState
 
 
 def build_workspace(tmp_path):
@@ -15,9 +15,9 @@ def build_workspace(tmp_path):
 
 def build_agent(tmp_path, outputs, **kwargs):
     workspace = build_workspace(tmp_path)
-    store = SessionStore(tmp_path / ".pico" / "sessions")
+    store = SessionStore(tmp_path / ".repo-harness" / "sessions")
     approval_policy = kwargs.pop("approval_policy", "auto")
-    return MiniAgent(
+    return RepoHarness(
         model_client=FakeModelClient(outputs),
         workspace=workspace,
         session_store=store,
@@ -65,7 +65,7 @@ def test_cli_build_agent_wires_secret_env_names_from_parser(tmp_path):
 
     (tmp_path / "README.md").write_text("demo\n", encoding="utf-8")
     with patch.dict(os.environ, {"GITHUB_PAT": "ghp-1", "GH_PAT": "ghp-2"}, clear=True), patch(
-        "pico.cli.OllamaModelClient",
+        "repo_harness.cli.OllamaModelClient",
         DummyModelClient,
     ):
         args = mini_cli.build_arg_parser().parse_args(
@@ -95,7 +95,7 @@ def test_cli_build_agent_uses_default_configured_secret_names(tmp_path):
 
     (tmp_path / "README.md").write_text("demo\n", encoding="utf-8")
     with patch.dict(os.environ, {"GH_PAT": "ghp-default-1"}, clear=True), patch(
-        "pico.cli.OllamaModelClient",
+        "repo_harness.cli.OllamaModelClient",
         DummyModelClient,
     ):
         args = mini_cli.build_arg_parser().parse_args(["--cwd", str(tmp_path), "--approval", "auto"])
@@ -117,13 +117,55 @@ def test_cli_build_agent_reads_secret_names_from_environment_config(tmp_path):
         os.environ,
         {
             "MCA_CUSTOM_SECRET": "custom-secret-value",
-            "MINI_CODING_AGENT_SECRET_ENV_NAMES": "MCA_CUSTOM_SECRET",
+            "REPO_HARNESS_SECRET_ENV_NAMES": "MCA_CUSTOM_SECRET",
         },
         clear=True,
-    ), patch("pico.cli.OllamaModelClient", DummyModelClient):
+    ), patch("repo_harness.cli.OllamaModelClient", DummyModelClient):
         args = mini_cli.build_arg_parser().parse_args(["--cwd", str(tmp_path), "--approval", "auto"])
         agent = mini_cli.build_agent(args)
         assert agent.secret_env_summary()["secret_env_names"] == ["MCA_CUSTOM_SECRET"]
+
+
+def test_cli_build_agent_migrates_legacy_pico_state_without_deleting_source(tmp_path):
+    class DummyModelClient:
+        def complete(self, prompt, max_new_tokens):
+            raise AssertionError("model should not be invoked")
+
+    legacy_session = tmp_path / ".pico" / "sessions" / "legacy.json"
+    legacy_session.parent.mkdir(parents=True)
+    legacy_session.write_text('{"id":"legacy"}', encoding="utf-8")
+    legacy_memory = tmp_path / ".pico" / "memory" / "MEMORY.md"
+    legacy_memory.parent.mkdir(parents=True)
+    legacy_memory.write_text("legacy memory\n", encoding="utf-8")
+
+    with patch("repo_harness.cli.OpenAICompatibleModelClient", return_value=DummyModelClient()):
+        args = mini_cli.build_arg_parser().parse_args(["--cwd", str(tmp_path), "--approval", "auto"])
+        mini_cli.build_agent(args)
+
+    assert legacy_session.exists()
+    assert legacy_memory.exists()
+    assert (tmp_path / ".repo-harness" / "sessions" / "legacy.json").read_text(encoding="utf-8") == '{"id":"legacy"}'
+    assert (tmp_path / ".repo-harness" / "memory" / "MEMORY.md").read_text(encoding="utf-8") == "legacy memory\n"
+
+
+def test_cli_build_agent_does_not_overwrite_existing_repo_harness_state(tmp_path):
+    class DummyModelClient:
+        def complete(self, prompt, max_new_tokens):
+            raise AssertionError("model should not be invoked")
+
+    legacy_session = tmp_path / ".pico" / "sessions" / "same.json"
+    legacy_session.parent.mkdir(parents=True)
+    legacy_session.write_text("legacy\n", encoding="utf-8")
+    current_session = tmp_path / ".repo-harness" / "sessions" / "same.json"
+    current_session.parent.mkdir(parents=True)
+    current_session.write_text("current\n", encoding="utf-8")
+
+    with patch("repo_harness.cli.OpenAICompatibleModelClient", return_value=DummyModelClient()):
+        args = mini_cli.build_arg_parser().parse_args(["--cwd", str(tmp_path), "--approval", "auto"])
+        mini_cli.build_agent(args)
+
+    assert current_session.read_text(encoding="utf-8") == "current\n"
+    assert legacy_session.read_text(encoding="utf-8") == "legacy\n"
 
 
 def test_run_shell_uses_allowlisted_environment_only(tmp_path):
@@ -142,7 +184,7 @@ def test_run_shell_uses_allowlisted_environment_only(tmp_path):
 def test_bound_tool_methods_delegate_into_tools_module(tmp_path):
     agent = build_agent(tmp_path, [], approval_policy="auto")
 
-    with patch("pico.tools.subprocess.run") as fake_run:
+    with patch("repo_harness.tools.subprocess.run") as fake_run:
         fake_run.return_value = type(
             "Result",
             (),
@@ -152,9 +194,9 @@ def test_bound_tool_methods_delegate_into_tools_module(tmp_path):
 
     assert "toolkit-shell" in shell_result
     fake_run.assert_called_once()
-    assert agent.tool_run_shell.__func__.__module__ == "pico.runtime"
+    assert agent.tool_run_shell.__func__.__module__ == "repo_harness.runtime"
 
-    with patch("pico.tools.tool_delegate", return_value="toolkit-delegate") as fake_delegate:
+    with patch("repo_harness.tools.tool_delegate", return_value="toolkit-delegate") as fake_delegate:
         delegate_result = agent.tool_delegate({"task": "inspect README.md", "max_steps": 2})
 
     assert delegate_result == "toolkit-delegate"
@@ -229,3 +271,5 @@ def test_configured_secret_env_names_are_redacted_in_trace_and_report(tmp_path):
     assert gh_pat not in report_text
     assert trace_text.count("<redacted>") >= 4
     assert report_text.count("<redacted>") >= 4
+
+

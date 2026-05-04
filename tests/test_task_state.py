@@ -1,4 +1,4 @@
-from pico.task_state import (
+﻿from repo_harness.task_state import (
     STOP_REASON_FINAL_ANSWER_RETURNED,
     STOP_REASON_RETRY_LIMIT_REACHED,
     STOP_REASON_STEP_LIMIT_REACHED,
@@ -73,3 +73,5 @@ def test_task_state_snapshot_keeps_checkpoint_reference_without_body():
     assert snapshot["resume_status"] == "full-valid"
     assert "current_goal" not in snapshot
     assert "next_step" not in snapshot
+
+

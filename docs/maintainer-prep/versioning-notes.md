@@ -15,6 +15,27 @@
 
 ## 版本记录
 
+### 2026-05-03：RepoHarness 全量重命名基线
+
+#### 当前公开接口
+
+- Python 包名：`repo_harness`
+- CLI 命令：`repo-harness`
+- 模块入口：`python -m repo_harness`
+- 本地状态目录：`.repo-harness/`
+
+#### 迁移规则
+
+- 首次启动时，如果仓库根目录存在历史 `.pico/`，RepoHarness 只复制 `.repo-harness/` 中缺失的文件。
+- 迁移不会覆盖已有 `.repo-harness/` 文件，也不会删除 `.pico/`。
+- 旧 `pico` CLI 和 `python -m pico` 不再作为支持入口维护。
+
+#### Agent 指令文件规则
+
+- `AGENTS.md` 是可选仓库级指令文件，不是运行必需文件。
+- 本次重命名不新增 `AGENTS.md` 或 `AGENT.md`。
+- 如果未来需要添加仓库级 agent 规则，优先使用现有代码约定的复数文件名 `AGENTS.md`。
+
 ### 2026-05-03：重命名前 GitHub 存档基线
 
 #### 基线信息

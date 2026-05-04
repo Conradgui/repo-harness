@@ -1,4 +1,4 @@
-from pico.memory import LayeredMemory
+﻿from repo_harness.memory import LayeredMemory
 
 
 def test_working_memory_tracks_summary_and_recent_files():
@@ -91,7 +91,7 @@ def test_process_notes_keep_kind_and_latest_duplicate_wins():
 
 
 def test_durable_memory_index_and_topic_notes_are_loaded_and_retrieved(tmp_path):
-    memory_root = tmp_path / ".pico" / "memory"
+    memory_root = tmp_path / ".repo-harness" / "memory"
     topics_dir = memory_root / "topics"
     topics_dir.mkdir(parents=True)
     (memory_root / "MEMORY.md").write_text(
@@ -109,7 +109,7 @@ def test_durable_memory_index_and_topic_notes_are_loaded_and_retrieved(tmp_path)
         "- updated_at: 2026-04-12T08:14:49+00:00\n\n"
         "## Notes\n"
         "- Use constrained tools instead of guessing.\n"
-        "- Preserve local agent state under .pico/.\n",
+        "- Preserve local agent state under .repo-harness/.\n",
         encoding="utf-8",
     )
 
@@ -120,3 +120,5 @@ def test_durable_memory_index_and_topic_notes_are_loaded_and_retrieved(tmp_path)
 
     lines = [line for line in memory.retrieval_view("constrained tools", limit=4).splitlines() if line.startswith("- ")]
     assert any("Use constrained tools instead of guessing." in line for line in lines)
+
+

@@ -31,6 +31,7 @@ htmlcov/
 # Local scratch space
 tmp/
 .worktrees/
+.repo-harness/
 .pico/
 artifacts/
 readme_intro_locked/
@@ -42,4 +43,4 @@ docs/local/
 .DS_Store
 
 # Packaging metadata
-pico.egg-info/
+repo_harness.egg-info/

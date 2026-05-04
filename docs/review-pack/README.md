@@ -1,4 +1,4 @@
-# Review Pack
+﻿# Review Pack
 
 ## Document Purpose
 
@@ -14,17 +14,17 @@ This file is not a permanent one-shot description. When the package name, CLI co
 
 ## Review Snapshots
 
-### 2026-05-03: Pre-RepoHarness Rename Snapshot
+### 2026-05-03: RepoHarness Rename Snapshot
 
 #### Project pitch
 
-`pico` is a small local coding agent that works inside a repository with constrained tools, resumable sessions, and local audit artifacts.
+`RepoHarness` is a local repository harness that works inside a repository with constrained tools, resumable sessions, and local audit artifacts.
 
 #### Architecture map
 
 - CLI entrypoints build a configured agent instance.
 - The runtime loops through prompt building, model decisions, tool execution, and persistence.
-- Runs write task state, traces, and reports under `.pico/runs/`.
+- Runs write task state, traces, and reports under `.repo-harness/runs/`.
 
 #### Benchmark evidence
 
@@ -37,3 +37,4 @@ This file is not a permanent one-shot description. When the package name, CLI co
 - `task_state.json`
 - `trace.jsonl`
 - `report.json`
+

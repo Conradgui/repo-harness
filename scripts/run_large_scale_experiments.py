@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 import argparse
 import json
 import sys
@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from pico.metrics import (  # noqa: E402
+from repo_harness.metrics import (  # noqa: E402
     collect_resume_metrics,
     render_large_scale_experiment_report,
     render_resume_metrics_markdown,
@@ -17,9 +17,9 @@ from pico.metrics import (  # noqa: E402
 
 
 def build_arg_parser():
-    parser = argparse.ArgumentParser(description="Run pico large-scale experiments and write all experiment artifacts.")
+    parser = argparse.ArgumentParser(description="Run RepoHarness large-scale experiments and write all experiment artifacts.")
     parser.add_argument("--benchmark-artifact", required=True, help="Path to benchmark artifact JSON.")
-    parser.add_argument("--runs-root", required=True, help="Path to .pico/runs root.")
+    parser.add_argument("--runs-root", required=True, help="Path to .repo-harness/runs root.")
     parser.add_argument("--provider-benchmark-path", default="benchmarks/coding_tasks.json", help="Benchmark task source for provider experiments.")
     parser.add_argument("--provider-workspace-root", default="artifacts/provider-workspaces", help="Workspace root for provider experiment copies.")
     parser.add_argument("--provider-artifact-root", default="artifacts/provider-artifacts", help="Artifact root for provider benchmark outputs.")
@@ -86,3 +86,5 @@ def main(argv=None):
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+

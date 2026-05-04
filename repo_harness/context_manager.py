@@ -1,4 +1,4 @@
-"""Prompt 组装与上下文预算控制。
+﻿"""Prompt 组装与上下文预算控制。
 
 这个模块负责决定：每一轮到底把多少 prefix、memory、相关笔记、历史
 以及当前用户请求送进模型。
@@ -92,7 +92,7 @@ class ContextManager:
           是怎么被拼出来的。
 
         在 agent 链路里的位置：
-        它位于 `Pico.ask()` 的每轮模型调用之前，是“真正发请求给模型”
+        它位于 `RepoHarness.ask()` 的每轮模型调用之前，是“真正发请求给模型”
         的最后一道组装工序。`WorkspaceContext` 提供稳定前缀，`LayeredMemory`
         提供工作记忆，这个函数则把它们和当前请求合成一份可控大小的 prompt。
         """
@@ -507,3 +507,4 @@ class ContextManager:
                 "section_chars": len(rendered[CURRENT_REQUEST_SECTION].rendered),
             },
         }
+

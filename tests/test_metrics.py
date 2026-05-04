@@ -1,4 +1,4 @@
-from pico.metrics import (
+﻿from repo_harness.metrics import (
     run_context_ablation_v2,
     run_memory_ablation_v2,
     run_recovery_ablation_v2,
@@ -66,7 +66,7 @@ def test_write_benchmark_core_report_marks_resume_safe_metrics(tmp_path):
         encoding="utf-8",
     )
 
-    report_path = tmp_path / "docs" / "metrics" / "pico-benchmark-core-report.md"
+    report_path = tmp_path / "docs" / "metrics" / "repo-harness-benchmark-core-report.md"
     report_text = write_benchmark_core_report(
         report_path=report_path,
         harness_artifact_path=harness_artifact_path,
@@ -80,3 +80,5 @@ def test_write_benchmark_core_report_marks_resume_safe_metrics(tmp_path):
     assert "只适合放文档/面试展开的指标" in report_text
     assert "resume_success_rate" in report_text
     assert "memory_hit_rate" in report_text
+
+

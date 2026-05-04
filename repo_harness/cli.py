@@ -1,6 +1,6 @@
-"""命令行入口。
+﻿"""命令行入口。
 
-这个模块负责把“用户怎么启动 pico”翻译成 runtime 能理解的对象：
+这个模块负责把“用户怎么启动 RepoHarness”翻译成 runtime 能理解的对象：
 解析参数、挑模型后端、构建工作区快照、恢复或新建 session，
 最后进入 one-shot 或交互式循环。
 """
@@ -10,9 +10,10 @@ import os
 import shutil
 import sys
 import textwrap
+from pathlib import Path
 
 from .models import AnthropicCompatibleModelClient, OllamaModelClient, OpenAICompatibleModelClient
-from .runtime import Pico, SessionStore
+from .runtime import RepoHarness, SessionStore
 from .workspace import WorkspaceContext, middle
 
 DEFAULT_SECRET_ENV_NAMES = (
@@ -31,8 +32,8 @@ WELCOME_ART = (
     "       /   ^   \\\\",
     "      /|       |\\\\",
 )
-WELCOME_NAME = "pico"
-WELCOME_SUBTITLE = "local coding agent"
+WELCOME_NAME = "RepoHarness"
+WELCOME_SUBTITLE = "local repository harness"
 WELCOME_STATUS = "calm shell, ready for work"
 HELP_DETAILS = textwrap.dedent(
     """\
@@ -52,8 +53,7 @@ DEFAULT_OPENAI_MODEL = "gpt-5.4"
 DEFAULT_OPENAI_BASE_URL = "https://www.right.codes/codex/v1"
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
 DEFAULT_ANTHROPIC_BASE_URL = "https://www.right.codes/claude/v1"
-LEGACY_SECRET_ENV_NAMES_VAR = "MINI_CODING_AGENT_SECRET_ENV_NAMES"
-SECRET_ENV_NAMES_VAR = "PICO_SECRET_ENV_NAMES"
+SECRET_ENV_NAMES_VAR = "REPO_HARNESS_SECRET_ENV_NAMES"
 
 
 def _effective_model(args, provider):
@@ -89,8 +89,6 @@ def _configured_secret_names(args):
     configured_secret_names = set(DEFAULT_SECRET_ENV_NAMES)
     configured_secret_names.update(str(name).upper() for name in args.secret_env_names)
     extra_names = os.environ.get(SECRET_ENV_NAMES_VAR, "")
-    if not extra_names.strip():
-        extra_names = os.environ.get(LEGACY_SECRET_ENV_NAMES_VAR, "")
     if extra_names.strip():
         configured_secret_names.update(
             item.strip().upper()
@@ -98,6 +96,30 @@ def _configured_secret_names(args):
             if item.strip()
         )
     return sorted(configured_secret_names)
+
+
+def _copy_missing_tree(source, target):
+    source = Path(source)
+    target = Path(target)
+    if not source.exists():
+        return
+    for item in source.rglob("*"):
+        relative = item.relative_to(source)
+        destination = target / relative
+        if item.is_dir():
+            destination.mkdir(parents=True, exist_ok=True)
+            continue
+        if destination.exists():
+            continue
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(item, destination)
+
+
+def migrate_legacy_state(repo_root):
+    legacy_root = Path(repo_root) / ".pico"
+    current_root = Path(repo_root) / ".repo-harness"
+    if legacy_root.exists():
+        _copy_missing_tree(legacy_root, current_root)
 
 
 def _build_model_client(args):
@@ -184,7 +206,7 @@ def build_welcome(agent, model, host):
 
 
 def build_agent(args):
-    """根据 CLI 参数装配出一个可运行的 Pico 实例。
+    """根据 CLI 参数装配出一个可运行的 RepoHarness 实例。
 
     为什么存在：
     命令行参数只是字符串和开关，runtime 需要的是已经装配好的对象图：
@@ -193,7 +215,7 @@ def build_agent(args):
 
     输入 / 输出：
     - 输入：`argparse` 解析后的 `args`
-    - 输出：一个新的 `Pico`，或一个从旧 session 恢复出来的 `Pico`
+    - 输出：一个新的 `RepoHarness`，或一个从旧 session 恢复出来的 `RepoHarness`
 
     在 agent 链路里的位置：
     它是整个程序启动链路里最靠近 runtime 的装配点。`main()` 先调它，
@@ -201,16 +223,17 @@ def build_agent(args):
     """
     # 这里是 CLI 到 runtime 的装配点：
     # 先整理 secret 名单，再采集工作区快照，随后决定是恢复旧 session
-    # 还是创建一个新的 Pico 实例。
+    # 还是创建一个新的 RepoHarness 实例。
     configured_secret_names = _configured_secret_names(args)
     workspace = WorkspaceContext.build(args.cwd)
-    store = SessionStore(workspace.repo_root + "/.pico/sessions")
+    migrate_legacy_state(workspace.repo_root)
+    store = SessionStore(workspace.repo_root + "/.repo-harness/sessions")
     model = _build_model_client(args)
     session_id = args.resume
     if session_id == "latest":
         session_id = store.latest()
     if session_id:
-        return Pico.from_session(
+        return RepoHarness.from_session(
             model_client=model,
             workspace=workspace,
             session_store=store,
@@ -220,7 +243,7 @@ def build_agent(args):
             max_new_tokens=args.max_new_tokens,
             secret_env_names=configured_secret_names,
         )
-    return Pico(
+    return RepoHarness(
         model_client=model,
         workspace=workspace,
         session_store=store,
@@ -288,7 +311,7 @@ def main(argv=None):
         # 交互模式：每次读取一条用户输入，交给同一个 agent，
         # 因此 session history 和 working memory 会跨轮延续。
         try:
-            user_input = input("\npico> ").strip()
+            user_input = input("\nrepo-harness> ").strip()
         except (EOFError, KeyboardInterrupt):
             print("")
             return 0
@@ -316,3 +339,5 @@ def main(argv=None):
             print(agent.ask(user_input))
         except RuntimeError as exc:
             print(str(exc), file=sys.stderr)
+
+

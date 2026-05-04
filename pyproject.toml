@@ -3,16 +3,16 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pico"
+name = "repo-harness"
 version = "0.1.0"
-description = "Small local coding agent for Ollama and OpenAI-compatible models"
+description = "Local repository harness for coding agents"
 requires-python = ">=3.10"
 dependencies = [
   "tzdata>=2025.2",
 ]
 
 [project.scripts]
-pico = "pico.cli:main"
+repo-harness = "repo_harness.cli:main"
 
 [dependency-groups]
 dev = [
@@ -21,4 +21,4 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["pico"]
+packages = ["repo_harness"]

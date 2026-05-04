@@ -1,11 +1,11 @@
-import json
+﻿import json
 
-from pico.run_store import RunStore
-from pico.task_state import STOP_REASON_FINAL_ANSWER_RETURNED, TaskState
+from repo_harness.run_store import RunStore
+from repo_harness.task_state import STOP_REASON_FINAL_ANSWER_RETURNED, TaskState
 
 
 def test_run_store_creates_run_directory_and_state_file(tmp_path):
-    store = RunStore(tmp_path / ".pico" / "runs")
+    store = RunStore(tmp_path / ".repo-harness" / "runs")
     state = TaskState.create(run_id="run_001", task_id="task_001", user_request="Inspect the repo.")
 
     run_dir = store.start_run(state)
@@ -19,7 +19,7 @@ def test_run_store_creates_run_directory_and_state_file(tmp_path):
 
 
 def test_run_store_appends_trace_jsonl(tmp_path):
-    store = RunStore(tmp_path / ".pico" / "runs")
+    store = RunStore(tmp_path / ".repo-harness" / "runs")
     state = TaskState.create(run_id="run_002", task_id="task_002", user_request="Trace the run.")
     store.start_run(state)
 
@@ -42,7 +42,7 @@ def test_run_store_appends_trace_jsonl(tmp_path):
 
 
 def test_run_store_writes_report_json(tmp_path):
-    store = RunStore(tmp_path / ".pico" / "runs")
+    store = RunStore(tmp_path / ".repo-harness" / "runs")
     state = TaskState.create(run_id="run_003", task_id="task_003", user_request="Report the run.")
     store.start_run(state)
     state.finish_success("Done.")
@@ -56,7 +56,7 @@ def test_run_store_writes_report_json(tmp_path):
 
 
 def test_run_store_tolerates_missing_final_report(tmp_path):
-    store = RunStore(tmp_path / ".pico" / "runs")
+    store = RunStore(tmp_path / ".repo-harness" / "runs")
     state = TaskState.create(run_id="run_004", task_id="task_004", user_request="Crash before finalize.")
 
     store.start_run(state)
@@ -64,3 +64,5 @@ def test_run_store_tolerates_missing_final_report(tmp_path):
 
     assert store.trace_path(state.run_id).exists()
     assert not store.report_path(state.run_id).exists()
+
+

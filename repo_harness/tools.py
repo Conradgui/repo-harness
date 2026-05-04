@@ -1,4 +1,4 @@
-"""工具定义与执行辅助逻辑。
+﻿"""工具定义与执行辅助逻辑。
 
 可以把这个文件看成 agent 的能力白名单：模型能申请哪些动作、这些动作
 如何做参数校验，以及最终如何执行，都是在这里定义的。
@@ -298,9 +298,9 @@ def tool_delegate(agent, args):
     if not task:
         raise ValueError("task must not be empty")
 
-    from .runtime import Pico
+    from .runtime import RepoHarness
 
-    child = Pico(
+    child = RepoHarness(
         model_client=agent.model_client,
         workspace=agent.workspace,
         session_store=agent.session_store,
@@ -329,3 +329,4 @@ _TOOL_RUNNERS = {
     "write_file": tool_write_file,
     "patch_file": tool_patch_file,
 }
+
