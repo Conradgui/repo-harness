@@ -220,7 +220,7 @@ uv run repo-harness --provider anthropic
 - `trace.jsonl`
 - `report.json`
 
-这些内容默认只保存在本地，不需要跟仓库一起提交。
+这些内容默认只保存在本地。
 
 ## Agent 指令文件
 
