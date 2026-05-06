@@ -110,6 +110,11 @@ def test_context_manager_renders_top_three_episodic_notes_per_note_under_budget(
     assert "beta episodic" in relevant_section
     assert "gamma episodi" in relevant_section
     assert "older unmatched note" not in relevant_section
+    explanations = metadata["relevant_memory"]["selected_explanations"]
+    assert [item["text"] for item in explanations] == metadata["relevant_memory"]["selected_notes"]
+    assert all("score" in item for item in explanations)
+    assert all("score_breakdown" in item for item in explanations)
+    assert "score_breakdown" not in relevant_section
 
 
 def test_context_manager_preserves_current_request_when_over_budget(tmp_path):
@@ -237,5 +242,8 @@ def test_context_manager_relevant_memory_can_mix_durable_notes(tmp_path):
     assert metadata["relevant_memory"]["selected_durable_count"] == 1
     assert metadata["relevant_memory"]["selected_sources"] == ["project-conventions"]
     assert metadata["relevant_memory"]["selected_kinds"] == ["durable"]
+    assert metadata["relevant_memory"]["selected_explanations"][0]["kind"] == "durable"
+    assert metadata["relevant_memory"]["selected_explanations"][0]["source"] == "project-conventions"
+    assert metadata["relevant_memory"]["selected_explanations"][0]["score_breakdown"]["keyword_overlap"] > 0
 
 

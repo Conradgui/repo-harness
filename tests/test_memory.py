@@ -122,3 +122,60 @@ def test_durable_memory_index_and_topic_notes_are_loaded_and_retrieved(tmp_path)
     assert any("Use constrained tools instead of guessing." in line for line in lines)
 
 
+def test_retrieval_explanations_are_deterministic_and_structured(tmp_path):
+    memory_root = tmp_path / ".repo-harness" / "memory"
+    topics_dir = memory_root / "topics"
+    topics_dir.mkdir(parents=True)
+    (memory_root / "MEMORY.md").write_text(
+        "# Durable Memory Index\n\n"
+        "- [project-conventions](topics/project-conventions.md): Governance Playbook\n"
+        "  - summary: Stable repository conventions.\n"
+        "  - tags: convention\n",
+        encoding="utf-8",
+    )
+    (topics_dir / "project-conventions.md").write_text(
+        "# Project Conventions\n\n"
+        "- topic: project-conventions\n"
+        "- summary: Stable repository conventions.\n"
+        "- tags: convention\n"
+        "- updated_at: 2026-04-12T08:14:49+00:00\n\n"
+        "## Notes\n"
+        "- Use constrained tools instead of guessing.\n",
+        encoding="utf-8",
+    )
+    memory = LayeredMemory(workspace_root=tmp_path)
+    memory.append_note(
+        "Prefer constrained tools for repository edits.",
+        tags=("convention",),
+        source="session",
+        created_at="2026-05-06T10:00:00+00:00",
+    )
+
+    first = memory.retrieval_explanations("Which convention covers constrained tools?", limit=3)
+    second = memory.retrieval_explanations("Which convention covers constrained tools?", limit=3)
+
+    assert first == second
+    assert [item["text"] for item in first] == [
+        "Prefer constrained tools for repository edits.",
+        "Use constrained tools instead of guessing.",
+    ]
+    assert first[0]["kind"] == "episodic"
+    assert first[0]["source"] == "session"
+    assert first[0]["score"] > 0
+    assert first[0]["score_breakdown"]["tag_match"] == 1
+    assert first[0]["score_breakdown"]["keyword_overlap"] >= 2
+    assert "recency" in first[0]["score_breakdown"]
+    assert first[1]["kind"] == "durable"
+    assert first[1]["source"] == "project-conventions"
+
+    title_only = memory.retrieval_explanations("Governance Playbook", limit=3)
+    assert [item["text"] for item in title_only] == ["Use constrained tools instead of guessing."]
+    assert title_only[0]["kind"] == "durable"
+
+
+def test_retrieval_explanations_empty_result_is_stable():
+    memory = LayeredMemory()
+
+    assert memory.retrieval_explanations("nothing matches this", limit=3) == []
+
+

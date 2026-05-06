@@ -227,22 +227,55 @@ Memory Pack v1 的 validate 边界必须和导入边界一致。一个 pack 只�
 
 以下内容不放入第一阶段实现，后续逐项推进。
 
-### 1. Explainable Retrieval
+### 1. Explainable Retrieval v1
 
-目标：让用户和维护者知道某条 memory 为什么被召回。
+目标：让用户和维护者知道某条 memory 为什么被召回，同时保持当前记忆系统确定性、轻量、文件可追踪。
 
-可做能力：
+第一版边界：
 
-- 在 prompt metadata 中记录每条 selected memory 的命中原因。
-- 区分 tag match、keyword overlap、recency、durable source。
-- 增加 `/memory explain <query>` 或 advanced inspect 输出。
-- 在 run report 中保存 selected note、source、kind、score breakdown。
+- 增加 REPL 命令 `/memory_explain <query>`，用于解释查询对应的 memory selection。
+- 继续使用默认 lexical retrieval，不引入向量库、embedding index 或后台服务。
+- 对每条候选 memory 生成结构化 `score_breakdown`，至少区分 tag match、keyword overlap、recency 和 kind；source 作为独立可追踪字段保留。
+- 对最终进入上下文的条目生成 `selected_explanations`，结构化记录 selected note、source、kind、tags、created_at、score 和 score_breakdown。
+- 在 prompt metadata 或 run report 中保存 selected note、source、kind、score_breakdown 和 selected_explanations，便于复盘。
+- durable memory 的 `source` 使用 topic slug，例如 `project-conventions`；维护者可据此追踪到 `.repo-harness/memory/topics/<topic>.md`。
+
+不做内容：
+
+- 不实现 semantic retrieval。
+- 不把解释交给模型自由生成。
+- 不写入或自动提升 durable memory。
+- 不改变 Memory Pack v1 的导入、导出、验证语义。
 
 收益：
 
 - 提升调试能力。
 - 降低“模型为什么突然引用这条记忆”的黑箱感。
 - 为后续 semantic retrieval 提供可对比基线。
+
+当前输出字段：
+
+```json
+{
+  "query": "pytest windows shell",
+  "selected_explanations": [
+    {
+      "text": "Prefer Windows PowerShell examples when documenting Windows commands.",
+      "kind": "durable",
+      "source": "project-conventions",
+      "tags": ["convention"],
+      "created_at": "2026-05-06T10:00:00+00:00",
+      "score": 2000.0,
+      "score_breakdown": {
+        "tag_match": 0,
+        "keyword_overlap": 2,
+        "recency": 1778061600.0,
+        "kind": 0
+      }
+    }
+  ]
+}
+```
 
 ### 2. Code-Aware File Summaries
 
@@ -399,10 +432,12 @@ Memory Pack v1 的 validate 边界必须和导入边界一致。一个 pack 只�
    - explicit risk prompt
    - conflict skip report
 
-4. Explainable Retrieval
-   - score breakdown
+4. Explainable Retrieval v1
+   - `/memory_explain <query>`
+   - score_breakdown
+   - selected_explanations
    - metadata/report exposure
-   - memory explain command
+   - file-traceable retrieval reasons
 
 5. Code-Aware Summaries
    - Python AST summaries first

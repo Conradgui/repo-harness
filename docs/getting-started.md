@@ -140,12 +140,23 @@ repo-harness> update the docs for Windows PowerShell usage
 
 - `/help`：查看 REPL 内置命令。
 - `/memory`：查看当前会话提炼出来的工作记忆。
+- `/memory_explain <query>`：查看 Explainable Retrieval v1 如何为某个查询选择 memory。
 - `/memory_pack` 或 `/memory-pack`：打开 memory pack 菜单，用于导出、导入、检查或验证记忆包。
 - `/session`：查看当前 session 文件路径。
 - `/reset`：清空当前会话状态。
 - `/exit` 或 `/quit`：退出 RepoHarness。
 
 注意：在 `repo-harness>` 里输入 `cd C:\path\to\repo` 或 `uv run repo-harness`，RepoHarness 会把它当成给 agent 的自然语言任务，不会像普通终端那样直接执行。要切换目录或重新启动 RepoHarness，请先 `/exit` 回到 PowerShell / CMD / shell。
+
+### 解释 memory 为什么被选中
+
+当你想知道某条长期记忆为什么进入当前上下文，可以在 REPL 里输入：
+
+```text
+repo-harness> /memory_explain pytest windows shell
+```
+
+Explainable Retrieval v1 只解释当前轻量 lexical retrieval 的选择过程，不会写入或重排 memory。输出中的 `score_breakdown` 展示 tag match、keyword overlap、recency、kind 等分项信号；`source` 和 `selected_explanations` 用来说明被选中的 memory、来源 topic 或 session 来源。维护者排障时可以把 durable `source` topic slug 追踪到 `.repo-harness/memory/topics/<topic>.md`。
 
 ## 常见使用场景
 

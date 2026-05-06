@@ -15,6 +15,34 @@
 
 ## 修复记录
 
+### 2026-05-06：Explainable Retrieval v1
+
+#### 背景
+
+RepoHarness 记忆系统已经有 Memory Pack v1 和后续 intelligence roadmap，但已有 lexical retrieval 只能返回 note 文本，缺少可复盘的选择原因。维护者和用户需要在不引入向量库、不污染 prompt 的前提下，看清每条 relevant memory 为什么被选中。
+
+#### 修复内容
+
+- 在 memory retrieval 层新增结构化 explanation，包含 `score`、`score_breakdown`、`kind`、`source`、`tags` 和时间字段。
+- `ContextManager` 在 `prompt_metadata.relevant_memory.selected_explanations` 中记录解释信息，同时 prompt 正文继续只渲染 note 文本。
+- REPL 新增只读命令 `/memory_explain <query>`；空 query 返回用法提示，不调用模型、不写 session。
+- README 增加 `/memory_explain <query>` 常用命令和 Explainable Retrieval v1 简介。
+- `docs/getting-started.md` 增加排障示例，说明 `score_breakdown` 和 `selected_explanations` 的用途。
+- `docs/maintainer-prep/memory-system-iteration-roadmap.md` 明确 v1 边界：只解释当前确定性 retrieval，不写 memory、不引入向量库、不改变 memory pack 语义。
+- `docs/maintainer-prep/changelog-draft.md` 追加待发布文档记录。
+
+#### 验证结果
+
+- `pytest tests/test_memory.py tests/test_context_manager.py tests/test_repo_harness.py -q`：86 passed。
+- `pytest tests -q`：136 passed。
+- `ruff check .`：通过。
+- `python -m repo_harness --help` 和 `repo-harness --help`：通过。
+
+#### 后续注意
+
+- `/memory_explain` 后续可以增强输出格式，但必须继续保持只读、不调用模型、不把 debug score 塞进 prompt。
+- 如果未来增加 semantic retrieval，必须保持 lexical retrieval 作为默认和 fallback，并单独记录可关闭的 adapter 边界。
+
 ### 2026-05-06：Memory Pack v1 验证边界加固
 
 #### 背景

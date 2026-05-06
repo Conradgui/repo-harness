@@ -205,10 +205,17 @@ uv run repo-harness --provider anthropic
 
 - `/help`：查看内置命令
 - `/memory`：查看提炼后的工作记忆
+- `/memory_explain <query>`：查看 Explainable Retrieval v1 如何为查询选择 memory
 - `/memory_pack` 或 `/memory-pack`：打开 memory pack 菜单
 - `/session`：查看当前会话文件路径
 - `/reset`：清空当前会话状态
 - `/exit` 或 `/quit`：退出 REPL
+
+## Explainable Retrieval v1
+
+`/memory_explain <query>` 用来调试记忆召回：它不会修改 memory，只展示 Explainable Retrieval v1 对候选记忆的选择结果。输出重点包括 `score_breakdown` 和 `selected_explanations`，说明每条 memory 因为 tag match、keyword overlap、recency、kind 或 source 等确定性信号被选中。
+
+这项能力延续 RepoHarness 记忆系统原则：默认 lexical retrieval，轻量、可复现、文件可追踪；解释应指向本地 `.repo-harness/memory/` 中的来源，而不是依赖不可解释的外部索引。
 
 ## Memory Pack
 

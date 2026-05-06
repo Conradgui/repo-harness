@@ -117,8 +117,9 @@ class ContextManager:
         if checkpoint_text:
             section_texts["prefix"] = section_texts["prefix"] + "\n\n" + checkpoint_text
         selected_notes = []
-        if memory_enabled and relevant_memory_enabled and hasattr(self.agent, "memory") and hasattr(self.agent.memory, "retrieval_candidates"):
-            selected_notes = self.agent.memory.retrieval_candidates(user_message, limit=RELEVANT_MEMORY_LIMIT)
+        selected_explanations = []
+        if memory_enabled and relevant_memory_enabled and hasattr(self.agent, "memory"):
+            selected_notes, selected_explanations = self._select_relevant_memory(user_message)
 
         if not context_reduction_enabled:
             rendered = self._render_sections_without_reduction(section_texts, selected_notes=selected_notes)
@@ -129,6 +130,7 @@ class ContextManager:
                 budgets={section: render.budget for section, render in rendered.items() if section != CURRENT_REQUEST_SECTION},
                 reduction_log=[],
                 selected_notes=selected_notes,
+                selected_explanations=selected_explanations,
                 user_message=user_message,
                 section_texts=section_texts,
             )
@@ -176,10 +178,37 @@ class ContextManager:
             budgets=budgets,
             reduction_log=reduction_log,
             selected_notes=selected_notes,
+            selected_explanations=selected_explanations,
             user_message=user_message,
             section_texts=section_texts,
         )
         return prompt, metadata
+
+    def _select_relevant_memory(self, user_message):
+        memory = getattr(self.agent, "memory", None)
+        if memory is not None and hasattr(memory, "retrieval_explanations"):
+            selected_explanations = list(memory.retrieval_explanations(user_message, limit=RELEVANT_MEMORY_LIMIT))
+            return [self._note_from_explanation(explanation) for explanation in selected_explanations], selected_explanations
+        if memory is not None and hasattr(memory, "retrieval_candidates"):
+            selected_notes = memory.retrieval_candidates(user_message, limit=RELEVANT_MEMORY_LIMIT)
+            return selected_notes, [self._note_explanation(note) for note in selected_notes]
+        return [], []
+
+    def _note_from_explanation(self, explanation):
+        return {
+            "text": str(explanation.get("text", "")),
+            "tags": list(explanation.get("tags", [])),
+            "source": str(explanation.get("source", "")).strip(),
+            "created_at": str(explanation.get("created_at", "")),
+            "kind": str(explanation.get("kind", "episodic")).strip() or "episodic",
+        }
+
+    def _note_explanation(self, note):
+        return {
+            "text": str(note.get("text", "")),
+            "source": str(note.get("source", "")).strip(),
+            "kind": str(note.get("kind", "episodic")).strip() or "episodic",
+        }
 
     def _render_sections_without_reduction(self, section_texts, selected_notes=None):
         selected_notes = selected_notes or []
@@ -453,7 +482,7 @@ class ContextManager:
             ]
         ).strip()
 
-    def _metadata(self, prompt, rendered, budgets, reduction_log, selected_notes, user_message, section_texts):
+    def _metadata(self, prompt, rendered, budgets, reduction_log, selected_notes, selected_explanations, user_message, section_texts):
         section_metadata = {}
         for section in SECTION_ORDER[:-1]:
             section_metadata[section] = {
@@ -484,6 +513,7 @@ class ContextManager:
                 "selected_notes": [note["text"] for note in selected_notes],
                 "selected_sources": [str(note.get("source", "")).strip() for note in selected_notes],
                 "selected_kinds": [str(note.get("kind", "episodic")).strip() or "episodic" for note in selected_notes],
+                "selected_explanations": list(selected_explanations),
                 "selected_durable_count": sum(
                     1 for note in selected_notes if (str(note.get("kind", "episodic")).strip() or "episodic") == "durable"
                 ),

@@ -15,6 +15,22 @@
 
 ## 待发布记录
 
+### 2026-05-06：Explainable Retrieval v1
+
+#### 已新增
+
+- memory retrieval 现在会生成结构化 explanation，包含 `text`、`kind`、`source`、`tags`、`created_at`、`score` 和 `score_breakdown`。
+- prompt metadata 的 `relevant_memory` 增加 `selected_explanations`，并保持 prompt 正文只渲染 note 文本。
+- REPL 新增只读命令 `/memory_explain <query>`，用于查看 lexical retrieval 的 deterministic ranking 结果。
+- README 和新手指南补充 `/memory_explain <query>` 入口说明。
+- 维护者 roadmap 明确 Explainable Retrieval v1 的边界：默认 lexical retrieval，不引入向量库或外部索引。
+
+#### 行为边界
+
+- 该批次包含代码、测试和文档更新。
+- 记忆系统原则保持确定性、轻量、文件可追踪；解释结果应能回溯到 `.repo-harness/memory/` 或 working context 来源。
+- `/memory_explain` 不写 memory、不触发模型调用；`score_breakdown` 不进入 prompt 正文。
+
 ### 2026-05-06：Memory Pack v1 验证边界加固
 
 #### 已修复

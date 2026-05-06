@@ -42,6 +42,7 @@ HELP_DETAILS = textwrap.dedent(
     Commands:
     /help    Show this help message.
     /memory  Show the agent's distilled working memory.
+    /memory_explain <query>  Explain which memory notes match a query.
     /memory_pack  Export, import, inspect, or validate memory packs.
     /session Show the path to the saved session file.
     /reset   Clear the current session history and memory.
@@ -278,6 +279,36 @@ def _format_memory_summary(action, result):
 def _print_memory_summary(action, result):
     for line in _format_memory_summary(action, result):
         print(line)
+
+
+def _format_retrieval_explanation(item):
+    if not isinstance(item, dict):
+        return f"- {_compact_text(item)}"
+    score = item.get("score", "-")
+    kind = str(item.get("kind", "episodic")).strip() or "episodic"
+    source = str(item.get("source", "")).strip() or "-"
+    text = _compact_text(item.get("text", ""))
+    lines = [f"- score={score} kind={kind} source={source} text={text}"]
+    score_breakdown = item.get("score_breakdown")
+    if isinstance(score_breakdown, dict) and score_breakdown:
+        parts = [f"{key}={score_breakdown[key]}" for key in sorted(score_breakdown)]
+        lines.append(f"  score_breakdown: {', '.join(parts)}")
+    return "\n".join(lines)
+
+
+def _memory_explain_text(agent, query):
+    if hasattr(agent, "memory_explain_text"):
+        return str(agent.memory_explain_text(query))
+    memory = getattr(agent, "memory", None)
+    if memory is None or not hasattr(memory, "retrieval_explanations"):
+        return "No memory explanation API is available."
+    explanations = list(memory.retrieval_explanations(query))
+    if not explanations:
+        return "Memory explanation:\n- none"
+    lines = ["Memory explanation:"]
+    for item in explanations:
+        lines.append(_format_retrieval_explanation(item))
+    return "\n".join(lines)
 
 
 def _resolve_export_modules(api, preset, requested_modules):
@@ -780,6 +811,13 @@ def main(argv=None):
             continue
         if user_input == "/memory":
             print(agent.memory_text())
+            continue
+        if user_input.startswith("/memory_explain"):
+            query = user_input[len("/memory_explain"):].strip()
+            if not query:
+                print("usage: /memory_explain <query>")
+                continue
+            print(_memory_explain_text(agent, query))
             continue
         if user_input == "/session":
             print(agent.session_path)

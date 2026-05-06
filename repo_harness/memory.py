@@ -142,21 +142,22 @@ class DurableMemoryStore:
         return None
 
     def retrieval_candidates(self, query, limit=3):
+        return [_explanation_note_from_public(item) for item in self.retrieval_explanations(query, limit=limit)]
+
+    def retrieval_explanations(self, query, limit=3):
         query_tokens = _tokenize(query)
         ranked = []
         for topic in self.load_index():
             notes = self.load_topic_notes(topic["topic"])
             for note in notes:
-                note_tags = {tag.lower() for tag in note.get("tags", [])}
-                note_tokens = _tokenize(note.get("text", "")) | _tokenize(topic.get("title", "")) | note_tags
-                exact_tag_match = int(bool(query_tokens & note_tags))
-                keyword_overlap = len(query_tokens & note_tokens)
-                if exact_tag_match == 0 and keyword_overlap == 0:
+                searchable_note = dict(note)
+                searchable_note["_search_text"] = topic.get("title", "")
+                explanation = _explain_note_match(searchable_note, query_tokens, note_index=-1)
+                if explanation is None:
                     continue
-                recency = _parse_timestamp(note.get("created_at"))
-                ranked.append(((exact_tag_match, keyword_overlap, recency), note))
-        ranked.sort(key=lambda item: item[0], reverse=True)
-        return [note for _, note in ranked[:limit]]
+                ranked.append(explanation)
+        ranked.sort(key=lambda item: item["_sort_key"], reverse=True)
+        return [_public_explanation(item) for item in ranked[:limit]]
 
     def _write_index(self, topics):
         self.root.mkdir(parents=True, exist_ok=True)
@@ -290,6 +291,79 @@ def _parse_timestamp(value):
         return datetime.fromisoformat(str(value)).timestamp()
     except Exception:
         return 0.0
+
+
+def _note_match_parts(note, query_tokens):
+    note_tags = {tag.lower() for tag in note.get("tags", [])}
+    note_tokens = _tokenize(note.get("text", "")) | _tokenize(note.get("source", "")) | _tokenize(note.get("_search_text", "")) | note_tags
+    tag_match = int(bool(query_tokens & note_tags))
+    keyword_overlap = len(query_tokens & note_tokens)
+    recency = _parse_timestamp(note.get("created_at"))
+    return tag_match, keyword_overlap, recency
+
+
+def _kind_score(kind):
+    return 0
+
+
+def _explain_note_match(note, query_tokens, note_index=0):
+    tag_match, keyword_overlap, recency = _note_match_parts(note, query_tokens)
+    if tag_match == 0 and keyword_overlap == 0:
+        return None
+
+    kind = str(note.get("kind", "episodic")).strip() or "episodic"
+    kind_score = _kind_score(kind)
+    note_index = int(note_index)
+    score_breakdown = {
+        "tag_match": tag_match,
+        "keyword_overlap": keyword_overlap,
+        "recency": recency,
+        "kind": kind_score,
+    }
+    score = (
+        score_breakdown["tag_match"] * 1_000_000
+        + score_breakdown["keyword_overlap"] * 1_000
+        + score_breakdown["kind"]
+        + score_breakdown["recency"] / 1_000_000_000
+        + note_index / 1_000_000_000_000
+    )
+    return {
+        "text": note.get("text", ""),
+        "kind": kind,
+        "source": note.get("source", ""),
+        "tags": list(note.get("tags", [])),
+        "created_at": note.get("created_at", ""),
+        "score": score,
+        "score_breakdown": score_breakdown,
+        "_sort_key": (tag_match, keyword_overlap, recency, note_index),
+        "_note": note,
+    }
+
+
+def _public_explanation(explanation):
+    return {
+        "text": explanation["text"],
+        "kind": explanation["kind"],
+        "source": explanation["source"],
+        "tags": explanation["tags"],
+        "created_at": explanation["created_at"],
+        "score": explanation["score"],
+        "score_breakdown": explanation["score_breakdown"],
+    }
+
+
+def _explanation_note(explanation):
+    return dict(explanation["_note"])
+
+
+def _explanation_note_from_public(explanation):
+    return {
+        "text": explanation["text"],
+        "tags": list(explanation["tags"]),
+        "source": explanation["source"],
+        "created_at": explanation["created_at"],
+        "kind": explanation["kind"],
+    }
 
 
 def _normalize_note(note, index):
@@ -517,34 +591,46 @@ def summarize_read_result(result, limit=180):
 
 
 def retrieval_candidates(state, query, limit=3, workspace_root=None):
+    return [
+        _explanation_note(explanation)
+        for explanation in _rank_retrieval_explanations(state, query, limit=limit, workspace_root=workspace_root)
+    ]
+
+
+def retrieval_explanations(state, query, limit=3, workspace_root=None):
+    return [
+        _public_explanation(explanation)
+        for explanation in _rank_retrieval_explanations(state, query, limit=limit, workspace_root=workspace_root)
+    ]
+
+
+def _rank_retrieval_explanations(state, query, limit=3, workspace_root=None):
     state = normalize_memory_state(state, workspace_root)
     query_tokens = _tokenize(query)
     ranked = []
     for note in state["episodic_notes"]:
         # 召回逻辑故意保持简单透明：先看 tag 精确命中，
         # 再看关键词重叠，最后看新旧程度。这里不引入 embedding。
-        note_tags = {tag.lower() for tag in note.get("tags", [])}
-        note_tokens = _tokenize(note.get("text", "")) | _tokenize(note.get("source", "")) | note_tags
-        exact_tag_match = int(bool(query_tokens & note_tags))
-        keyword_overlap = len(query_tokens & note_tokens)
-        if exact_tag_match == 0 and keyword_overlap == 0:
+        explanation = _explain_note_match(note, query_tokens, note_index=note.get("note_index", 0))
+        if explanation is None:
             continue
-        recency = _parse_timestamp(note.get("created_at"))
-        note_index = int(note.get("note_index", 0))
-        ranked.append(((exact_tag_match, keyword_overlap, recency, note_index), note))
+        ranked.append(explanation)
 
     if workspace_root is not None:
         durable_store = DurableMemoryStore(Path(workspace_root) / ".repo-harness" / "memory")
-        for note in durable_store.retrieval_candidates(query, limit=limit):
-            note_tags = {tag.lower() for tag in note.get("tags", [])}
-            note_tokens = _tokenize(note.get("text", "")) | _tokenize(note.get("source", "")) | note_tags
-            exact_tag_match = int(bool(query_tokens & note_tags))
-            keyword_overlap = len(query_tokens & note_tokens)
-            recency = _parse_timestamp(note.get("created_at"))
-            ranked.append(((exact_tag_match, keyword_overlap, recency, -1), note))
+        for explanation in durable_store.retrieval_explanations(query, limit=limit):
+            explanation = dict(explanation)
+            explanation["_sort_key"] = (
+                explanation["score_breakdown"]["tag_match"],
+                explanation["score_breakdown"]["keyword_overlap"],
+                explanation["score_breakdown"]["recency"],
+                -1,
+            )
+            explanation["_note"] = _explanation_note_from_public(explanation)
+            ranked.append(explanation)
 
-    ranked.sort(key=lambda item: item[0], reverse=True)
-    return [note for _, note in ranked[:limit]]
+    ranked.sort(key=lambda item: item["_sort_key"], reverse=True)
+    return ranked[:limit]
 
 
 def retrieval_view(state, query, limit=3, workspace_root=None):
@@ -643,6 +729,9 @@ class LayeredMemory:
 
     def retrieval_candidates(self, query, limit=3):
         return retrieval_candidates(self.state, query, limit=limit, workspace_root=self.workspace_root)
+
+    def retrieval_explanations(self, query, limit=3):
+        return retrieval_explanations(self.state, query, limit=limit, workspace_root=self.workspace_root)
 
     def retrieval_view(self, query, limit=3):
         return retrieval_view(self.state, query, limit=limit, workspace_root=self.workspace_root)

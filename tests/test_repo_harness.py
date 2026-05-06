@@ -880,6 +880,29 @@ def test_prompt_budget_metadata_records_budget_decisions(tmp_path):
     assert metadata["current_request"]["rendered_chars"] == len("recall")
 
 
+def test_relevant_memory_explanations_are_reported_without_prompt_pollution(tmp_path):
+    agent = build_agent(tmp_path, ["<final>Done.</final>"])
+    agent.memory.append_note(
+        "conventions prefer constrained tools",
+        tags=("convention",),
+        source="session",
+        created_at="2026-05-06T10:00:00+00:00",
+    )
+
+    assert agent.ask("What convention covers tools?") == "Done."
+
+    report = json.loads(agent.run_store.report_path(agent.current_task_state).read_text(encoding="utf-8"))
+    relevant_metadata = report["prompt_metadata"]["relevant_memory"]
+    relevant_section = agent.model_client.prompts[0].split("Relevant memory:\n", 1)[1].split("\n\nTranscript:", 1)[0]
+
+    assert relevant_metadata["selected_explanations"]
+    assert relevant_metadata["selected_explanations"][0]["text"] == "conventions prefer constrained tools"
+    assert relevant_metadata["selected_explanations"][0]["score_breakdown"]["tag_match"] == 1
+    assert "conventions prefer constrained tools" in relevant_section
+    assert "score_breakdown" not in relevant_section
+    assert "selected_explanations" not in agent.model_client.prompts[0]
+
+
 def test_prompt_metadata_refreshes_prefix_when_workspace_changes(tmp_path):
     agent = build_agent(tmp_path, [])
 
@@ -1646,6 +1669,9 @@ class DummyCliAgent:
     def memory_text(self):
         return "Memory:\n- task: -"
 
+    def memory_explain_text(self, query):
+        return f"Memory explanation for: {query}\n- score=3 kind=durable source=project-conventions text=Use constrained tools instead of guessing."
+
     def reset(self):
         raise AssertionError("memory command should not reset the session")
 
@@ -1753,6 +1779,7 @@ def test_cli_memory_relative_pack_paths_resolve_against_cwd(tmp_path, capsys):
 def test_repl_help_mentions_memory_pack_menu():
     assert "/memory_pack" in mini_cli.HELP_DETAILS
     assert "memory packs" in mini_cli.HELP_DETAILS
+    assert "/memory_explain <query>" in mini_cli.HELP_DETAILS
 
 
 def test_repl_memory_pack_aliases_show_menu_without_model_call(tmp_path, capsys):
@@ -1769,6 +1796,23 @@ def test_repl_memory_pack_aliases_show_menu_without_model_call(tmp_path, capsys)
     assert "Continue work export" in output
     assert "Full recovery export" in output
     assert "repo-harness memory export/import/inspect/validate" in output
+
+
+def test_repl_memory_explain_is_read_only_and_does_not_call_model(tmp_path, capsys):
+    agent = DummyCliAgent(tmp_path)
+    original_session = dict(agent.session)
+    with patch("repo_harness.cli.build_agent", return_value=agent), patch(
+        "repo_harness.cli.build_welcome",
+        return_value="welcome",
+    ), patch("builtins.input", side_effect=["/memory_explain conventions", "/memory_explain", "/exit"]):
+        result = mini_cli.main(["--cwd", str(tmp_path)])
+
+    assert result == 0
+    assert agent.session == original_session
+    output = capsys.readouterr().out
+    assert "Memory explanation for: conventions" in output
+    assert "score=3" in output
+    assert "usage: /memory_explain <query>" in output
 
 
 def test_memory_pack_docs_cover_repl_cli_presets_and_privacy():
@@ -1790,6 +1834,21 @@ def test_memory_pack_docs_cover_repl_cli_presets_and_privacy():
         "local paths",
         "reports",
         "traces",
+    ]:
+        assert required in combined
+
+
+def test_explainable_retrieval_docs_cover_repl_command_and_metadata():
+    readme_text = Path("README.md").read_text(encoding="utf-8")
+    guide_text = Path("docs/getting-started.md").read_text(encoding="utf-8")
+    roadmap_text = Path("docs/maintainer-prep/memory-system-iteration-roadmap.md").read_text(encoding="utf-8")
+    combined = readme_text + "\n" + guide_text + "\n" + roadmap_text
+
+    for required in [
+        "/memory_explain",
+        "Explainable Retrieval",
+        "score_breakdown",
+        "selected_explanations",
     ]:
         assert required in combined
 
