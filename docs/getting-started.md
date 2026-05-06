@@ -140,6 +140,7 @@ repo-harness> update the docs for Windows PowerShell usage
 
 - `/help`：查看 REPL 内置命令。
 - `/memory`：查看当前会话提炼出来的工作记忆。
+- `/memory_pack` 或 `/memory-pack`：打开 memory pack 菜单，用于导出、导入、检查或验证记忆包。
 - `/session`：查看当前 session 文件路径。
 - `/reset`：清空当前会话状态。
 - `/exit` 或 `/quit`：退出 RepoHarness。
@@ -193,6 +194,33 @@ uv run repo-harness --resume latest
 ```bash
 uv run repo-harness --resume 20260501-224125-1f2ac5
 ```
+
+### 迁移或备份 memory pack
+
+如果你要把长期记忆带到另一台电脑，或把当前工作现场打包给自己恢复，可以在 REPL 里输入：
+
+```text
+repo-harness> /memory_pack
+```
+
+也可以使用面向脚本和高级用户的 CLI：
+
+```bash
+repo-harness memory export --preset safe-transfer --output memory-pack.zip
+repo-harness memory export --preset continue-work
+repo-harness memory export --preset full-recovery
+repo-harness memory inspect memory-pack.zip
+repo-harness memory validate memory-pack.zip
+repo-harness memory import memory-pack.zip
+```
+
+三个预设的边界：
+
+- `safe-transfer`：只导出 durable memory，默认更适合跨电脑迁移。
+- `continue-work`：导出 durable memory 和 working context；导入不会覆盖当前 session，而是保存 imported working context snapshot。
+- `full-recovery`：导出 durable memory、working context、sessions / checkpoints 和 run artifacts。
+
+隐私提醒：`full-recovery` 可能包含 prompts、tool outputs、local paths、reports 和 traces。分享或导入之前，先运行 `repo-harness memory inspect` 和 `repo-harness memory validate`。
 
 ### 查看运行工件
 

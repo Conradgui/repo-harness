@@ -15,6 +15,25 @@
 
 ## 待发布记录
 
+### 2026-05-05：Memory Pack v1
+
+#### 已新增
+
+- 新增 memory pack 本地导出、导入、检查和验证能力，支持 `safe-transfer`、`continue-work`、`full-recovery` 三个 preset。
+- 新增 REPL 命令 `/memory_pack` 和 `/memory-pack`，为普通用户提供结果导向菜单。
+- 新增 advanced CLI：`repo-harness memory export/import/inspect/validate`，用于脚本化和模块级控制。
+
+#### 行为边界
+
+- 默认 `safe-transfer` 只迁移 durable memory。
+- 导入采用 conservative merge，不覆盖已有记忆、session 或 run 文件。
+- `full-recovery` 明确提示可能包含 prompts、tool outputs、local paths、reports 和 traces。
+
+#### 文档维护
+
+- 更新 README、getting-started 和维护者文档。
+- 将文档同步列为功能完成后的必需维护环节。
+
 ### 2026-05-03：Windows 适配与维护者文档补强
 
 #### 已修复

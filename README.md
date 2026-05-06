@@ -1,4 +1,4 @@
-﻿# RepoHarness
+# RepoHarness
 
 `repo-harness` 是一个面向代码仓库的轻量本地 coding agent。它直接跑在终端里，先看当前工作区，再用一组受约束的工具去读文件、改文件、跑命令，并把会话状态保存在本地 `.repo-harness/` 目录里。
 
@@ -12,6 +12,7 @@
 - 读取当前代码结构并给出修改建议
 - 基于现有文件做小步迭代，而不是脱离仓库空想
 - 在会话中保留上下文，支持继续上一次工作
+- 通过 memory pack 迁移或备份可追踪的本地记忆
 
 ## 主要特性
 
@@ -20,6 +21,8 @@
 - 模块入口是 `python -m repo_harness`
 - 会话保存在 `.repo-harness/sessions/`
 - 每次运行的工件保存在 `.repo-harness/runs/<run_id>/`
+- 长期记忆保存在 `.repo-harness/memory/`
+- 支持 memory pack 的导出、导入、检查和验证
 - 支持三类模型后端：
   - Ollama
   - OpenAI 兼容 Responses API
@@ -202,9 +205,39 @@ uv run repo-harness --provider anthropic
 
 - `/help`：查看内置命令
 - `/memory`：查看提炼后的工作记忆
+- `/memory_pack` 或 `/memory-pack`：打开 memory pack 菜单
 - `/session`：查看当前会话文件路径
 - `/reset`：清空当前会话状态
 - `/exit` 或 `/quit`：退出 REPL
+
+## Memory Pack
+
+Memory pack 用来迁移、备份或检查 RepoHarness 的本地记忆系统。它保持当前记忆系统的设计原则：确定性、轻量、文件可追踪、分层清晰。
+
+普通用户可以在 REPL 里输入：
+
+```text
+repo-harness> /memory_pack
+```
+
+`/memory-pack` 是同一个入口的别名。菜单按最终效果组织：
+
+- `safe-transfer`：只导出 durable knowledge，适合把长期项目记忆迁移到另一台电脑。
+- `continue-work`：导出 durable knowledge 和 working context；导入时 working context 会保存为独立 snapshot，不覆盖当前 session。
+- `full-recovery`：导出 durable knowledge、working context、sessions / checkpoints 和 run artifacts。
+
+高级用户可以直接使用 CLI：
+
+```bash
+repo-harness memory export --preset safe-transfer
+repo-harness memory export --preset continue-work
+repo-harness memory export --preset full-recovery
+repo-harness memory inspect memory-pack.zip
+repo-harness memory validate memory-pack.zip
+repo-harness memory import memory-pack.zip
+```
+
+导入默认使用 conservative merge：只复制缺失内容，不覆盖已有 memory、session 或 run 文件。`full-recovery` 可能包含 prompts、tool outputs、local paths、reports 和 traces；分享或导入之前，先用 `repo-harness memory inspect` 和 `repo-harness memory validate` 检查。
 
 ## 安全与持久化
 
@@ -235,4 +268,3 @@ uv run ruff check .
 ```
 
 新维护者可以从 [维护者项目学习 SOP](docs/maintainer-prep/project-study-sop.md) 开始，按 CLI、runtime、tools、state、tests 的顺序建立项目地图。
-

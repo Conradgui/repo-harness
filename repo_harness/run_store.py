@@ -5,7 +5,9 @@ session.json 负责保存“可恢复的会话状态”；RunStore 负责保存�
 """
 
 import json
+import os
 import tempfile
+import time
 from pathlib import Path
 
 
@@ -82,5 +84,23 @@ class RunStore:
             json.dump(payload, handle, indent=2, sort_keys=True)
             handle.write("\n")
             temp_name = handle.name
-        Path(temp_name).replace(path)
+        self._replace_with_windows_retry(Path(temp_name), path)
+
+    def _replace_with_windows_retry(self, source, target):
+        # Windows 上杀毒软件、索引器或刚关闭的文件句柄可能短暂锁住目标文件。
+        # 保持原子 replace 语义，只对 WinError 5/32 做短重试。
+        delays = (0, 0.01, 0.025, 0.05, 0.1, 0.2)
+        last_error = None
+        for delay in delays:
+            if delay:
+                time.sleep(delay)
+            try:
+                os.replace(source, target)
+                return
+            except PermissionError as exc:
+                if getattr(exc, "winerror", None) not in {5, 32}:
+                    raise
+                last_error = exc
+        if last_error is not None:
+            raise last_error
 

@@ -6,6 +6,8 @@
 """
 
 import argparse
+import dataclasses
+import inspect as inspectlib
 import os
 import shutil
 import sys
@@ -40,6 +42,7 @@ HELP_DETAILS = textwrap.dedent(
     Commands:
     /help    Show this help message.
     /memory  Show the agent's distilled working memory.
+    /memory_pack  Export, import, inspect, or validate memory packs.
     /session Show the path to the saved session file.
     /reset   Clear the current session history and memory.
     /exit    Exit the agent.
@@ -120,6 +123,450 @@ def migrate_legacy_state(repo_root):
     current_root = Path(repo_root) / ".repo-harness"
     if legacy_root.exists():
         _copy_missing_tree(legacy_root, current_root)
+
+
+def _load_memory_pack_api():
+    try:
+        from . import memory_pack
+    except ImportError as exc:
+        raise RuntimeError("memory pack support is unavailable: repo_harness.memory_pack could not be imported") from exc
+    return memory_pack
+
+
+def _call_memory_pack_function(function, aliases=None, **kwargs):
+    aliases = aliases or {}
+    try:
+        signature = inspectlib.signature(function)
+    except (TypeError, ValueError):
+        return function(**kwargs)
+
+    parameters = signature.parameters
+    if any(parameter.kind == inspectlib.Parameter.VAR_KEYWORD for parameter in parameters.values()):
+        return function(**kwargs)
+
+    accepted = {}
+    for key, value in kwargs.items():
+        if key in parameters:
+            accepted[key] = value
+            continue
+        for alias in aliases.get(key, ()):
+            if alias in parameters:
+                accepted[alias] = value
+                break
+    return function(**accepted)
+
+
+def _split_module_values(values):
+    modules = []
+    for value in values or []:
+        for item in str(value).split(","):
+            name = item.strip()
+            if name:
+                modules.append(name)
+    return modules
+
+
+def _as_sequence(value):
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [f"{key}={value[key]}" for key in sorted(value)]
+    try:
+        return list(value)
+    except TypeError:
+        return [value]
+
+
+def _compact_text(value, limit=160):
+    text = " ".join(str(value).split())
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)] + "..."
+
+
+def _result_mapping(result):
+    if isinstance(result, dict):
+        return dict(result)
+    if dataclasses.is_dataclass(result):
+        return dataclasses.asdict(result)
+    if hasattr(result, "to_dict"):
+        value = result.to_dict()
+        if isinstance(value, dict):
+            return dict(value)
+    return {}
+
+
+def _first_present(*mappings, keys):
+    for mapping in mappings:
+        if not isinstance(mapping, dict):
+            continue
+        for key in keys:
+            value = mapping.get(key)
+            if value not in (None, "", [], {}):
+                return value
+    return None
+
+
+def _memory_status(action, result, mapping, manifest):
+    if result is True:
+        return "ok"
+    if result is False:
+        return "failed"
+    valid = _first_present(mapping, manifest, keys=("valid", "ok", "success"))
+    if valid is False:
+        return "failed"
+    if valid is True:
+        return "ok"
+    status = _first_present(mapping, manifest, keys=("status", "result"))
+    if status:
+        return str(status)
+    if action == "validate":
+        return "ok"
+    return "ok"
+
+
+def _format_memory_summary(action, result):
+    mapping = _result_mapping(result)
+    manifest = mapping.get("manifest") if isinstance(mapping.get("manifest"), dict) else {}
+    status = _memory_status(action, result, mapping, manifest)
+    lines = [f"memory {action}: {status}"]
+
+    if isinstance(result, Path):
+        lines.append(f"path: {result}")
+    elif isinstance(result, str):
+        key = "path" if action in {"export", "import"} else "details"
+        lines.append(f"{key}: {_compact_text(result)}")
+
+    path = _first_present(
+        mapping,
+        manifest,
+        keys=("pack_path", "output", "output_path", "path", "file"),
+    )
+    if path is not None and not isinstance(result, (str, Path)):
+        lines.append(f"path: {path}")
+
+    schema_version = _first_present(mapping, manifest, keys=("schema_version",))
+    if schema_version:
+        lines.append(f"schema: {schema_version}")
+
+    preset = _first_present(mapping, manifest, keys=("preset",))
+    if preset:
+        lines.append(f"preset: {preset}")
+
+    modules = _first_present(mapping, manifest, keys=("modules",))
+    if modules:
+        lines.append("modules: " + ", ".join(str(item) for item in _as_sequence(modules)))
+
+    counts = _first_present(mapping, manifest, keys=("counts",))
+    if isinstance(counts, dict) and counts:
+        lines.append("counts: " + ", ".join(f"{key}={counts[key]}" for key in sorted(counts)))
+
+    warnings = _as_sequence(_first_present(mapping, manifest, keys=("warnings",)))
+    lines.append(f"warnings: {len(warnings)}")
+    for warning in warnings:
+        lines.append(f"warning: {_compact_text(warning)}")
+
+    errors = _as_sequence(_first_present(mapping, manifest, keys=("errors",)))
+    for error in errors:
+        lines.append(f"error: {_compact_text(error)}")
+
+    return lines
+
+
+def _print_memory_summary(action, result):
+    for line in _format_memory_summary(action, result):
+        print(line)
+
+
+def _resolve_export_modules(api, preset, requested_modules):
+    if hasattr(api, "resolve_modules"):
+        resolved = _call_memory_pack_function(
+            api.resolve_modules,
+            preset=preset,
+            modules=requested_modules or None,
+        )
+        return _as_sequence(resolved)
+
+    if requested_modules:
+        return list(requested_modules)
+
+    preset_modules = getattr(api, "PRESET_MODULES", {})
+    if preset and isinstance(preset_modules, dict):
+        return _as_sequence(preset_modules.get(preset, ()))
+    return []
+
+
+def _run_memory_export(cwd, preset=None, module_values=None, output=None):
+    api = _load_memory_pack_api()
+    requested_modules = _split_module_values(module_values)
+    if not preset and not requested_modules:
+        preset = "safe-transfer"
+    modules = _resolve_export_modules(api, preset, requested_modules)
+    explicit_modules = modules if requested_modules else None
+    result = _call_memory_pack_function(
+        api.export_memory_pack,
+        aliases={
+            "cwd": ("workspace_root", "repo_root"),
+            "output": ("output_path",),
+            "modules": ("module_names",),
+        },
+        cwd=cwd,
+        preset=preset,
+        modules=explicit_modules,
+        output=output,
+    )
+    _print_memory_summary("export", result)
+    return result
+
+
+def _prompt_custom_modules():
+    api = _load_memory_pack_api()
+    modules = _as_sequence(getattr(api, "MODULES", getattr(api, "MEMORY_PACK_MODULES", ())))
+    selected = []
+    if not modules:
+        return selected
+    print("Memory export modules:")
+    for module in modules:
+        answer = _menu_input(f"Include {module}? [y/N] ")
+        if answer is None:
+            return []
+        if answer.lower() in {"y", "yes"}:
+            selected.append(str(module))
+    return selected
+
+
+def _run_memory_import(pack_path, cwd):
+    api = _load_memory_pack_api()
+    pack_path = _resolve_pack_path_for_cwd(pack_path, cwd)
+    result = _call_memory_pack_function(
+        api.import_memory_pack,
+        aliases={
+            "pack_path": ("path", "pack"),
+            "cwd": ("workspace_root", "repo_root"),
+        },
+        pack_path=pack_path,
+        cwd=cwd,
+    )
+    _print_memory_summary("import", result)
+    return result
+
+
+def _run_memory_inspect(pack_path, cwd):
+    api = _load_memory_pack_api()
+    pack_path = _resolve_pack_path_for_cwd(pack_path, cwd)
+    result = _call_memory_pack_function(
+        api.inspect_memory_pack,
+        aliases={
+            "pack_path": ("path", "pack"),
+            "cwd": ("workspace_root", "repo_root"),
+        },
+        pack_path=pack_path,
+        cwd=cwd,
+    )
+    _print_memory_summary("inspect", result)
+    return result
+
+
+def _run_memory_validate(pack_path, cwd):
+    api = _load_memory_pack_api()
+    pack_path = _resolve_pack_path_for_cwd(pack_path, cwd)
+    result = _call_memory_pack_function(
+        api.validate_memory_pack,
+        aliases={
+            "pack_path": ("path", "pack"),
+            "cwd": ("workspace_root", "repo_root"),
+        },
+        pack_path=pack_path,
+        cwd=cwd,
+    )
+    _print_memory_summary("validate", result)
+    return result
+
+
+def _resolve_pack_path_for_cwd(pack_path, cwd):
+    path = Path(pack_path)
+    if path.is_absolute():
+        return path
+    return Path(cwd).resolve() / path
+
+
+def _memory_result_failed(action, result):
+    mapping = _result_mapping(result)
+    manifest = mapping.get("manifest") if isinstance(mapping.get("manifest"), dict) else {}
+    return _memory_status(action, result, mapping, manifest) == "failed"
+
+
+def build_memory_arg_parser():
+    parser = argparse.ArgumentParser(
+        prog="repo-harness memory",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        description="Export, import, inspect, or validate RepoHarness memory packs.",
+    )
+    subparsers = parser.add_subparsers(dest="command")
+
+    export_parser = subparsers.add_parser("export", help="Export a memory pack.")
+    export_parser.add_argument("--preset", default=None, help="Export preset, for example safe-transfer, continue-work, or full-recovery.")
+    export_parser.add_argument("--modules", action="append", default=[], help="Comma-separated module names. Can be repeated.")
+    export_parser.add_argument("--custom", action="store_true", help="Interactively choose memory modules.")
+    export_parser.add_argument("--output", default=None, help="Output pack path. Defaults to the memory pack API's generated path.")
+    export_parser.add_argument("--cwd", default=".", help="Workspace directory.")
+
+    import_parser = subparsers.add_parser("import", help="Import a memory pack.")
+    import_parser.add_argument("pack_path", help="Path to the memory pack.")
+    import_parser.add_argument("--cwd", default=".", help="Workspace directory.")
+
+    inspect_parser = subparsers.add_parser("inspect", help="Inspect a memory pack.")
+    inspect_parser.add_argument("pack_path", help="Path to the memory pack.")
+    inspect_parser.add_argument("--cwd", default=".", help="Workspace directory.")
+
+    validate_parser = subparsers.add_parser("validate", help="Validate a memory pack.")
+    validate_parser.add_argument("pack_path", help="Path to the memory pack.")
+    validate_parser.add_argument("--cwd", default=".", help="Workspace directory.")
+    return parser
+
+
+def handle_memory_command(argv):
+    parser = build_memory_arg_parser()
+    if not argv:
+        parser.print_help()
+        return 0
+    args = parser.parse_args(argv)
+
+    try:
+        if args.command == "export":
+            module_values = list(args.modules)
+            preset = args.preset
+            if args.custom:
+                if args.preset:
+                    print("--custom cannot be combined with --preset", file=sys.stderr)
+                    return 1
+                if not module_values:
+                    module_values = _prompt_custom_modules()
+                if not module_values:
+                    print("memory export: no modules selected", file=sys.stderr)
+                    return 1
+                preset = None
+            result = _run_memory_export(
+                cwd=args.cwd,
+                preset=preset,
+                module_values=module_values,
+                output=args.output,
+            )
+            return 1 if _memory_result_failed("export", result) else 0
+        if args.command == "import":
+            result = _run_memory_import(args.pack_path, cwd=args.cwd)
+            return 1 if _memory_result_failed("import", result) else 0
+        if args.command == "inspect":
+            result = _run_memory_inspect(args.pack_path, cwd=args.cwd)
+            return 1 if _memory_result_failed("inspect", result) else 0
+        if args.command == "validate":
+            result = _run_memory_validate(args.pack_path, cwd=args.cwd)
+            return 1 if _memory_result_failed("validate", result) else 0
+    except Exception as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    parser.print_help()
+    return 0
+
+
+def _menu_input(prompt):
+    try:
+        return input(prompt).strip()
+    except (EOFError, KeyboardInterrupt):
+        print("")
+        return None
+
+
+def _menu_output_path():
+    value = _menu_input("Output path (blank for default): ")
+    if value is None:
+        return None, False
+    return value or None, True
+
+
+def _run_memory_menu_export(cwd, preset):
+    output, ok = _menu_output_path()
+    if not ok:
+        print("memory pack: cancelled")
+        return
+    _run_memory_export(cwd=cwd, preset=preset, output=output)
+
+
+def run_memory_pack_menu(cwd):
+    menu = textwrap.dedent(
+        """\
+        Memory pack
+
+        1. Safe transfer export
+           Export stable project memory for another computer.
+
+        2. Continue work export
+           Export stable memory plus current task context and recent file summaries.
+
+        3. Full recovery export
+           Export stable memory, working context, sessions, checkpoints, and run artifacts.
+           Privacy warning: may include prompts, tool outputs, local paths, reports, and traces.
+
+        4. Import pack
+           Merge a memory pack into this workspace without overwriting existing memory.
+
+        5. Inspect/validate pack
+           Preview and validate a pack before importing it.
+
+        0. Cancel
+
+        Advanced: repo-harness memory export/import/inspect/validate
+        """
+    ).strip()
+
+    while True:
+        print(menu)
+        choice = _menu_input("Choose an option: ")
+        if choice is None or choice in {"0", "q", "quit", "cancel"}:
+            print("memory pack: cancelled")
+            return
+
+        try:
+            if choice == "1":
+                _run_memory_menu_export(cwd, "safe-transfer")
+                return
+            if choice == "2":
+                _run_memory_menu_export(cwd, "continue-work")
+                return
+            if choice == "3":
+                print(
+                    "Privacy warning: full recovery packs may include prompts, tool outputs, "
+                    "local paths, reports, traces, sessions, and checkpoints."
+                )
+                confirm = _menu_input("Type FULL RECOVERY to continue: ")
+                if confirm != "FULL RECOVERY":
+                    print("memory pack: cancelled")
+                    return
+                _run_memory_menu_export(cwd, "full-recovery")
+                return
+            if choice == "4":
+                pack_path = _menu_input("Pack path: ")
+                if not pack_path:
+                    print("memory pack: cancelled")
+                    return
+                _run_memory_import(pack_path, cwd=cwd)
+                return
+            if choice == "5":
+                pack_path = _menu_input("Pack path: ")
+                if not pack_path:
+                    print("memory pack: cancelled")
+                    return
+                _run_memory_inspect(pack_path, cwd=cwd)
+                _run_memory_validate(pack_path, cwd=cwd)
+                return
+        except Exception as exc:
+            print(f"memory pack error: {exc}", file=sys.stderr)
+            return
+
+        print("Choose 1, 2, 3, 4, 5, or 0.")
 
 
 def _build_model_client(args):
@@ -258,6 +705,7 @@ def build_arg_parser():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         description="Minimal coding agent for Ollama, OpenAI-compatible, or Anthropic-compatible models.",
+        epilog="Advanced memory packs: repo-harness memory export/import/inspect/validate",
     )
     parser.add_argument("prompt", nargs="*", help="Optional one-shot prompt.")
     parser.add_argument("--cwd", default=".", help="Workspace directory.")
@@ -288,7 +736,11 @@ def build_arg_parser():
 
 
 def main(argv=None):
-    args = build_arg_parser().parse_args(argv)
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    if raw_argv and raw_argv[0] == "memory":
+        return handle_memory_command(raw_argv[1:])
+
+    args = build_arg_parser().parse_args(raw_argv)
     agent = build_agent(args)
 
     model = getattr(agent.model_client, "model", getattr(args, "model", DEFAULT_OLLAMA_MODEL))
@@ -322,6 +774,9 @@ def main(argv=None):
             return 0
         if user_input == "/help":
             print(HELP_DETAILS)
+            continue
+        if user_input in {"/memory_pack", "/memory-pack"}:
+            run_memory_pack_menu(agent.workspace.cwd)
             continue
         if user_input == "/memory":
             print(agent.memory_text())

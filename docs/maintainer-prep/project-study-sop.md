@@ -84,6 +84,18 @@ uv run ruff check .
 
 `AGENTS.md` 是可选的仓库级 agent 指令文件，不是运行必需文件。当前仓库没有提交 `AGENTS.md` 或 `AGENT.md` 时，RepoHarness 会使用内置 runtime 规则、README 和 `pyproject.toml`。如果未来需要新增仓库级规则，优先使用 `AGENTS.md`。
 
+#### 6. 文档同步门禁
+
+维护者完成任何功能、重构或安全边界更新后，不能只停在“测试通过”。必须同步检查文档体系：
+
+1. 用户入口是否需要更新 README。
+2. 首次使用流程、REPL 命令、CLI 示例或隐私提示是否需要更新 `docs/getting-started.md`。
+3. 架构边界、状态目录、运行工件或长期设计判断是否需要更新 `docs/architecture/`、`docs/review-pack/` 或 `docs/maintainer-prep/`。
+4. 如果新增维护者文档，必须先更新 `docs/maintainer-prep/README.md` 的目录索引。
+5. 如果变更涉及 memory、checkpoint、session、runs、安全边界或本地持久化格式，必须追加修复摘要或 roadmap，方便未来维护者复盘。
+
+文档健全是长期可维护性的一部分。后续收尾报告应明确说明“已同步哪些文档”或“哪些文档经检查无需更新”。
+
 ### 2026-05-03：pico 项目学习路径
 
 #### 1. 先建立运行基线

@@ -15,6 +15,32 @@
 
 ## 修复记录
 
+### 2026-05-05：Memory Pack v1 与文档同步门禁
+
+#### 背景
+
+Memory Pack v1 新增了用户可见的记忆迁移能力：REPL 入口 `/memory_pack` / `/memory-pack`，以及 advanced CLI `repo-harness memory export/import/inspect/validate`。这类能力同时影响用户文档、维护者 SOP、本地持久化边界和后续 roadmap，不能只通过代码和测试完成。
+
+#### 修复内容
+
+- 新增 `repo_harness/memory_pack.py`，使用标准库 zip/json/pathlib 实现本地 memory pack，不引入数据库、向量索引、后台服务或外部依赖。
+- 更新 `repo_harness/cli.py`，加入 `/memory_pack` 菜单和 `repo-harness memory ...` advanced 子命令。
+- 更新 README 和 `docs/getting-started.md`，说明 presets、导入导出命令和 `full-recovery` 隐私风险。
+- 新增 `docs/maintainer-prep/memory-system-iteration-roadmap.md`，记录 Memory Pack v1 与后续记忆系统迭代边界。
+- 更新维护者文档规则，把“文档同步”列为功能完成后的必需门禁。
+
+#### 验证结果
+
+- `uv run pytest -q`：126 passed。
+- `uv run ruff check .`：通过。
+- `python -m repo_harness memory --help`：通过。
+- `.venv\Scripts\repo-harness.exe memory --help`：通过。
+
+#### 后续注意
+
+- 后续涉及 public CLI、REPL、state、memory、checkpoint、runs、安全边界或持久化格式的改动，都必须同步复盘 README、getting-started、architecture、review-pack 和 maintainer-prep 文档。
+- 如果判断某个文档不需要改，应在修复摘要或提交说明中写明理由，避免未来维护者误以为遗漏。
+
 ### 2026-05-03：Windows 适配与工程化补强
 
 #### 背景

@@ -2,10 +2,12 @@
 import json
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
 import repo_harness as harness_pkg
+from repo_harness import cli as mini_cli
 from repo_harness import (
     AnthropicCompatibleModelClient,
     FakeModelClient,
@@ -1628,6 +1630,183 @@ def test_getting_started_guide_is_linked_and_covers_onboarding_basics():
         "AI 产品经理",
     ]:
         assert required in guide_text
+
+
+class DummyCliAgent:
+    def __init__(self, tmp_path):
+        self.workspace = type("Workspace", (), {"cwd": str(tmp_path), "branch": "main"})()
+        self.model_client = type("Model", (), {"model": "test-model", "host": "http://test"})()
+        self.approval_policy = "auto"
+        self.session = {"id": "dummy-session"}
+        self.session_path = str(tmp_path / ".repo-harness" / "sessions" / "dummy-session.json")
+
+    def ask(self, prompt):
+        raise AssertionError(f"memory command was routed to agent.ask: {prompt}")
+
+    def memory_text(self):
+        return "Memory:\n- task: -"
+
+    def reset(self):
+        raise AssertionError("memory command should not reset the session")
+
+
+def write_cli_durable_memory(workspace_root):
+    memory_root = workspace_root / ".repo-harness" / "memory"
+    topics_dir = memory_root / "topics"
+    topics_dir.mkdir(parents=True)
+    (memory_root / "MEMORY.md").write_text(
+        "# Durable Memory Index\n\n"
+        "- [project-conventions](topics/project-conventions.md): Project Conventions\n"
+        "  - summary: Stable repository conventions.\n"
+        "  - tags: convention\n",
+        encoding="utf-8",
+    )
+    (topics_dir / "project-conventions.md").write_text(
+        "# Project Conventions\n\n"
+        "- topic: project-conventions\n"
+        "- summary: Stable repository conventions.\n"
+        "- tags: convention\n"
+        "- updated_at: 2026-05-05T00:00:00+00:00\n\n"
+        "## Notes\n"
+        "- Use constrained tools instead of guessing.\n",
+        encoding="utf-8",
+    )
+
+
+def test_cli_memory_export_uses_requested_preset_without_model(tmp_path, capsys):
+    write_cli_durable_memory(tmp_path)
+    pack_path = tmp_path / "memory-pack.zip"
+    with patch("repo_harness.cli.build_agent", return_value=DummyCliAgent(tmp_path)) as build_agent, patch(
+        "repo_harness.cli.build_welcome",
+        return_value="welcome",
+    ):
+        result = mini_cli.main(
+            [
+                "memory",
+                "export",
+                "--cwd",
+                str(tmp_path),
+                "--preset",
+                "safe-transfer",
+                "--output",
+                str(pack_path),
+            ]
+        )
+
+    assert result == 0
+    build_agent.assert_not_called()
+    output = capsys.readouterr().out
+    assert str(pack_path) in output
+    assert "preset: safe-transfer" in output
+    with zipfile.ZipFile(pack_path) as archive:
+        manifest = json.loads(archive.read("repo-harness-memory-pack.json").decode("utf-8"))
+    assert manifest["preset"] == "safe-transfer"
+    assert manifest["modules"] == ["durable_knowledge"]
+
+
+def test_cli_memory_inspect_and_validate_use_public_api_without_model(tmp_path, capsys):
+    from repo_harness import memory_pack
+
+    write_cli_durable_memory(tmp_path)
+    pack_path = tmp_path / "memory-pack.zip"
+    memory_pack.export_memory_pack(tmp_path, output_path=pack_path, preset="safe-transfer")
+
+    with patch("repo_harness.cli.build_agent", return_value=DummyCliAgent(tmp_path)) as build_agent, patch(
+        "repo_harness.cli.build_welcome",
+        return_value="welcome",
+    ):
+        inspect_result = mini_cli.main(["memory", "inspect", str(pack_path)])
+
+    assert inspect_result == 0
+    build_agent.assert_not_called()
+    inspect_output = capsys.readouterr().out
+    assert "safe-transfer" in inspect_output
+    assert "durable_knowledge" in inspect_output
+
+    with patch("repo_harness.cli.build_agent", return_value=DummyCliAgent(tmp_path)) as build_agent, patch(
+        "repo_harness.cli.build_welcome",
+        return_value="welcome",
+    ):
+        validate_result = mini_cli.main(["memory", "validate", str(pack_path)])
+
+    assert validate_result == 0
+    build_agent.assert_not_called()
+    assert "valid" in capsys.readouterr().out.lower()
+
+
+def test_cli_memory_relative_pack_paths_resolve_against_cwd(tmp_path, capsys):
+    from repo_harness import memory_pack
+
+    write_cli_durable_memory(tmp_path)
+    pack_path = tmp_path / "memory-pack.zip"
+    memory_pack.export_memory_pack(tmp_path, output_path=pack_path, preset="safe-transfer")
+
+    with patch("repo_harness.cli.build_agent", return_value=DummyCliAgent(tmp_path)) as build_agent:
+        result = mini_cli.main(["memory", "inspect", "memory-pack.zip", "--cwd", str(tmp_path)])
+
+    assert result == 0
+    build_agent.assert_not_called()
+    output = capsys.readouterr().out
+    assert "safe-transfer" in output
+
+
+def test_repl_help_mentions_memory_pack_menu():
+    assert "/memory_pack" in mini_cli.HELP_DETAILS
+    assert "memory packs" in mini_cli.HELP_DETAILS
+
+
+def test_repl_memory_pack_aliases_show_menu_without_model_call(tmp_path, capsys):
+    with patch("repo_harness.cli.build_agent", return_value=DummyCliAgent(tmp_path)), patch(
+        "repo_harness.cli.build_welcome",
+        return_value="welcome",
+    ), patch("builtins.input", side_effect=["/memory_pack", "0", "/memory-pack", "0", "/exit"]):
+        result = mini_cli.main(["--cwd", str(tmp_path)])
+
+    assert result == 0
+    output = capsys.readouterr().out
+    assert output.count("Memory pack") >= 2
+    assert "Safe transfer export" in output
+    assert "Continue work export" in output
+    assert "Full recovery export" in output
+    assert "repo-harness memory export/import/inspect/validate" in output
+
+
+def test_memory_pack_docs_cover_repl_cli_presets_and_privacy():
+    readme_text = Path("README.md").read_text(encoding="utf-8")
+    guide_text = Path("docs/getting-started.md").read_text(encoding="utf-8")
+    combined = readme_text + "\n" + guide_text
+
+    for required in [
+        "/memory_pack",
+        "/memory-pack",
+        "repo-harness memory export",
+        "repo-harness memory inspect",
+        "repo-harness memory validate",
+        "safe-transfer",
+        "continue-work",
+        "full-recovery",
+        "prompts",
+        "tool outputs",
+        "local paths",
+        "reports",
+        "traces",
+    ]:
+        assert required in combined
+
+
+def test_maintainer_docs_make_documentation_sync_a_completion_gate():
+    maintainer_readme = Path("docs/maintainer-prep/README.md").read_text(encoding="utf-8")
+    study_sop = Path("docs/maintainer-prep/project-study-sop.md").read_text(encoding="utf-8")
+    patch_summary = Path("docs/maintainer-prep/patch-summary.md").read_text(encoding="utf-8")
+    changelog = Path("docs/maintainer-prep/changelog-draft.md").read_text(encoding="utf-8")
+
+    assert "memory-system-iteration-roadmap.md" in maintainer_readme
+    assert "文档同步是功能完成后的必需门禁" in maintainer_readme
+    assert "README" in study_sop
+    assert "docs/getting-started.md" in study_sop
+    assert "文档健全是长期可维护性的一部分" in study_sop
+    assert "Memory Pack v1 与文档同步门禁" in patch_summary
+    assert "Memory Pack v1" in changelog
 
 
 def test_gitignore_keeps_publishable_docs_trackable():
