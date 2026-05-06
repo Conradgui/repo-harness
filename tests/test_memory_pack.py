@@ -2,6 +2,7 @@ import importlib
 import json
 import re
 import zipfile
+import os
 from pathlib import Path
 
 import pytest
@@ -398,7 +399,14 @@ def test_inspect_returns_manifest_counts_modules_and_warnings(tmp_path):
         members={
             "payload/durable_knowledge/MEMORY.md": "# Durable Memory Index\n",
             "payload/durable_knowledge/topics/project-conventions.md": "# Project Conventions\n",
-            WORKING_CONTEXT_MEMBER: json.dumps({"memory": {"working": {"task_summary": "Inspect me"}}}),
+            WORKING_CONTEXT_MEMBER: json.dumps(
+                {
+                    "schema_version": "working-context-v1",
+                    "session_id": "session-source",
+                    "source_session_path": ".repo-harness/sessions/session-source.json",
+                    "memory": {"working": {"task_summary": "Inspect me"}},
+                }
+            ),
             "payload/resume_state/sessions/session-source.json": "{}",
             "payload/run_artifacts/runs/run-source/report.json": "{}",
             "payload/run_artifacts/runs/run-source/trace.jsonl": "",
@@ -466,3 +474,94 @@ def test_conservative_import_skips_duplicate_note_and_existing_files(tmp_path):
     assert report["imported"]["durable_duplicate_notes_skipped"] == 1
     assert any("Use constrained tools instead of guessing." in note for note in report["skipped"]["duplicate_durable_notes"])
     assert any("sessions/session-existing.json" in path for path in report["skipped"]["existing_files"])
+
+
+def test_validate_rejects_topic_file_name_that_disagrees_with_topic_slug(tmp_path):
+    api = memory_pack_api()
+    content = (
+        "# Key Decisions\n\n"
+        "- topic: key-decisions\n"
+        "\n"
+        "## Notes\n"
+        "- Keep memory deterministic.\n"
+    )
+    pack_path = write_pack(
+        tmp_path / "topic-mismatch.zip",
+        manifest=baseline_manifest(
+            files=[
+                payload_entry(
+                    "payload/durable_knowledge/topics/project-conventions.md",
+                    content,
+                )
+            ],
+        ),
+        members={"payload/durable_knowledge/topics/project-conventions.md": content},
+    )
+
+    with pytest.raises(api.MemoryPackError, match="topic file name"):
+        api.validate_memory_pack(pack_path)
+    with pytest.raises(api.MemoryPackError, match="topic file name"):
+        api.import_memory_pack(tmp_path / "target", pack_path)
+
+
+def test_validate_rejects_invalid_working_context_payload(tmp_path):
+    api = memory_pack_api()
+    pack_path = write_pack(
+        tmp_path / "bad-working-context.zip",
+        manifest=baseline_manifest(
+            preset="continue-work",
+            modules=("working_context",),
+            files=[payload_entry(WORKING_CONTEXT_MEMBER, "not json")],
+        ),
+        members={WORKING_CONTEXT_MEMBER: "not json"},
+    )
+
+    with pytest.raises(api.MemoryPackError, match="working context"):
+        api.validate_memory_pack(pack_path)
+    with pytest.raises(api.MemoryPackError, match="working context"):
+        api.import_memory_pack(tmp_path / "target", pack_path)
+
+
+def test_validate_rejects_duplicate_zip_payload_entries(tmp_path):
+    api = memory_pack_api()
+    pack_path = tmp_path / "duplicate-entry.zip"
+    first = b"# Durable Memory Index\n"
+    second = b"# Other\n"
+    manifest = baseline_manifest(
+        files=[payload_entry("payload/durable_knowledge/MEMORY.md", second)],
+    )
+    with pytest.warns(UserWarning, match="Duplicate name"):
+        with zipfile.ZipFile(pack_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr(MANIFEST_NAME, json.dumps(manifest, indent=2))
+            archive.writestr("payload/durable_knowledge/MEMORY.md", first)
+            archive.writestr("payload/durable_knowledge/MEMORY.md", second)
+
+    with pytest.raises(api.MemoryPackError, match="duplicate archive entry"):
+        api.validate_memory_pack(pack_path)
+
+
+def test_export_skips_symlinked_state_files_that_escape_workspace(tmp_path):
+    if not hasattr(os, "symlink"):
+        pytest.skip("symlinks are not supported on this platform")
+    api = memory_pack_api()
+    outside = tmp_path / "outside-session.json"
+    outside.write_text('{"secret":"outside"}\n', encoding="utf-8")
+    sessions_root = tmp_path / ".repo-harness" / "sessions"
+    sessions_root.mkdir(parents=True)
+    symlink_path = sessions_root / "linked.json"
+    try:
+        symlink_path.symlink_to(outside)
+    except OSError as exc:
+        pytest.skip(f"symlink creation is not permitted: {exc}")
+
+    pack_path = tmp_path / "resume.zip"
+    result = api.export_memory_pack(
+        tmp_path,
+        output_path=pack_path,
+        modules=("resume_state",),
+    )
+
+    assert result["counts"]["session_files"] == 0
+    assert "Skipped symlinked state file" in " ".join(result["warnings"])
+    with zipfile.ZipFile(pack_path) as archive:
+        assert "payload/resume_state/sessions/linked.json" not in archive.namelist()

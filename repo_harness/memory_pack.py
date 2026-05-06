@@ -325,7 +325,7 @@ def _collect_payload_files(root, modules, *, session=None, session_path=None):
         if warning:
             warnings.append(warning)
     if MODULE_RESUME_STATE in modules:
-        session_files = _collect_tree_module(
+        session_files, session_warnings = _collect_tree_module(
             root,
             root / ".repo-harness" / "sessions",
             MODULE_RESUME_STATE,
@@ -333,9 +333,10 @@ def _collect_payload_files(root, modules, *, session=None, session_path=None):
         )
         if not session_files:
             warnings.append("No session files found under .repo-harness/sessions.")
+        warnings.extend(session_warnings)
         payload_files.extend(session_files)
     if MODULE_RUN_ARTIFACTS in modules:
-        run_files = _collect_tree_module(
+        run_files, run_warnings = _collect_tree_module(
             root,
             root / ".repo-harness" / "runs",
             MODULE_RUN_ARTIFACTS,
@@ -343,6 +344,7 @@ def _collect_payload_files(root, modules, *, session=None, session_path=None):
         )
         if not run_files:
             warnings.append("No run artifact files found under .repo-harness/runs.")
+        warnings.extend(run_warnings)
         payload_files.extend(run_files)
     return payload_files, warnings
 
@@ -409,9 +411,22 @@ def _collect_working_context(root, *, session=None, session_path=None):
 
 def _collect_tree_module(root, source_root, module, archive_subdir):
     result = []
+    warnings = []
     if not source_root.is_dir():
-        return result
+        return result, warnings
     for path in _walk_files(source_root):
+        if path.is_symlink():
+            warnings.append(f"Skipped symlinked state file: {_repo_relative(path, root)}")
+            continue
+        try:
+            resolved = path.resolve()
+            source_resolved = source_root.resolve()
+            if os.path.commonpath([str(source_resolved), str(resolved)]) != str(source_resolved):
+                warnings.append(f"Skipped state file outside source tree: {_repo_relative(path, root)}")
+                continue
+        except OSError:
+            warnings.append(f"Skipped unreadable state file: {_repo_relative(path, root)}")
+            continue
         rel = path.relative_to(source_root).as_posix()
         result.append(
             _PayloadFile(
@@ -421,7 +436,7 @@ def _collect_tree_module(root, source_root, module, archive_subdir):
                 data=path.read_bytes(),
             )
         )
-    return result
+    return result, warnings
 
 
 def _counts_for_payload(file_entries):
@@ -459,9 +474,13 @@ def _read_and_validate_pack(pack_path):
         with zipfile.ZipFile(path, "r") as archive:
             infos = archive.infolist()
             names = [info.filename for info in infos]
+            seen_archive_names = set()
             for name in names:
                 if not _is_safe_archive_name(name):
                     errors.append(f"unsafe archive path: {name}")
+                if name in seen_archive_names:
+                    errors.append(f"duplicate archive entry: {name}")
+                seen_archive_names.add(name)
 
             manifest_infos = [info for info in infos if info.filename == MANIFEST_NAME]
             if not manifest_infos:
@@ -548,6 +567,7 @@ def _read_and_validate_pack(pack_path):
                     errors.append(f"payload mismatch: sha256 differs for {payload_path}")
 
             _validate_durable_payload_content(archive, expected & actual, errors)
+            _validate_working_context_payload_content(archive, expected & actual, errors)
 
             _raise_if_errors(errors)
             return {
@@ -812,11 +832,35 @@ def _validate_durable_payload_content(archive, payload_paths, errors):
         fallback_topic = Path(PurePosixPath(archive_path).name).stem
         try:
             parsed = _parse_topic_markdown(archive.read(archive_path), fallback_topic)
-            _validate_topic_slug(parsed["topic"] or fallback_topic)
+            topic_slug = _validate_topic_slug(parsed["topic"] or fallback_topic)
+            if topic_slug != fallback_topic:
+                errors.append(
+                    f"topic file name does not match topic slug: {archive_path} declares {topic_slug}"
+                )
         except UnicodeDecodeError:
             errors.append(f"durable topic is not UTF-8: {archive_path}")
         except MemoryPackError as exc:
             errors.append(str(exc))
+
+
+def _validate_working_context_payload_content(archive, payload_paths, errors):
+    if WORKING_CONTEXT_ARCHIVE_PATH not in payload_paths:
+        return
+    try:
+        payload = json.loads(archive.read(WORKING_CONTEXT_ARCHIVE_PATH).decode("utf-8"))
+    except UnicodeDecodeError:
+        errors.append("working context payload is not UTF-8")
+        return
+    except json.JSONDecodeError as exc:
+        errors.append(f"working context payload is not valid JSON: {exc}")
+        return
+    if not isinstance(payload, dict):
+        errors.append("working context payload must be a JSON object")
+        return
+    if payload.get("schema_version") != "working-context-v1":
+        errors.append(f"working context has unsupported schema: {payload.get('schema_version')}")
+    if not isinstance(payload.get("memory"), dict):
+        errors.append("working context memory must be a JSON object")
 
 
 def _validate_topic_slug(topic):

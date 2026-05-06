@@ -208,6 +208,21 @@ manifest 示例：
 
 后续可以增加 advanced apply 操作。
 
+### Validation And Governance
+
+Memory Pack v1 的 validate 边界必须和导入边界一致。一个 pack 只有在 payload 结构可解释、路径安全、模块声明一致时，才允许 inspect 或 import。
+
+当前治理规则：
+
+- zip entry 不能重复，不能包含绝对路径、反斜杠、空 path、`.`、`..` 或 Windows drive colon。
+- manifest 中的 payload 列表必须和 zip 实际 payload 文件完全一致。
+- 每个 payload 文件必须匹配 manifest 中记录的 size 和 sha256。
+- durable topic 文件名必须和文件内 `- topic:` slug 一致。
+- `working_context` 必须是 UTF-8 JSON object，`schema_version` 必须为 `working-context-v1`，`memory` 必须是 object。
+- export sessions/runs 时跳过 symlinked state files，避免把仓库外文件打入 pack。
+
+这些规则服务于同一个原则：记忆系统继续保持确定性、轻量、文件可追踪，而不是依赖隐式信任或不可解释的二进制状态。
+
 ## Future Memory Intelligence Improvements
 
 以下内容不放入第一阶段实现，后续逐项推进。

@@ -15,6 +15,20 @@
 
 ## 待发布记录
 
+### 2026-05-06：Memory Pack v1 验证边界加固
+
+#### 已修复
+
+- `repo-harness memory validate` 现在会拒绝 durable topic 文件名与文件内 topic slug 不一致的 pack。
+- `working_context` payload 现在必须是合法 `working-context-v1` JSON object。
+- memory pack zip 中的重复 archive entry 会被拒绝。
+- 导出 resume state 和 run artifacts 时会跳过 symlinked state files，避免意外打包仓库外文件。
+
+#### 用户影响
+
+- 导入前检查更可信，错误 pack 会更早失败。
+- conservative merge 语义不变：导入仍不覆盖已有 memory、session 或 run 文件。
+
 ### 2026-05-05：Memory Pack v1
 
 #### 已新增

@@ -15,6 +15,30 @@
 
 ## 修复记录
 
+### 2026-05-06：Memory Pack v1 验证边界加固
+
+#### 背景
+
+对 `memory-pack-v1` 分支做代码审查时，发现 memory pack 的 validate/import 边界仍有几处治理风险：部分不一致或结构无效的包可以通过验证，导出时也可能跟随本地状态目录里的 symlink。
+
+这些问题不改变 Memory Pack v1 的产品方向，但会削弱“validate 可信”和“文件可追踪”的基础假设，因此需要在进入下一阶段记忆系统迭代前修复。
+
+#### 修复内容
+
+- 拒绝 durable topic 文件名与文件内 `- topic:` slug 不一致的 pack，避免导入后 `MEMORY.md` 索引指向不存在的 topic 文件。
+- 校验 `working_context` payload 必须是 UTF-8 JSON object，且 `schema_version` 必须为 `working-context-v1`，`memory` 必须是 object。
+- 拒绝 zip 内重复 archive entry，避免同名 payload 被 `zipfile` 读取语义掩盖。
+- 导出 sessions/runs 时跳过 symlink 或解析后不在源目录内的状态文件，避免把仓库外文件打入 memory pack。
+
+#### 验证结果
+
+- `pytest tests/test_memory_pack.py -q`：14 passed。
+
+#### 后续注意
+
+- 后续新增 memory pack 模块时，必须同步补 validate schema，不允许“manifest hash 通过但 payload 结构不可解释”。
+- `inspect` 和 `validate` 应保持同一安全边界；能被 inspect 的 pack 也必须先满足 validate 规则。
+
 ### 2026-05-05：Memory Pack v1 与文档同步门禁
 
 #### 背景
