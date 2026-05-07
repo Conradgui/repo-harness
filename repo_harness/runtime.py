@@ -670,11 +670,34 @@ class RepoHarness:
         if name in {"read_file", "write_file", "patch_file"}:
             self.memory.remember_file(canonical_path)
         if name == "read_file":
-            summary = memorylib.summarize_read_result(result)
+            summary = memorylib.summarize_read_result(
+                result,
+                complete_file=self._read_file_args_cover_complete_file(args),
+            )
             self.memory.set_file_summary(canonical_path, summary)
             self.memory.append_note(summary, tags=(canonical_path,), source=canonical_path)
         elif name in {"write_file", "patch_file"}:
             self.memory.invalidate_file_summary(canonical_path)
+
+    def _read_file_args_cover_complete_file(self, args):
+        try:
+            start = int(args.get("start", 1))
+            end = int(args.get("end", 200))
+        except (TypeError, ValueError):
+            return False
+        if start != 1:
+            return False
+        path = args.get("path")
+        if not path:
+            return False
+        resolved = memorylib.resolve_workspace_path(path, self.root)
+        if resolved is None or not resolved.is_file():
+            return False
+        try:
+            line_count = len(resolved.read_text(encoding="utf-8", errors="replace").splitlines())
+        except OSError:
+            return False
+        return end >= line_count
 
     def note_tool(self, name, args, result):
         self.update_memory_after_tool(name, args, result)

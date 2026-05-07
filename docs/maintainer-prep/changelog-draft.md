@@ -15,6 +15,19 @@
 
 ## 待发布记录
 
+### 2026-05-07：Code-Aware File Summaries v1
+
+#### 已新增
+
+- `read_file` 读取完整 Python 文件后，`file_summaries` 会生成受限结构摘要，包含少量 imports、classes、functions 和 constants。
+- Python 片段、解析失败和非 Python 文件继续使用原有前三行短摘要。
+- README、getting-started 和 memory roadmap 同步说明该能力边界。
+
+#### 行为边界
+
+- 摘要长度上限、freshness 失效、memory section 预算和 Memory Pack 语义保持不变。
+- 该能力不调用模型、不引入 embedding / database / background service，也不缓存函数体或 docstring 长文本。
+
 ### 2026-05-06：Explainable Retrieval v1
 
 #### 已新增

@@ -15,6 +15,31 @@
 
 ## 修复记录
 
+### 2026-05-07：Code-Aware File Summaries v1
+
+#### 背景
+
+RepoHarness 的 `file_summaries` 原本主要截取 `read_file` 输出的前几行。这符合 pico 轻量记忆原则，但对 Python 文件的信息密度较低，容易让 agent 为确认文件结构而重复读取。新能力必须保持短摘要、freshness 失效和确定性解析，不得把 memory 做成代码索引或知识库。
+
+#### 修复内容
+
+- `summarize_read_result()` 增加 Python AST 结构摘要，提取少量 imports、classes、functions 和 uppercase top-level constants。
+- 只有 runtime 确认 `read_file` 从第 1 行覆盖完整 `.py` 文件时，才启用结构摘要；片段读取、解析失败和非 Python 文件继续回退到原有前三行摘要。
+- 摘要继续受 `limit=180` 和 `set_file_summary()` 的既有裁剪/freshness 机制约束；未修改 memory section 预算、relevant memory 数量或 Memory Pack 语义。
+- README、getting-started 和 memory roadmap 同步说明边界。
+
+#### 验证结果
+
+- `pytest tests/test_memory.py -q`：通过。
+- `pytest tests/test_repo_harness.py -q`：通过。
+- `pytest tests -q -p no:cacheprovider --basetemp <external-temp>`：通过。
+- `ruff check .`：通过。
+
+#### 后续注意
+
+- 后续如扩展 Markdown/config/test summaries，必须继续保持固定摘要上限、确定性解析和 freshness 失效。
+- 不应把函数体、docstring 长文本、完整 schema 或模型生成摘要写入 `file_summaries`。
+
 ### 2026-05-06：Explainable Retrieval v1
 
 #### 背景

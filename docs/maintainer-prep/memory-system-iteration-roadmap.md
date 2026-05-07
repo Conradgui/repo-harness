@@ -281,6 +281,14 @@ Memory Pack v1 的 validate 边界必须和导入边界一致。一个 pack 只�
 
 当前 `summarize_read_result()` 主要截取文件前几行，对代码理解较弱。
 
+当前 v1 状态：
+
+- 已实现 Python AST 结构摘要，只在确认 `read_file` 读取完整 `.py` 文件时启用。
+- 摘要继续受 `summarize_read_result(limit=180)` 控制，不提高 memory 预算。
+- 只提取 imports、classes、functions 和 uppercase top-level constants 的少量名称；超出上限用 `(+N)` 表示。
+- Python 片段、解析失败或非 Python 文件继续回退到前三行短摘要。
+- freshness hash、`FILE_SUMMARY_LIMIT`、`WORKING_FILE_LIMIT`、`RELEVANT_MEMORY_LIMIT` 和 Memory Pack 语义均未改变。
+
 可做能力：
 
 - 对 Python 文件提取 imports、classes、functions、top-level constants。
@@ -295,7 +303,7 @@ Memory Pack v1 的 validate 边界必须和导入边界一致。一个 pack 只�
 - 减少重复读文件。
 - 提升跨轮代码任务连续性。
 
-第一版可以只做标准库 AST 的 Python code summary，不引入复杂 parser。
+后续可以继续扩展 markdown/config/test summaries，但必须保持固定上限、确定性解析和 freshness 失效语义。
 
 ### 3. Topic Configuration
 
@@ -440,7 +448,7 @@ Memory Pack v1 的 validate 边界必须和导入边界一致。一个 pack 只�
    - file-traceable retrieval reasons
 
 5. Code-Aware Summaries
-   - Python AST summaries first
+   - Python AST summaries first（已完成 v1）
    - markdown/config/test summaries later
 
 6. Topic Configuration

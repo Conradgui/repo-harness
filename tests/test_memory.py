@@ -1,4 +1,4 @@
-﻿from repo_harness.memory import LayeredMemory
+﻿from repo_harness.memory import LayeredMemory, summarize_read_result
 
 
 def test_working_memory_tracks_summary_and_recent_files():
@@ -65,6 +65,99 @@ def test_file_summaries_use_canonical_paths_and_freshness(tmp_path):
     memory.invalidate_file_summary("sample.txt")
 
     assert "sample.txt" not in memory.to_dict()["file_summaries"]
+
+
+def test_python_read_summary_uses_bounded_structure():
+    result = """# repo_harness/sample.py
+import json
+import os
+from pathlib import Path
+
+MAX_ITEMS = 3
+
+
+class Runner:
+    pass
+
+
+def build():
+    return Runner()
+
+
+async def run():
+    return build()
+"""
+
+    summary = summarize_read_result(result, complete_file=True)
+
+    assert summary == "Python: imports=json,os,pathlib; classes=Runner; funcs=build,run; constants=MAX_ITEMS"
+    assert len(summary) <= 180
+
+
+def test_python_read_summary_caps_lists_and_total_length():
+    result = """# many.py
+import alpha
+import beta
+import gamma
+import delta
+import epsilon
+
+FIRST = 1
+SECOND = 2
+THIRD = 3
+FOURTH = 4
+
+class One:
+    pass
+
+class Two:
+    pass
+
+class Three:
+    pass
+
+class Four:
+    pass
+
+def func_one():
+    pass
+
+def func_two():
+    pass
+
+def func_three():
+    pass
+
+def func_four():
+    pass
+"""
+
+    summary = summarize_read_result(result, limit=140, complete_file=True)
+
+    assert len(summary) <= 140
+    assert summary.startswith("Python: ")
+    assert "imports=alpha,beta,gamma (+2)" in summary
+    assert "classes=One,Two,Three (+1)" in summary
+    assert "funcs=func_one,func_two,func_three (+1)" in summary
+    assert "constants=FIRST,SECOND,THIRD (+1)" not in summary
+    assert "epsilon" not in summary
+    assert "func_four" not in summary
+
+
+def test_python_read_summary_falls_back_for_parse_errors_and_snippets():
+    invalid_python = "# broken.py\nclass Broken(:\n    pass\n"
+    snippet = "# broken.py\n    return value\n"
+    syntactically_valid_prefix = "# sample.py\nimport json\n\nclass Partial:\n    pass\n"
+
+    assert summarize_read_result(invalid_python, complete_file=True) == "class Broken(: | pass"
+    assert summarize_read_result(snippet) == "return value"
+    assert summarize_read_result(syntactically_valid_prefix) == "import json | class Partial: | pass"
+
+
+def test_non_python_read_summary_keeps_legacy_first_lines():
+    result = "# README.md\n# Title\nalpha\nbeta\ngamma\n"
+
+    assert summarize_read_result(result) == "# Title | alpha | beta"
 
 
 def test_process_notes_keep_kind_and_latest_duplicate_wins():

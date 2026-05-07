@@ -217,6 +217,12 @@ uv run repo-harness --provider anthropic
 
 这项能力延续 RepoHarness 记忆系统原则：默认 lexical retrieval，轻量、可复现、文件可追踪；解释应指向本地 `.repo-harness/memory/` 中的来源，而不是依赖不可解释的外部索引。
 
+## Code-Aware File Summaries v1
+
+RepoHarness 的 `file_summaries` 仍然是短工作记忆，不是代码索引或知识库。读取完整 Python 文件时，摘要会用标准库 AST 提取少量结构信号，例如 imports、classes、functions 和 constants；摘要继续受固定长度上限控制，并且仍然绑定 freshness hash。
+
+如果读取的是 Python 片段、解析失败或文件不是 Python，系统会回退到原有的前三行短摘要。这个能力不调用模型、不引入 embedding / database / background service，也不改变 memory section 预算。
+
 ## Memory Pack
 
 Memory pack 用来迁移、备份或检查 RepoHarness 的本地记忆系统。它保持当前记忆系统的设计原则：确定性、轻量、文件可追踪、分层清晰。

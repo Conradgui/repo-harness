@@ -5,6 +5,7 @@ session history 负责保存完整事件流；这个模块只保存更小的一�
 这样下一轮 prompt 还能接上上一轮，但不会被整段历史塞满。
 """
 
+import ast
 import hashlib
 from datetime import datetime
 import re
@@ -15,6 +16,7 @@ from .workspace import clip, now
 WORKING_FILE_LIMIT = 8
 EPISODIC_NOTE_LIMIT = 12
 FILE_SUMMARY_LIMIT = 6
+PYTHON_SUMMARY_ITEM_LIMIT = 3
 
 DURABLE_TOPIC_DEFAULTS = {
     "project-conventions": {
@@ -576,18 +578,117 @@ def invalidate_stale_file_summaries(state, workspace_root=None):
     return state, invalidated
 
 
-def summarize_read_result(result, limit=180):
-    # 我们不会把完整文件内容塞进记忆层，
-    # 这里只保留足够提醒下一轮“刚刚读到了什么”的短摘要。
-    lines = [line.strip() for line in str(result).splitlines() if line.strip()]
-    if not lines:
-        return "(empty)"
-    if lines[0].startswith("# "):
-        lines = lines[1:]
+def _fallback_read_summary(lines, limit):
     if not lines:
         return "(empty)"
     summary = " | ".join(lines[:3])
     return clip(summary, limit)
+
+
+def _split_read_result(result):
+    lines = [line.rstrip() for line in str(result).splitlines() if line.strip()]
+    if not lines:
+        return "", [], []
+    header = lines[0].strip() if lines[0].strip().startswith("# ") else ""
+    body_lines = lines[1:] if header else lines
+    return header[2:].strip() if header else "", body_lines, [line.strip() for line in body_lines]
+
+
+def _unline_number_python_body(body_lines):
+    if not body_lines:
+        return None
+    numbered = []
+    for raw_line in body_lines:
+        match = re.match(r"^\s*(\d+): ?(.*)$", raw_line)
+        if match is None:
+            return "\n".join(body_lines)
+        numbered.append((int(match.group(1)), match.group(2)))
+    if not numbered or numbered[0][0] != 1:
+        return None
+    return "\n".join(line for _, line in numbered)
+
+
+def _capped_names(names):
+    names = list(names)
+    shown = names[:PYTHON_SUMMARY_ITEM_LIMIT]
+    value = ",".join(shown)
+    remaining = len(names) - len(shown)
+    if remaining > 0:
+        value += f" (+{remaining})"
+    return value
+
+
+def _assignment_targets(node):
+    if isinstance(node, ast.Assign):
+        targets = node.targets
+    elif isinstance(node, ast.AnnAssign):
+        targets = [node.target]
+    else:
+        return []
+    names = []
+    for target in targets:
+        if isinstance(target, ast.Name) and target.id.isupper():
+            names.append(target.id)
+    return names
+
+
+def _python_import_name(node):
+    if isinstance(node, ast.Import):
+        return [alias.name.split(".", 1)[0] for alias in node.names]
+    if isinstance(node, ast.ImportFrom) and node.module:
+        return [node.module.split(".", 1)[0]]
+    return []
+
+
+def _summarize_python_source(source, limit):
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return ""
+
+    imports = []
+    classes = []
+    funcs = []
+    constants = []
+    for node in tree.body:
+        imports.extend(_python_import_name(node))
+        if isinstance(node, ast.ClassDef):
+            classes.append(node.name)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            funcs.append(node.name)
+        constants.extend(_assignment_targets(node))
+
+    parts = []
+    for label, names in (
+        ("imports", _dedupe_preserve_order(imports)),
+        ("classes", classes),
+        ("funcs", funcs),
+        ("constants", constants),
+    ):
+        if names:
+            parts.append(f"{label}={_capped_names(names)}")
+    if not parts:
+        return ""
+
+    while parts:
+        summary = "Python: " + "; ".join(parts)
+        if len(summary) <= limit:
+            return summary
+        parts.pop()
+    return clip("Python: structure", limit)
+
+
+def summarize_read_result(result, limit=180, complete_file=False):
+    # 我们不会把完整文件内容塞进记忆层，
+    # 这里只保留足够提醒下一轮“刚刚读到了什么”的短摘要。
+    path_hint, body_lines, fallback_lines = _split_read_result(result)
+    if complete_file and path_hint.endswith(".py"):
+        source = _unline_number_python_body(body_lines)
+        if source is not None:
+            summary = _summarize_python_source(source, limit)
+            if summary:
+                return summary
+    return _fallback_read_summary(fallback_lines, limit)
 
 
 def retrieval_candidates(state, query, limit=3, workspace_root=None):

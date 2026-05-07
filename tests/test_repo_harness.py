@@ -55,6 +55,62 @@ def test_agent_runs_tool_then_final(tmp_path):
     assert "hello.txt" in agent.session["memory"]["files"]
 
 
+def test_agent_stores_bounded_python_file_summary_after_read(tmp_path):
+    path = tmp_path / "worker.py"
+    path.write_text(
+        "import json\n"
+        "from pathlib import Path\n\n"
+        "DEFAULT_LIMIT = 3\n\n"
+        "class Worker:\n"
+        "    pass\n\n"
+        "def build_worker():\n"
+        "    return Worker()\n",
+        encoding="utf-8",
+    )
+    agent = build_agent(
+        tmp_path,
+        [
+            '<tool>{"name":"read_file","args":{"path":"worker.py","start":1,"end":20}}</tool>',
+            "<final>Read worker.py.</final>",
+        ],
+    )
+
+    assert agent.ask("Inspect worker.py") == "Read worker.py."
+    summary = agent.session["memory"]["file_summaries"]["worker.py"]["summary"]
+
+    assert summary == "Python: imports=json,pathlib; classes=Worker; funcs=build_worker; constants=DEFAULT_LIMIT"
+    assert len(summary) <= 180
+    assert summary in agent.memory.render_memory_text()
+
+    path.write_text("print('changed')\n", encoding="utf-8")
+
+    assert summary not in agent.memory.render_memory_text()
+
+
+def test_agent_keeps_python_partial_reads_as_legacy_summary(tmp_path):
+    path = tmp_path / "large.py"
+    path.write_text(
+        "import json\n\n"
+        "class VisiblePrefix:\n"
+        "    pass\n\n"
+        "def later_function():\n"
+        "    return VisiblePrefix()\n",
+        encoding="utf-8",
+    )
+    agent = build_agent(
+        tmp_path,
+        [
+            '<tool>{"name":"read_file","args":{"path":"large.py","start":1,"end":4}}</tool>',
+            "<final>Read part of large.py.</final>",
+        ],
+    )
+
+    assert agent.ask("Inspect the top of large.py") == "Read part of large.py."
+    summary = agent.session["memory"]["file_summaries"]["large.py"]["summary"]
+
+    assert summary == "1: import json | 2: | 3: class VisiblePrefix:"
+
+
 def test_agent_updates_task_summary_on_each_request(tmp_path):
     agent = build_agent(
         tmp_path,

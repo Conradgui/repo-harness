@@ -158,6 +158,12 @@ repo-harness> /memory_explain pytest windows shell
 
 Explainable Retrieval v1 只解释当前轻量 lexical retrieval 的选择过程，不会写入或重排 memory。输出中的 `score_breakdown` 展示 tag match、keyword overlap、recency、kind 等分项信号；`source` 和 `selected_explanations` 用来说明被选中的 memory、来源 topic 或 session 来源。维护者排障时可以把 durable `source` topic slug 追踪到 `.repo-harness/memory/topics/<topic>.md`。
 
+### Python 文件摘要为什么更短也更有用
+
+RepoHarness 读取完整 Python 文件后，会把 `file_summaries` 写成受限的结构摘要，例如 imports、classes、functions 和 constants。它仍然是短工作记忆：不保存函数体，不保存 docstring 长文本，不提高 memory 预算，也不会替代下一次必要的文件读取。
+
+这条路径只在确认读取了完整 `.py` 文件时启用。Python 片段、解析失败或非 Python 文件会继续使用原来的前三行摘要。所有文件摘要仍然绑定 freshness hash；文件被修改后，旧摘要不会继续出现在下一轮 memory 文本里。
+
 ## 常见使用场景
 
 ### 分析测试失败
