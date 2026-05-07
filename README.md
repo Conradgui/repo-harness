@@ -25,20 +25,6 @@
   - OpenAI 兼容 Responses API
   - Anthropic 兼容 Messages API
 
-## 使用截图
-
-CLI 帮助信息：
-
-![repo-harness help](assets/screenshots/repo-harness-help.png)
-
-启动界面：
-
-![repo-harness start](assets/screenshots/repo-harness-start.png)
-
-REPL 内置命令与会话路径：
-
-![repo-harness repl](assets/screenshots/repo-harness-repl.png)
-
 ## 安装
 
 需要 Python 3.10+。
@@ -222,9 +208,6 @@ uv run repo-harness --provider anthropic
 
 这些内容默认只保存在本地。
 
-## Agent 指令文件
-
-RepoHarness 会在构建工作区快照时读取可选的 `AGENTS.md`（复数）作为仓库级 agent 指令。这个文件不是运行必需文件；当前仓库没有提交 `AGENTS.md` 或 `AGENT.md` 时，RepoHarness 会继续使用内置 runtime 规则、README 和 `pyproject.toml`。
 
 ## 开发
 
