@@ -26,7 +26,7 @@ uv run repo-harness
 Windows PowerShell：
 
 ```powershell
-cd C:\Users\Administrator\Desktop\cc\P1test
+cd /path/to/repo-harness
 uv sync
 uv run python -m repo_harness --help
 uv run repo-harness
@@ -35,7 +35,7 @@ uv run repo-harness
 Windows CMD：
 
 ```bat
-cd /d C:\Users\Administrator\Desktop\cc\P1test
+cd /d /path/to/repo-harness
 uv sync
 uv run python -m repo_harness --help
 uv run repo-harness
@@ -230,9 +230,6 @@ Agent Harness 不是某一个模型，而是模型之外的执行编排层。Rep
 
 这是从产品可信度出发的设计。coding agent 会读写本地文件、执行 shell 命令，如果没有审批和路径约束，风险不可接受；如果没有 trace 和 report，失败后无法复盘；如果没有 memory 和 checkpoint，长会话会反复读取同样信息，恢复能力也弱。RepoHarness 把这些能力做成默认工程机制，而不是依赖用户手工记忆。
 
-### Q：从 0 到 1 主导 RepoHarness 能体现哪些 AI 产品经理能力？
-
-这个项目体现的是从问题定义到可运行系统的完整闭环：识别本地代码助手的真实使用场景，拆解 Agent Harness 的关键模块，定义工具权限和安全边界，设计 session / memory / report 等可复盘机制，建立 benchmark 和测试基线，并继续推进 Windows 适配这类工程化迭代。对 AI 产品经理来说，价值在能把模型能力产品化、工程化、可验证化。
 
 ## 指标口径说明
 
