@@ -60,7 +60,7 @@ pip install -e .
 
 ## 快速开始
 
-下面的 `uv run ...` 命令需要在 `repo-harness` 项目根目录执行，也就是当前目录下能看到 `pyproject.toml` 和 `repo_harness/` 包目录。比如这个仓库在 Windows 上位于 `C:\Users\Administrator\Desktop\cc\P1test` 时，先进入该目录，再运行命令。
+下面的 `uv run ...` 命令需要在 `repo-harness` 项目根目录执行，也就是当前目录下能看到 `pyproject.toml` 和 `repo_harness/` 包目录。先进入项目根目录，再运行命令。
 
 更完整的首次配置流程见 [RepoHarness 新手指南](docs/getting-started.md)。
 
@@ -96,7 +96,7 @@ python -m repo_harness
 PowerShell 使用 `$env:` 设置当前终端会话的环境变量：
 
 ```powershell
-cd C:\Users\Administrator\Desktop\cc\P1test
+cd C:\path\to\repo-harness
 $env:OPENAI_API_KEY="your-api-key"
 $env:OPENAI_API_BASE="https://your-api.example/v1"
 $env:OPENAI_MODEL="gpt-5.4"
@@ -115,7 +115,7 @@ uv run repo-harness --cwd C:\path\to\repo
 CMD 使用 `set` 设置当前终端会话的环境变量：
 
 ```bat
-cd /d C:\Users\Administrator\Desktop\cc\P1test
+cd /d C:\path\to\repo-harness
 set OPENAI_API_KEY=your-api-key
 set OPENAI_API_BASE=https://your-api.example/v1
 set OPENAI_MODEL=gpt-5.4
@@ -175,7 +175,7 @@ uv run repo-harness --provider openai
 macOS / Linux：
 
 ```bash
-export ANTHROPIC_API_BASE="https://www.right.codes/claude/v1"
+export ANTHROPIC_API_BASE="https://your-anthropic-compatible.example/v1"
 export ANTHROPIC_API_KEY="your-api-key"
 export ANTHROPIC_MODEL="claude-sonnet-4-6"
 uv run repo-harness --provider anthropic
@@ -184,7 +184,7 @@ uv run repo-harness --provider anthropic
 Windows PowerShell：
 
 ```powershell
-$env:ANTHROPIC_API_BASE="https://www.right.codes/claude/v1"
+$env:ANTHROPIC_API_BASE="https://your-anthropic-compatible.example/v1"
 $env:ANTHROPIC_API_KEY="your-api-key"
 $env:ANTHROPIC_MODEL="claude-sonnet-4-6"
 uv run repo-harness --provider anthropic
@@ -193,13 +193,13 @@ uv run repo-harness --provider anthropic
 Windows CMD：
 
 ```bat
-set ANTHROPIC_API_BASE=https://www.right.codes/claude/v1
+set ANTHROPIC_API_BASE=https://your-anthropic-compatible.example/v1
 set ANTHROPIC_API_KEY=your-api-key
 set ANTHROPIC_MODEL=claude-sonnet-4-6
 uv run repo-harness --provider anthropic
 ```
 
-如果你的服务端对多个兼容接口复用了同一套密钥，`repo-harness` 也支持从 `ANTHROPIC_API_KEY` 回退到 `RIGHT_CODES_API_KEY` 或 `OPENAI_API_KEY`。
+如果你的服务端对多个兼容接口复用了同一套密钥，`repo-harness` 也支持按当前 provider 的 API Key 环境变量读取密钥。
 
 ## 常用交互命令
 

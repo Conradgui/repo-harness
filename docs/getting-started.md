@@ -26,7 +26,7 @@ uv run repo-harness
 Windows PowerShell：
 
 ```powershell
-cd C:\Users\Administrator\Desktop\cc\P1test
+cd C:\path\to\repo-harness
 uv sync
 uv run python -m repo_harness --help
 uv run repo-harness
@@ -35,13 +35,13 @@ uv run repo-harness
 Windows CMD：
 
 ```bat
-cd /d C:\Users\Administrator\Desktop\cc\P1test
+cd /d C:\path\to\repo-harness
 uv sync
 uv run python -m repo_harness --help
 uv run repo-harness
 ```
 
-如果你在 `C:\Users\Administrator` 这类非项目目录直接运行 `uv run python -m repo_harness --help`，Python 找不到当前仓库里的 `repo_harness` 包，可能会看到 `No module named repo_harness` 或 `program not found`。解决方式不是改代码，而是先进入项目根目录，或者先执行 `pip install -e .` 把包安装到当前 Python 环境。
+如果你在 `C:\Users\YourName` 这类非项目目录直接运行 `uv run python -m repo_harness --help`，Python 找不到当前仓库里的 `repo_harness` 包，可能会看到 `No module named repo_harness` 或 `program not found`。解决方式不是改代码，而是先进入项目根目录，或者先执行 `pip install -e .` 把包安装到当前 Python 环境。
 
 ## 三类模型后端怎么配置
 
@@ -94,13 +94,13 @@ uv run repo-harness --provider openai
 
 ### Anthropic 兼容接口
 
-Anthropic-compatible provider 默认模型是 `claude-sonnet-4-6`。密钥读取顺序是 `ANTHROPIC_API_KEY`、`RIGHT_CODES_API_KEY`、`OPENAI_API_KEY`，这样可以兼容复用同一套服务端密钥的部署方式。
+Anthropic-compatible provider 默认模型是 `claude-sonnet-4-6`。示例中的 API 地址请替换成你实际使用的 Anthropic-compatible 服务地址。
 
 macOS / Linux：
 
 ```bash
 export ANTHROPIC_API_KEY="your-api-key"
-export ANTHROPIC_API_BASE="https://www.right.codes/claude/v1"
+export ANTHROPIC_API_BASE="https://your-anthropic-compatible.example/v1"
 export ANTHROPIC_MODEL="claude-sonnet-4-6"
 uv run repo-harness --provider anthropic
 ```
@@ -109,7 +109,7 @@ Windows PowerShell：
 
 ```powershell
 $env:ANTHROPIC_API_KEY="your-api-key"
-$env:ANTHROPIC_API_BASE="https://www.right.codes/claude/v1"
+$env:ANTHROPIC_API_BASE="https://your-anthropic-compatible.example/v1"
 $env:ANTHROPIC_MODEL="claude-sonnet-4-6"
 uv run repo-harness --provider anthropic
 ```
@@ -118,7 +118,7 @@ Windows CMD：
 
 ```bat
 set ANTHROPIC_API_KEY=your-api-key
-set ANTHROPIC_API_BASE=https://www.right.codes/claude/v1
+set ANTHROPIC_API_BASE=https://your-anthropic-compatible.example/v1
 set ANTHROPIC_MODEL=claude-sonnet-4-6
 uv run repo-harness --provider anthropic
 ```

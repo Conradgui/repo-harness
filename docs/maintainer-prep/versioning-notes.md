@@ -40,9 +40,9 @@
 
 #### 基线信息
 
-- 工作分支：`codex/pico/cross-platform-hardening`
-- GitHub 存档 remote：`github`
-- GitHub 存档仓库：`https://github.com/Conradgui/repo-harness-test-.git`
+- 工作分支：`<archive-work-branch>`
+- GitHub 存档 remote：`<archive-remote>`
+- GitHub 存档仓库：`https://github.com/<owner>/<repo-archive>.git`
 - 重命名前基线 tag：`archive-before-repoharness-rename-20260503`
 - tag 指向提交：`9d78e0f49cf147cb671531e05251d4d0b43220d3`
 
