@@ -129,8 +129,8 @@
       "fixture_repo": "tests/fixtures/bench_repo_readme",
       "allowed_tools": ["read_file"],
       "step_budget": 2,
-      "expected_artifact": "README.md fixture stays available while durable promotion succeeds",
-      "verifier": "python3 -c \"import json; from pathlib import Path; report = json.loads(next(Path('.repo-harness/runs').glob('*/report.json')).read_text(encoding='utf-8')); conventions = Path('.repo-harness/memory/topics/project-conventions.md').read_text(encoding='utf-8'); assert len(report['durable_promotions']) == 2; assert 'Preserve benchmark regression artifacts under artifacts/.' in conventions\"",
+      "expected_artifact": "README.md fixture stays available while durable candidates enter review queue",
+      "verifier": "python3 -c \"import json; from pathlib import Path; report = json.loads(next(Path('.repo-harness/runs').glob('*/report.json')).read_text(encoding='utf-8')); queue = [json.loads(line) for line in Path('.repo-harness/memory/review-queue.jsonl').read_text(encoding='utf-8').splitlines()]; assert report['durable_promotions'] == []; assert len(report['durable_review_queued']) == 2; assert all(item['status'] == 'pending' for item in queue); assert 'Preserve benchmark regression artifacts under artifacts/.' in queue[0]['text']\"",
       "category": "durable-contract"
     },
     {
@@ -139,8 +139,8 @@
       "fixture_repo": "tests/fixtures/bench_repo_readme",
       "allowed_tools": ["read_file"],
       "step_budget": 2,
-      "expected_artifact": "README.md fixture stays available while durable rejection is recorded",
-      "verifier": "python3 -c \"import json; from pathlib import Path; report = json.loads(next(Path('.repo-harness/runs').glob('*/report.json')).read_text(encoding='utf-8')); assert report['durable_rejections'] == ['dependency-facts:secret_shaped', 'key-decisions:transient_task_state']; assert report['durable_promotions'] == ['project-conventions: Keep verifier outcomes stable across reruns.']\"",
+      "expected_artifact": "README.md fixture stays available while durable rejection and review queue are recorded",
+      "verifier": "python3 -c \"import json; from pathlib import Path; report = json.loads(next(Path('.repo-harness/runs').glob('*/report.json')).read_text(encoding='utf-8')); queue = [json.loads(line) for line in Path('.repo-harness/memory/review-queue.jsonl').read_text(encoding='utf-8').splitlines()]; assert report['durable_rejections'] == ['dependency-facts:secret_shaped', 'key-decisions:transient_task_state']; assert report['durable_promotions'] == []; assert report['durable_review_queued'] == ['project-conventions: Keep verifier outcomes stable across reruns.']; assert [item['text'] for item in queue] == ['Keep verifier outcomes stable across reruns.']\"",
       "category": "durable-contract"
     }
   ]

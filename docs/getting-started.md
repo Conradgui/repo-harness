@@ -140,6 +140,7 @@ repo-harness> update the docs for Windows PowerShell usage
 
 - `/help`：查看 REPL 内置命令。
 - `/memory`：查看当前会话提炼出来的工作记忆。
+- `/memory review`：审核 pending durable memory 候选，确认后才写入长期记忆。
 - `/memory_explain <query>`：查看 Explainable Retrieval v1 如何为某个查询选择 memory。
 - `/memory_pack` 或 `/memory-pack`：打开 memory pack 菜单，用于导出、导入、检查或验证记忆包。
 - `/session`：查看当前 session 文件路径。
@@ -156,13 +157,23 @@ repo-harness> update the docs for Windows PowerShell usage
 repo-harness> /memory_explain pytest windows shell
 ```
 
-Explainable Retrieval v1 只解释当前轻量 lexical retrieval 的选择过程，不会写入或重排 memory。输出中的 `score_breakdown` 展示 tag match、keyword overlap、recency、kind 等分项信号；`source` 和 `selected_explanations` 用来说明被选中的 memory、来源 topic 或 session 来源。维护者排障时可以把 durable `source` topic slug 追踪到 `.repo-harness/memory/topics/<topic>.md`。
+Explainable Retrieval v1 只解释当前轻量 lexical retrieval 的选择过程，不会写入或重排 memory。输出中的 `score_breakdown` 展示 tag match、keyword overlap、recency、kind 等分项信号；`source` 和 `selected_explanations` 用来说明被选中的 memory、来源 topic 或 session 来源。检索会对大小写、分隔符和 camelCase / PascalCase 做确定性归一化，例如 `memory-pack`、`memory_pack`、`MemoryPack` 和 `memory pack` 可以互相召回；它不做 edit distance、同义词表或 semantic retrieval。维护者排障时可以把 durable `source` topic slug 追踪到 `.repo-harness/memory/topics/<topic>.md`。
 
-### Python 文件摘要为什么更短也更有用
+### 审核长期记忆候选
+
+当你明确要求 RepoHarness 保存长期记忆时，系统会先把候选写入 `.repo-harness/memory/review-queue.jsonl`，不会立刻污染 durable topics。之后可以在 REPL 里输入：
+
+```text
+repo-harness> /memory review
+```
+
+逐条选择 `accept`、`edit`、`reject` 或 `skip`。只有 `accept` 或 `edit` 后的内容会写入 `.repo-harness/memory/topics/*.md`。Pending queue 不进入 prompt memory、不参与 `/memory_explain`，也不会被 `safe-transfer` memory pack 导出。
+
+### 文件摘要为什么更短也更有用
 
 RepoHarness 读取完整 Python 文件后，会把 `file_summaries` 写成受限的结构摘要，例如 imports、classes、functions 和 constants。它仍然是短工作记忆：不保存函数体，不保存 docstring 长文本，不提高 memory 预算，也不会替代下一次必要的文件读取。
 
-这条路径只在确认读取了完整 `.py` 文件时启用。Python 片段、解析失败或非 Python 文件会继续使用原来的前三行摘要。所有文件摘要仍然绑定 freshness hash；文件被修改后，旧摘要不会继续出现在下一轮 memory 文本里。
+这条路径只在确认读取了完整文件时启用。除 Python AST 摘要外，Markdown 会提取 ATX headings，config 文件会提取浅层 keys / sections，Python 测试文件会优先提取 test names。片段读取、解析失败或没有可提取结构时会继续使用原来的前三行摘要。所有文件摘要仍然绑定 freshness hash；文件被修改后，旧摘要不会继续出现在下一轮 memory 文本里。
 
 ## 常见使用场景
 

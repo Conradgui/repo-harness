@@ -9,7 +9,7 @@
 ## 更新规则
 
 - 新增维护者文档时，先在本 README 中补目录说明。
-- 任何改变公开入口、CLI/REPL 命令、本地状态目录、持久化格式、记忆系统、运行工件或安全边界的代码更新，都必须同步检查 README、getting-started、architecture、review-pack 和 maintainer-prep 文档是否需要更新。
+- 任何改变公开入口、CLI/REPL 命令、本地状态目录、持久化格式、记忆系统、运行工件或安全边界的代码更新，都必须同步检查 README、getting-started、architecture、review-pack 和 maintainer-prep 文档是否需要更新；如果变更涉及记忆系统，还必须检查 `memory-system-new-window-handoff.md` 是否需要同步。
 - 文档同步是功能完成后的必需门禁。不能只完成代码和测试而跳过文档；如果判断某个文档不需要改，应在修复摘要或提交说明中写明原因。
 - 阶段性文档变更使用独立 `docs:` 提交。
 - 记录型文档以追加为主，历史记录中的路径、命令、包名和判断口径代表当时版本事实。
@@ -24,6 +24,7 @@
 - `project-study-sop.md`：项目学习 SOP，按日期记录维护者理解项目的推荐路径。
 - `windows-compatibility.md`：Windows 兼容性记录，按日期记录 Windows 适配策略、验证命令和已知边界。
 - `memory-system-iteration-roadmap.md`：记忆系统迭代路线，记录 memory pack、记忆治理和后续记忆智能能力的边界与推进顺序。
+- `memory-system-new-window-handoff.md`：记忆系统新窗口交接文档，作为后续维护窗口的快速上下文入口；README、getting-started、roadmap、patch-summary 或记忆系统能力更新时必须同步检查它是否需要更新。
 
 ## 2026-05-03：目录基线
 
@@ -41,4 +42,5 @@ Memory Pack v1 之后，维护者工作流增加一个硬性收尾步骤：代�
 - `docs/getting-started.md` 是否覆盖首次使用者需要知道的命令、风险和恢复方式。
 - `docs/architecture/agent-harness-v1-overview.md` 或 review-pack 是否需要记录新的状态目录、运行工件或架构边界。
 - `docs/maintainer-prep/*` 是否需要追加维护者决策、修复摘要、changelog 草案或后续路线。
+- 如果更新 README、getting-started、memory roadmap、patch-summary 或任何记忆系统相关文档，必须同步检查 `docs/maintainer-prep/memory-system-new-window-handoff.md` 是否仍与当前事实一致。
 - 测试是否需要保护关键文档资产，避免文档再次落后于代码。

@@ -22,7 +22,21 @@
 - README 和新手指南中的 Windows 示例不再使用维护者本机绝对路径，改为通用占位符。
 - 维护者文档中的个人归档仓库、开发分支和本机 file link 已改为占位符或仓库相对路径。
 - Anthropic-compatible 示例不再写死具体服务商 endpoint 或专用 API Key 名称。
-- 未跟踪的新窗口 handoff 文档不纳入提交；如未来提交，需要先单独清理本机路径和推送命令。
+- 新窗口 handoff 文档此前未纳入提交；后续纳入维护者文档体系时，需要同步清理本机路径和推送命令。
+
+### 2026-05-12：Memory Intelligence v1
+
+#### 已新增
+
+- Code-Aware File Summaries 补齐 Markdown、config 和 Python test file 结构摘要。
+- Durable memory 候选先进入 Review Queue，用户通过 `/memory review` accept/edit 后才写入 durable topics。
+- `memory-system-new-window-handoff.md` 纳入维护者文档体系，作为后续记忆系统维护窗口的快速上下文入口。
+
+#### 行为边界
+
+- 不做 Topic Configuration、Semantic Retrieval、edit distance、同义词表、embedding 或 vector DB。
+- Pending review queue 不进入 prompt memory、不参与 `/memory_explain`，也不进入 `safe-transfer` memory pack。
+- README、getting-started、memory roadmap、patch-summary 或记忆系统能力更新时，必须同步检查 handoff 文档是否需要更新。
 
 ### 2026-05-07：Code-Aware File Summaries v1
 

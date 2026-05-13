@@ -224,6 +224,22 @@ def assert_member_under_payload(names, suffix):
 def test_safe_transfer_export_contains_only_durable_memory(tmp_path):
     api = memory_pack_api()
     write_durable_memory(tmp_path)
+    review_queue = tmp_path / ".repo-harness" / "memory" / "review-queue.jsonl"
+    review_queue.write_text(
+        json.dumps(
+            {
+                "schema_version": "durable-review-queue-v1",
+                "id": "dmq-test",
+                "created_at": "2026-05-12T00:00:00+00:00",
+                "topic": "project-conventions",
+                "text": "Pending candidates are not exported.",
+                "source": {"run_id": "run-test"},
+                "status": "pending",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     write_session(tmp_path)
     write_run_artifacts(tmp_path)
 
@@ -250,6 +266,7 @@ def test_safe_transfer_export_contains_only_durable_memory(tmp_path):
     assert MANIFEST_NAME in names
     assert_member_under_payload(names, "durable_knowledge/MEMORY.md")
     assert_member_under_payload(names, "durable_knowledge/topics/project-conventions.md")
+    assert not any("review-queue" in name for name in names)
     assert not any("/sessions/" in name or name.startswith("payload/resume_state/") for name in names)
     assert not any("/runs/" in name or name.startswith("payload/run_artifacts/") for name in names)
     assert not any("working_context" in name for name in names)

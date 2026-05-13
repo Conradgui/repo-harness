@@ -87,6 +87,73 @@ def test_agent_stores_bounded_python_file_summary_after_read(tmp_path):
     assert summary not in agent.memory.render_memory_text()
 
 
+def test_agent_stores_markdown_structure_summary_after_complete_read(tmp_path):
+    path = tmp_path / "notes.md"
+    path.write_text(
+        "# Roadmap\n\n"
+        "```sh\n"
+        "# Not a heading\n"
+        "```\n\n"
+        "## Phase 1\n"
+        "## Phase 2\n",
+        encoding="utf-8",
+    )
+    agent = build_agent(
+        tmp_path,
+        [
+            '<tool>{"name":"read_file","args":{"path":"notes.md","start":1,"end":20}}</tool>',
+            "<final>Read notes.md.</final>",
+        ],
+    )
+
+    assert agent.ask("Inspect notes.md") == "Read notes.md."
+    summary = agent.session["memory"]["file_summaries"]["notes.md"]["summary"]
+
+    assert summary == "Markdown: headings=Roadmap,Phase 1,Phase 2"
+    assert summary in agent.memory.render_memory_text()
+
+    path.write_text("# Changed\n", encoding="utf-8")
+
+    assert summary not in agent.memory.render_memory_text()
+
+
+def test_agent_stores_config_and_test_file_structure_summaries_after_complete_reads(tmp_path):
+    (tmp_path / "package.json").write_text(
+        '{"name":"demo","scripts":{},"dependencies":{}}\n',
+        encoding="utf-8",
+    )
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_sample.py").write_text(
+        "def helper():\n"
+        "    pass\n\n"
+        "def test_top_level():\n"
+        "    pass\n\n"
+        "class TestWorkflow:\n"
+        "    def test_runs(self):\n"
+        "        pass\n",
+        encoding="utf-8",
+    )
+    agent = build_agent(
+        tmp_path,
+        [
+            '<tool>{"name":"read_file","args":{"path":"package.json","start":1,"end":20}}</tool>',
+            "<final>Read package.json.</final>",
+            '<tool>{"name":"read_file","args":{"path":"tests/test_sample.py","start":1,"end":20}}</tool>',
+            "<final>Read tests/test_sample.py.</final>",
+        ],
+    )
+
+    assert agent.ask("Inspect package.json") == "Read package.json."
+    assert agent.session["memory"]["file_summaries"]["package.json"]["summary"] == "Config: keys=name,scripts,dependencies"
+
+    assert agent.ask("Inspect tests/test_sample.py") == "Read tests/test_sample.py."
+    assert (
+        agent.session["memory"]["file_summaries"]["tests/test_sample.py"]["summary"]
+        == "Tests: tests=test_top_level,TestWorkflow.test_runs; classes=TestWorkflow"
+    )
+
+
 def test_agent_keeps_python_partial_reads_as_legacy_summary(tmp_path):
     path = tmp_path / "large.py"
     path.write_text(
@@ -1485,7 +1552,14 @@ def test_partial_success_creates_process_note_for_exploration_history(tmp_path):
     assert "README.md" in process_notes[-1]["tags"]
 
 
-def test_explicit_memory_promotion_persists_durable_memory_topics(tmp_path):
+def read_review_queue(workspace_root):
+    queue_path = workspace_root / ".repo-harness" / "memory" / "review-queue.jsonl"
+    if not queue_path.exists():
+        return []
+    return [json.loads(line) for line in queue_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def test_explicit_memory_promotion_queues_durable_memory_review_candidates(tmp_path):
     agent = build_agent(
         tmp_path,
         [
@@ -1506,14 +1580,21 @@ def test_explicit_memory_promotion_persists_durable_memory_topics(tmp_path):
     conventions_path = tmp_path / ".repo-harness" / "memory" / "topics" / "project-conventions.md"
     decisions_path = tmp_path / ".repo-harness" / "memory" / "topics" / "key-decisions.md"
     report = json.loads(agent.run_store.report_path(agent.current_task_state).read_text(encoding="utf-8"))
+    queue = read_review_queue(tmp_path)
 
-    assert index_path.exists()
-    assert conventions_path.exists()
-    assert decisions_path.exists()
-    assert "project-conventions" in index_path.read_text(encoding="utf-8")
-    assert "Use constrained tools instead of guessing." in conventions_path.read_text(encoding="utf-8")
-    assert "Keep durable memory topic-based and lightweight." in decisions_path.read_text(encoding="utf-8")
-    assert report["durable_promotions"] == [
+    assert not index_path.exists()
+    assert not conventions_path.exists()
+    assert not decisions_path.exists()
+    assert [record["schema_version"] for record in queue] == ["durable-review-queue-v1"] * 3
+    assert [record["status"] for record in queue] == ["pending", "pending", "pending"]
+    assert [f"{record['topic']}: {record['text']}" for record in queue] == [
+        "project-conventions: Use constrained tools instead of guessing.",
+        "project-conventions: Preserve local agent state under .repo-harness/.",
+        "key-decisions: Keep durable memory topic-based and lightweight.",
+    ]
+    assert all(isinstance(record["source"], dict) and record["source"].get("run_id") for record in queue)
+    assert report["durable_promotions"] == []
+    assert report["durable_review_queued"] == [
         "project-conventions: Use constrained tools instead of guessing.",
         "project-conventions: Preserve local agent state under .repo-harness/.",
         "key-decisions: Keep durable memory topic-based and lightweight.",
@@ -1533,11 +1614,13 @@ def test_explicit_memory_promotion_supports_chinese_intent_and_labels(tmp_path):
 
     assert "项目约定：" in answer
 
-    conventions_path = tmp_path / ".repo-harness" / "memory" / "topics" / "project-conventions.md"
-    decisions_path = tmp_path / ".repo-harness" / "memory" / "topics" / "key-decisions.md"
+    queue = read_review_queue(tmp_path)
 
-    assert "优先使用受约束工具，不要靠猜。" in conventions_path.read_text(encoding="utf-8")
-    assert "持久记忆保持轻量、按 topic 管理。" in decisions_path.read_text(encoding="utf-8")
+    assert [f"{record['topic']}: {record['text']}" for record in queue] == [
+        "project-conventions: 优先使用受约束工具，不要靠猜。",
+        "key-decisions: 持久记忆保持轻量、按 topic 管理。",
+    ]
+    assert not (tmp_path / ".repo-harness" / "memory" / "topics").exists()
 
 
 def test_explicit_memory_promotion_rejects_secret_shaped_and_transient_lines(tmp_path):
@@ -1554,10 +1637,11 @@ def test_explicit_memory_promotion_rejects_secret_shaped_and_transient_lines(tmp
     agent.ask("Capture these stable facts into durable memory.")
 
     report = json.loads(agent.run_store.report_path(agent.current_task_state).read_text(encoding="utf-8"))
-    conventions_path = tmp_path / ".repo-harness" / "memory" / "topics" / "project-conventions.md"
     dependency_path = tmp_path / ".repo-harness" / "memory" / "topics" / "dependency-facts.md"
+    queue = read_review_queue(tmp_path)
 
-    assert report["durable_promotions"] == [
+    assert report["durable_promotions"] == []
+    assert report["durable_review_queued"] == [
         "project-conventions: Use constrained tools instead of guessing.",
     ]
     assert report["durable_rejections"] == [
@@ -1565,7 +1649,10 @@ def test_explicit_memory_promotion_rejects_secret_shaped_and_transient_lines(tmp
         "key-decisions:transient_task_state",
         "dependency-facts:noisy_output",
     ]
-    assert "Use constrained tools instead of guessing." in conventions_path.read_text(encoding="utf-8")
+    assert [record["text"] for record in queue] == ["Use constrained tools instead of guessing."]
+    assert "sk-live-secret" not in json.dumps(queue)
+    assert "Current goal" not in json.dumps(queue)
+    assert "stdout" not in json.dumps(queue)
     assert not dependency_path.exists()
 
 
@@ -1579,15 +1666,18 @@ def test_explicit_memory_promotion_supersedes_matching_durable_fact(tmp_path):
     )
 
     assert agent.ask("Capture this stable dependency fact into durable memory.") == "Dependency: Python runtime is 3.11."
+    first_result = agent.memory_review_accept(read_review_queue(tmp_path)[0]["id"])
+
     assert agent.ask("Save the updated dependency fact into durable memory.") == "Dependency: Python runtime is 3.12."
+    second_result = agent.memory_review_accept(agent.memory_review_pending()[0]["id"])
 
     dependency_path = tmp_path / ".repo-harness" / "memory" / "topics" / "dependency-facts.md"
-    report = json.loads(agent.run_store.report_path(agent.current_task_state).read_text(encoding="utf-8"))
     text = dependency_path.read_text(encoding="utf-8")
 
+    assert first_result["promoted"] == ["dependency-facts: Python runtime is 3.11."]
     assert "Python runtime is 3.12." in text
     assert "Python runtime is 3.11." not in text
-    assert report["durable_superseded"] == [
+    assert second_result["superseded"] == [
         "dependency-facts: Python runtime is 3.11. -> Python runtime is 3.12.",
     ]
 
@@ -1602,12 +1692,88 @@ def test_explicit_memory_promotion_dedupes_duplicate_durable_note(tmp_path):
     )
 
     agent.ask("Capture the stable fact into durable memory.")
+    agent.memory_review_accept(read_review_queue(tmp_path)[0]["id"])
     agent.ask("Capture the stable fact into durable memory again.")
+    agent.memory_review_accept(agent.memory_review_pending()[0]["id"])
 
     conventions_path = tmp_path / ".repo-harness" / "memory" / "topics" / "project-conventions.md"
     text = conventions_path.read_text(encoding="utf-8")
 
     assert text.count("Use constrained tools instead of guessing.") == 1
+
+
+def test_memory_review_accept_edit_reject_and_skip_control_durable_writes(tmp_path):
+    agent = build_agent(
+        tmp_path,
+        [
+            "<final>Project convention: Use constrained tools.\n"
+            "Decision: Python runtime is 3.11.\n"
+            "Dependency: Package manager is uv.\n"
+            "Preference: Keep explanations concise.</final>",
+        ],
+    )
+
+    agent.ask("Capture these stable facts into durable memory.")
+    pending = agent.memory_review_pending()
+
+    accept_result = agent.memory_review_accept(pending[0]["id"])
+    edit_result = agent.memory_review_edit(
+        pending[1]["id"],
+        topic="dependency-facts",
+        text="Python runtime is 3.12.",
+    )
+    reject_result = agent.memory_review_reject(pending[2]["id"])
+    skip_result = agent.memory_review_skip(pending[3]["id"])
+
+    conventions_path = tmp_path / ".repo-harness" / "memory" / "topics" / "project-conventions.md"
+    dependency_path = tmp_path / ".repo-harness" / "memory" / "topics" / "dependency-facts.md"
+    queue = read_review_queue(tmp_path)
+
+    assert accept_result["promoted"] == ["project-conventions: Use constrained tools."]
+    assert edit_result["promoted"] == ["dependency-facts: Python runtime is 3.12."]
+    assert reject_result["status"] == "rejected"
+    assert skip_result["status"] == "pending"
+    assert "Use constrained tools." in conventions_path.read_text(encoding="utf-8")
+    dependency_text = dependency_path.read_text(encoding="utf-8")
+    assert "Python runtime is 3.12." in dependency_text
+    assert "Python runtime is 3.11." not in dependency_text
+    assert "Package manager is uv." not in dependency_text
+    assert agent.memory_review_pending()[0]["text"] == "Keep explanations concise."
+    assert [record["status"] for record in queue] == ["accepted", "accepted", "rejected", "pending"]
+
+
+def test_memory_review_edit_rejects_secret_shaped_and_transient_text(tmp_path):
+    agent = build_agent(
+        tmp_path,
+        [
+            "<final>Project convention: Use constrained tools.\n"
+            "Dependency: Python runtime is 3.11.</final>",
+        ],
+    )
+
+    agent.ask("Capture these stable facts into durable memory.")
+    pending = agent.memory_review_pending()
+
+    secret_result = agent.memory_review_edit(
+        pending[0]["id"],
+        topic="dependency-facts",
+        text="API key is sk-review-secret.",
+    )
+    transient_result = agent.memory_review_edit(
+        pending[1]["id"],
+        topic="key-decisions",
+        text="Current goal is debug review queue.",
+    )
+
+    queue = read_review_queue(tmp_path)
+    dependency_path = tmp_path / ".repo-harness" / "memory" / "topics" / "dependency-facts.md"
+
+    assert secret_result["status"] == "rejected"
+    assert secret_result["reason"] == "secret_shaped"
+    assert transient_result["status"] == "rejected"
+    assert transient_result["reason"] == "transient_task_state"
+    assert [record["status"] for record in queue] == ["pending", "pending"]
+    assert not dependency_path.exists()
 
 
 def test_agent_records_model_cache_metadata_in_last_prompt_metadata(tmp_path):
@@ -1836,6 +2002,7 @@ def test_repl_help_mentions_memory_pack_menu():
     assert "/memory_pack" in mini_cli.HELP_DETAILS
     assert "memory packs" in mini_cli.HELP_DETAILS
     assert "/memory_explain <query>" in mini_cli.HELP_DETAILS
+    assert "/memory review" in mini_cli.HELP_DETAILS
 
 
 def test_repl_memory_pack_aliases_show_menu_without_model_call(tmp_path, capsys):
@@ -1871,6 +2038,63 @@ def test_repl_memory_explain_is_read_only_and_does_not_call_model(tmp_path, caps
     assert "usage: /memory_explain <query>" in output
 
 
+def test_repl_memory_review_accepts_pending_candidate_without_model_call(tmp_path, capsys):
+    agent = build_agent(
+        tmp_path,
+        [
+            "<final>Project convention: Use constrained tools instead of guessing.</final>",
+        ],
+    )
+    agent.ask("Capture the stable fact into durable memory.")
+
+    with patch("repo_harness.cli.build_agent", return_value=agent), patch(
+        "repo_harness.cli.build_welcome",
+        return_value="welcome",
+    ), patch("builtins.input", side_effect=["/memory review", "accept", "/exit"]):
+        result = mini_cli.main(["--cwd", str(tmp_path)])
+
+    assert result == 0
+    output = capsys.readouterr().out
+    assert "pending durable memory candidates" in output
+    assert "accepted: project-conventions: Use constrained tools instead of guessing." in output
+    conventions_path = tmp_path / ".repo-harness" / "memory" / "topics" / "project-conventions.md"
+    assert "Use constrained tools instead of guessing." in conventions_path.read_text(encoding="utf-8")
+
+
+def test_repl_memory_review_reports_security_rejected_edit_without_accepting(tmp_path, capsys):
+    agent = build_agent(
+        tmp_path,
+        [
+            "<final>Project convention: Use constrained tools.</final>",
+        ],
+    )
+    agent.ask("Capture the stable fact into durable memory.")
+
+    with patch("repo_harness.cli.build_agent", return_value=agent), patch(
+        "repo_harness.cli.build_welcome",
+        return_value="welcome",
+    ), patch(
+        "builtins.input",
+        side_effect=[
+            "/memory review",
+            "edit",
+            "dependency-facts",
+            "API key is sk-review-secret.",
+            "skip",
+            "/exit",
+        ],
+    ):
+        result = mini_cli.main(["--cwd", str(tmp_path)])
+
+    assert result == 0
+    output = capsys.readouterr().out
+    assert "review action rejected: secret_shaped" in output
+    assert "accepted: dependency-facts" not in output
+    assert "skipped: project-conventions: Use constrained tools." in output
+    assert agent.memory_review_pending()[0]["text"] == "Use constrained tools."
+    assert not (tmp_path / ".repo-harness" / "memory" / "topics" / "dependency-facts.md").exists()
+
+
 def test_memory_pack_docs_cover_repl_cli_presets_and_privacy():
     readme_text = Path("README.md").read_text(encoding="utf-8")
     guide_text = Path("docs/getting-started.md").read_text(encoding="utf-8")
@@ -1890,6 +2114,24 @@ def test_memory_pack_docs_cover_repl_cli_presets_and_privacy():
         "local paths",
         "reports",
         "traces",
+    ]:
+        assert required in combined
+
+
+def test_memory_review_queue_docs_cover_repl_report_and_pending_boundaries():
+    readme_text = Path("README.md").read_text(encoding="utf-8")
+    guide_text = Path("docs/getting-started.md").read_text(encoding="utf-8")
+    roadmap_text = Path("docs/maintainer-prep/memory-system-iteration-roadmap.md").read_text(encoding="utf-8")
+    patch_summary_text = Path("docs/maintainer-prep/patch-summary.md").read_text(encoding="utf-8")
+    combined = "\n".join([readme_text, guide_text, roadmap_text, patch_summary_text])
+
+    for required in [
+        "/memory review",
+        "review-queue.jsonl",
+        "durable-review-queue-v1",
+        "durable_review_queued",
+        "Pending queue",
+        "safe-transfer",
     ]:
         assert required in combined
 
@@ -1914,14 +2156,19 @@ def test_maintainer_docs_make_documentation_sync_a_completion_gate():
     study_sop = Path("docs/maintainer-prep/project-study-sop.md").read_text(encoding="utf-8")
     patch_summary = Path("docs/maintainer-prep/patch-summary.md").read_text(encoding="utf-8")
     changelog = Path("docs/maintainer-prep/changelog-draft.md").read_text(encoding="utf-8")
+    handoff = Path("docs/maintainer-prep/memory-system-new-window-handoff.md").read_text(encoding="utf-8")
 
     assert "memory-system-iteration-roadmap.md" in maintainer_readme
+    assert "memory-system-new-window-handoff.md" in maintainer_readme
     assert "文档同步是功能完成后的必需门禁" in maintainer_readme
+    assert "README、getting-started、memory roadmap、patch-summary" in maintainer_readme
     assert "README" in study_sop
     assert "docs/getting-started.md" in study_sop
     assert "文档健全是长期可维护性的一部分" in study_sop
     assert "Memory Pack v1 与文档同步门禁" in patch_summary
     assert "Memory Pack v1" in changelog
+    assert "Code-Aware File Summaries v1 已完成" in handoff
+    assert "后续仍可补" not in handoff
 
 
 def test_gitignore_keeps_publishable_docs_trackable():

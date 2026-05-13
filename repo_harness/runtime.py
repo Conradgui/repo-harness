@@ -142,6 +142,7 @@ class RepoHarness:
         self.last_prompt_metadata = {}
         self.last_completion_metadata = {}
         self.last_durable_promotions = []
+        self.last_durable_review_queued = []
         self.last_durable_rejections = []
         self.last_durable_superseded = []
         self._last_tool_result_metadata = {}
@@ -407,6 +408,68 @@ class RepoHarness:
 
     def memory_text(self):
         return self.memory.render_memory_text()
+
+    def _persist_memory(self):
+        self.session["memory"] = self.memory.to_dict()
+        self.session_path = self.session_store.save(self.session)
+
+    def memory_review_pending(self):
+        return self.memory.pending_durable_reviews()
+
+    def _memory_review_result(self, status, record=None, promoted=None, superseded=None):
+        if record is None:
+            return {
+                "status": "not_found",
+                "record": {},
+                "promoted": [],
+                "superseded": [],
+            }
+        return {
+            "status": status,
+            "record": dict(record),
+            "promoted": list(promoted or []),
+            "superseded": list(superseded or []),
+        }
+
+    def _reject_durable_review_text(self, text):
+        reason = self.reject_durable_reason(text)
+        if not reason:
+            return None
+        return {
+            "status": "rejected",
+            "reason": reason,
+            "record": {},
+            "promoted": [],
+            "superseded": [],
+        }
+
+    def memory_review_accept(self, record_id):
+        record = self.memory.skip_durable_review(record_id)
+        if record is None:
+            return self._memory_review_result("not_found")
+        rejection = self._reject_durable_review_text(record.get("text", ""))
+        if rejection is not None:
+            return rejection
+        record, promoted, superseded = self.memory.accept_durable_review(record_id)
+        self._persist_memory()
+        return self._memory_review_result("accepted", record, promoted, superseded)
+
+    def memory_review_edit(self, record_id, *, topic, text):
+        rejection = self._reject_durable_review_text(text)
+        if rejection is not None:
+            return rejection
+        record, promoted, superseded = self.memory.accept_durable_review(record_id, topic=topic, text=text)
+        self._persist_memory()
+        return self._memory_review_result("accepted", record, promoted, superseded)
+
+    def memory_review_reject(self, record_id):
+        record = self.memory.reject_durable_review(record_id)
+        self._persist_memory()
+        return self._memory_review_result("rejected", record)
+
+    def memory_review_skip(self, record_id):
+        record = self.memory.skip_durable_review(record_id)
+        return self._memory_review_result("pending", record)
 
     def history_text(self):
         history = self.session["history"]
@@ -770,14 +833,25 @@ class RepoHarness:
                 break
         return promotions, rejections
 
+    def durable_review_source(self):
+        task_state = self.current_task_state
+        return {
+            "session_id": self.session.get("id", ""),
+            "run_id": task_state.run_id if task_state is not None else "",
+            "task_id": task_state.task_id if task_state is not None else "",
+            "origin": "durable-promotion",
+        }
+
     def promote_durable_memory(self, user_message, final_answer):
         promotions, rejections = self.extract_durable_promotions(user_message, final_answer)
-        promoted, superseded = self.memory.promote_durable(promotions)
-        self.session["memory"] = self.memory.to_dict()
-        self.last_durable_promotions = promoted
+        queued_records = self.memory.enqueue_durable_reviews(promotions, source=self.durable_review_source())
+        queued = [f"{record['topic']}: {record['text']}" for record in queued_records]
+        self._persist_memory()
+        self.last_durable_promotions = []
+        self.last_durable_review_queued = queued
         self.last_durable_rejections = rejections
-        self.last_durable_superseded = superseded
-        return promoted, rejections, superseded
+        self.last_durable_superseded = []
+        return [], rejections, [], queued
 
     def ask(self, user_message):
         """执行一次完整的 agent 回合，直到产出最终答案或命中停止条件。
@@ -1185,6 +1259,7 @@ class RepoHarness:
             "task_state": task_state.to_dict(),
             "prompt_metadata": self.last_prompt_metadata,
             "durable_promotions": list(self.last_durable_promotions),
+            "durable_review_queued": list(self.last_durable_review_queued),
             "durable_rejections": list(self.last_durable_rejections),
             "durable_superseded": list(self.last_durable_superseded),
             "redacted_env": self.detected_secret_env_summary(),

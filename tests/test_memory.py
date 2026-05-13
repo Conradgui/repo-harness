@@ -160,6 +160,119 @@ def test_non_python_read_summary_keeps_legacy_first_lines():
     assert summarize_read_result(result) == "# Title | alpha | beta"
 
 
+def test_markdown_read_summary_extracts_headings_and_ignores_fenced_code():
+    result = """# docs/guide.md
+# Guide
+
+```python
+# Not A Heading
+```
+
+## Setup
+### Usage
+"""
+
+    summary = summarize_read_result(result, complete_file=True)
+
+    assert summary == "Markdown: headings=Guide,Setup,Usage"
+    assert len(summary) <= 180
+
+
+def test_markdown_read_summary_preserves_title_hash_and_tracks_fence_length():
+    result = '''# docs/csharp.md
+# C#
+
+````markdown
+```
+# Not A Heading
+```
+````
+
+## Done
+'''
+
+    assert summarize_read_result(result, complete_file=True) == "Markdown: headings=C#,Done"
+
+
+def test_markdown_read_summary_does_not_close_fence_with_trailing_text():
+    result = """# docs/fence.md
+```markdown
+```not a close
+# Still In Fence
+```
+
+# Done
+"""
+
+    assert summarize_read_result(result, complete_file=True) == "Markdown: headings=Done"
+
+
+def test_markdown_partial_read_keeps_legacy_summary():
+    result = "# docs/guide.md\n# Guide\nalpha\nbeta\n"
+
+    assert summarize_read_result(result, complete_file=False) == "# Guide | alpha | beta"
+
+
+def test_json_read_summary_extracts_top_level_object_keys_and_falls_back_for_malformed_json():
+    result = '# package.json\n{"name":"demo","scripts":{},"dependencies":{}}\n'
+    malformed = '# package.json\n{"name":\n'
+
+    assert summarize_read_result(result, complete_file=True) == "Config: keys=name,scripts,dependencies"
+    assert summarize_read_result(malformed, complete_file=True) == '{"name":'
+
+
+def test_toml_ini_and_yaml_read_summaries_extract_shallow_structure():
+    toml_result = (
+        "# pyproject.toml\n"
+        'requires-python = ">=3.11"\n'
+        "[project]\n"
+        'name = "demo"\n'
+        "[tool.pytest.ini_options]\n"
+        'addopts = "-q"\n'
+    )
+    ini_result = "# setup.cfg\n[tool:pytest]\naddopts = -q\n[flake8]\nmax-line-length = 100\n"
+    yaml_result = "# workflow.yml\nname: CI\non:\n  push:\njobs:\n  test:\n"
+
+    assert (
+        summarize_read_result(toml_result, complete_file=True)
+        == "Config: sections=project,tool.pytest.ini_options; keys=requires-python"
+    )
+    assert summarize_read_result(ini_result, complete_file=True) == "Config: sections=tool:pytest,flake8; keys=addopts,max-line-length"
+    assert summarize_read_result(yaml_result, complete_file=True) == "Config: keys=name,on,jobs"
+
+
+def test_python_test_file_summary_prefers_tests_over_generic_python_structure():
+    result = """# tests/test_sample.py
+import pytest
+
+def helper():
+    pass
+
+def test_top_level():
+    pass
+
+class TestWorkflow:
+    def helper(self):
+        pass
+
+    def test_runs(self):
+        pass
+"""
+
+    summary = summarize_read_result(result, complete_file=True)
+
+    assert summary == "Tests: tests=test_top_level,TestWorkflow.test_runs; classes=TestWorkflow"
+
+
+def test_structured_read_summaries_keep_item_caps_and_limit():
+    result = "# docs/guide.md\n# One\n# Two\n# Three\n# Four\n# Five\n# Six\n"
+
+    summary = summarize_read_result(result, limit=60, complete_file=True)
+
+    assert len(summary) <= 60
+    assert summary == "Markdown: headings=One,Two,Three (+3)"
+
+
 def test_process_notes_keep_kind_and_latest_duplicate_wins():
     memory = LayeredMemory()
 
@@ -272,3 +385,61 @@ def test_retrieval_explanations_empty_result_is_stable():
     assert memory.retrieval_explanations("nothing matches this", limit=3) == []
 
 
+def test_retrieval_normalizes_separated_and_camel_case_tokens():
+    memory = LayeredMemory()
+    memory.append_note(
+        "Run memory_pack before moving stable state.",
+        created_at="2026-05-07T10:00:00+00:00",
+    )
+    memory.append_note(
+        "Open MemoryPack when preparing a portable archive.",
+        created_at="2026-05-07T10:01:00+00:00",
+    )
+
+    hyphen_query = memory.retrieval_explanations("memory-pack", limit=3)
+    spaced_query = memory.retrieval_explanations("memory pack", limit=3)
+
+    assert [item["text"] for item in hyphen_query] == [
+        "Open MemoryPack when preparing a portable archive.",
+        "Run memory_pack before moving stable state.",
+    ]
+    assert [item["text"] for item in spaced_query] == [
+        "Open MemoryPack when preparing a portable archive.",
+        "Run memory_pack before moving stable state.",
+    ]
+    assert all(item["score_breakdown"]["keyword_overlap"] >= 2 for item in hyphen_query)
+
+
+def test_durable_promotion_subject_key_ignores_joined_retrieval_tokens(tmp_path):
+    memory = LayeredMemory(workspace_root=tmp_path)
+
+    promoted, superseded = memory.promote_durable(
+        [("dependency-facts", "memory pack is enabled.")]
+    )
+    assert promoted == ["dependency-facts: memory pack is enabled."]
+    assert superseded == []
+
+    promoted, superseded = memory.promote_durable(
+        [("dependency-facts", "memory-pack is enabled.")]
+    )
+
+    dependency_path = tmp_path / ".repo-harness" / "memory" / "topics" / "dependency-facts.md"
+    text = dependency_path.read_text(encoding="utf-8")
+    assert promoted == ["dependency-facts: memory-pack is enabled."]
+    assert superseded == [
+        "dependency-facts: memory pack is enabled. -> memory-pack is enabled.",
+    ]
+    assert "memory-pack is enabled." in text
+    assert "memory pack is enabled." not in text
+
+    promoted, superseded = memory.promote_durable(
+        [("dependency-facts", "MemoryPack is enabled.")]
+    )
+
+    text = dependency_path.read_text(encoding="utf-8")
+    assert promoted == ["dependency-facts: MemoryPack is enabled."]
+    assert superseded == [
+        "dependency-facts: memory-pack is enabled. -> MemoryPack is enabled.",
+    ]
+    assert "MemoryPack is enabled." in text
+    assert "memory-pack is enabled." not in text

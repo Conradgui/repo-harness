@@ -14,6 +14,7 @@ import sys
 import textwrap
 from pathlib import Path
 
+from . import memory as memorylib
 from .models import AnthropicCompatibleModelClient, OllamaModelClient, OpenAICompatibleModelClient
 from .runtime import RepoHarness, SessionStore
 from .workspace import WorkspaceContext, middle
@@ -42,6 +43,7 @@ HELP_DETAILS = textwrap.dedent(
     Commands:
     /help    Show this help message.
     /memory  Show the agent's distilled working memory.
+    /memory review  Review pending durable memory candidates.
     /memory_explain <query>  Explain which memory notes match a query.
     /memory_pack  Export, import, inspect, or validate memory packs.
     /session Show the path to the saved session file.
@@ -309,6 +311,81 @@ def _memory_explain_text(agent, query):
     for item in explanations:
         lines.append(_format_retrieval_explanation(item))
     return "\n".join(lines)
+
+
+def _review_record_label(record):
+    if not isinstance(record, dict):
+        return _compact_text(record)
+    topic = str(record.get("topic", "")).strip() or "-"
+    text = _compact_text(record.get("text", ""))
+    return f"{topic}: {text}"
+
+
+def _prompt_review_topic(default_topic):
+    topics = sorted(memorylib.DURABLE_TOPIC_DEFAULTS)
+    while True:
+        topic = input(f"topic [{default_topic}] ({', '.join(topics)}): ").strip() or default_topic
+        if topic in memorylib.DURABLE_TOPIC_DEFAULTS:
+            return topic
+        print(f"invalid topic: {topic}")
+
+
+def _print_review_apply_result(result, fallback_record):
+    result = result if isinstance(result, dict) else {}
+    status = str(result.get("status", "")).strip()
+    record = result.get("record") if isinstance(result.get("record"), dict) else fallback_record
+    if status == "accepted":
+        print(f"accepted: {_review_record_label(record)}")
+        return True
+    if status == "rejected" and result.get("reason"):
+        print(f"review action rejected: {result['reason']}")
+        return False
+    if status == "rejected":
+        print(f"rejected: {_review_record_label(record)}")
+        return True
+    if status == "not_found":
+        print(f"not found: {_review_record_label(fallback_record)}")
+        return True
+    print(f"memory review: unexpected status {status or '-'}")
+    return False
+
+
+def run_memory_review(agent):
+    if not hasattr(agent, "memory_review_pending"):
+        print("memory review: unavailable")
+        return
+    pending = list(agent.memory_review_pending())
+    if not pending:
+        print("memory review: no pending durable memory candidates")
+        return
+
+    print(f"memory review: {len(pending)} pending durable memory candidates")
+    for index, record in enumerate(pending, start=1):
+        print(f"[{index}/{len(pending)}] {_review_record_label(record)}")
+        while True:
+            action = input("accept/edit/reject/skip/quit> ").strip().lower()
+            if action in {"accept", "a"}:
+                result = agent.memory_review_accept(record.get("id", ""))
+                if _print_review_apply_result(result, record):
+                    break
+                continue
+            if action in {"edit", "e"}:
+                topic = _prompt_review_topic(str(record.get("topic", "")).strip())
+                text = input("text: ").strip() or str(record.get("text", "")).strip()
+                result = agent.memory_review_edit(record.get("id", ""), topic=topic, text=text)
+                if _print_review_apply_result(result, record):
+                    break
+                continue
+            if action in {"reject", "r"}:
+                result = agent.memory_review_reject(record.get("id", ""))
+                print(f"rejected: {_review_record_label(result.get('record', record))}")
+                break
+            if action in {"skip", "s"}:
+                print(f"skipped: {_review_record_label(record)}")
+                break
+            if action in {"quit", "q", "exit"}:
+                return
+            print("usage: accept, edit, reject, skip, or quit")
 
 
 def _resolve_export_modules(api, preset, requested_modules):
@@ -808,6 +885,9 @@ def main(argv=None):
             continue
         if user_input in {"/memory_pack", "/memory-pack"}:
             run_memory_pack_menu(agent.workspace.cwd)
+            continue
+        if user_input == "/memory review":
+            run_memory_review(agent)
             continue
         if user_input == "/memory":
             print(agent.memory_text())

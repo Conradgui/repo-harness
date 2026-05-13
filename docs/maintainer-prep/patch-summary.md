@@ -15,6 +15,65 @@
 
 ## 修复记录
 
+### 2026-05-12：Memory Intelligence v1 阶段推进
+
+#### 背景
+
+记忆系统后续路线确认继续保持固定 durable topic 四分类，不做 Topic Configuration、Semantic Retrieval、edit distance、同义词表、embedding 或 vector DB。本轮目标是补齐 Code-Aware File Summaries 剩余部分，并把 durable memory 自动写入改为用户审核队列。
+
+#### 修复内容
+
+- `summarize_read_result()` 继续保持 public API 不变，新增 Markdown heading、JSON / TOML / INI / CFG / YAML 浅层 config、Python test file 结构摘要。
+- Markdown 摘要忽略 fenced code block 内标题，并覆盖 heading 末尾 `#`、不同 fence 长度和 closing fence trailing text 等边界。
+- 文件摘要仍只在完整读取时启用，继续遵守 `limit=180`、固定项数上限、fallback、freshness hash 和 Memory Pack 语义。
+- 新增 `.repo-harness/memory/review-queue.jsonl`，schema 为 `durable-review-queue-v1`。自动 durable candidates 先进入 pending queue，不再直接写 `.repo-harness/memory/topics/*.md`。
+- REPL 新增 `/memory review`，支持 accept、edit、reject、skip。accept/edit 后才写入 durable topics；edit 后重新执行 secret-shaped / transient / noisy 过滤。
+- `report.json` 中 `durable_promotions` 只表示真正写入 durable topics 的内容，自动入队候选记录在 `durable_review_queued`。
+- Pending queue 不进入 prompt memory、不参与 `/memory_explain`，也不会被 `safe-transfer` memory pack 导出。
+- benchmark durable-contract verifier 更新为检查 Review Queue 语义。
+- README、getting-started、roadmap、handoff 同步当前实现和后续边界。
+
+#### 验证结果
+
+- `uv run pytest tests/test_memory.py tests/test_repo_harness.py tests/test_memory_pack.py tests/test_evaluator.py -q`：125 passed。
+- `uv run pytest tests -q --basetemp <external-temp>`：159 passed。
+- `uv run ruff check .`：通过。
+- `git diff --check`：无 whitespace error，仅有 Windows CRLF 提示。
+
+#### 后续注意
+
+- Review Queue v1 按单 REPL / 单进程使用场景实现，未引入跨进程锁；如未来支持多进程并发审核，需要补充文件锁或乐观并发校验。
+- 后续如果做 Episodic Compaction，任何可复用事实候选都必须进入 Review Queue，不应直接写 durable topics。
+- 后续如果强化 Memory Safety，应优先覆盖 memory pack 导出前扫描和 full-recovery 二次确认。
+- `memory-system-new-window-handoff.md` 已纳入维护者文档体系；后续更新 README、getting-started、memory roadmap、patch-summary 或记忆系统能力时，必须同步检查该 handoff 是否需要更新。
+
+### 2026-05-11：Lexical Retrieval 归一化边界收窄
+
+#### 背景
+
+记忆系统后续路线确认不做 Topic Configuration，也不做 Semantic Retrieval。长期记忆 taxonomy 继续保持默认四类，避免 durable memory 结构膨胀；检索侧只补一个很克制的词面归一化能力，解决用户不记得 `memory-pack`、`memory_pack`、`MemoryPack` 等精确写法的问题。
+
+#### 修复内容
+
+- `memory.py` 的 tokenizer 增加大小写、常见分隔符和 camelCase / PascalCase 归一化。
+- 支持 `_`、`-`、`.`、`/`、`\` 分隔符拆词，并额外保留 joined canonical token。
+- tag token 也复用同一套归一化逻辑，保持 `/memory_explain` 的 `keyword_overlap` 可解释。
+- durable promotion subject key 改用独立 canonicalizer，只使用拆分后的 normalized token，不使用检索专用 joined token，避免 `memory pack` / `memory-pack` / `MemoryPack` 长期事实无法互相 supersede。
+- 明确不做 edit distance、同义词表、字符 n-gram、embedding、向量库或 semantic retrieval。
+- README、getting-started 和 memory roadmap 同步说明边界；roadmap 删除 Topic Configuration / Optional Semantic Retrieval 作为后续推荐项，改为 fixed durable taxonomy、Review Queue 和 scoped lexical normalization。
+
+#### 验证结果
+
+- `pytest tests/test_memory.py tests/test_context_manager.py tests/test_repo_harness.py -q`：93 passed。
+- `pytest tests -q`：144 passed。
+- `ruff check .`：通过。
+- `git diff --check`：无 whitespace error，仅有 Windows CRLF 提示。
+
+#### 后续注意
+
+- 后续如继续增强 retrieval，优先保持 `keyword_overlap` 可解释，不要新增不可复现的相似度来源。
+- 如果要改善长期事实写入质量，优先做 Review Queue，而不是扩展 topic taxonomy。
+
 ### 2026-05-09：开源文档本机参数清理
 
 #### 背景
@@ -27,7 +86,7 @@
 - Anthropic-compatible 示例中的具体服务商地址和专用 API Key 名称改为通用 endpoint / key 表述，避免开源文档绑定某个开发环境或服务商。
 - `docs/maintainer-prep/versioning-notes.md` 中的个人归档仓库、remote 和工作分支改为占位符，保留 tag 名称和提交哈希作为历史基线信息。
 - `docs/maintainer-prep/patch-summary.md` 中的本机绝对 file link 改为仓库相对路径文本。
-- 未跟踪的 `docs/maintainer-prep/memory-system-new-window-handoff.md` 仍保留在本地，不纳入提交；该文件若未来要提交，必须单独清理本机路径、临时目录和推送命令。
+- 当时未跟踪的 `docs/maintainer-prep/memory-system-new-window-handoff.md` 保留在本地，未纳入该批次提交；该文件若后续提交，必须单独清理本机路径、临时目录和推送命令。
 
 #### 验证结果
 

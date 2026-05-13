@@ -6,7 +6,9 @@ session history 负责保存完整事件流；这个模块只保存更小的一�
 """
 
 import ast
+import configparser
 import hashlib
+import json
 from datetime import datetime
 import re
 from pathlib import Path
@@ -17,6 +19,20 @@ WORKING_FILE_LIMIT = 8
 EPISODIC_NOTE_LIMIT = 12
 FILE_SUMMARY_LIMIT = 6
 PYTHON_SUMMARY_ITEM_LIMIT = 3
+MARKDOWN_SUFFIXES = {".md", ".markdown"}
+CONFIG_SUFFIXES = {".json", ".toml", ".ini", ".cfg", ".yaml", ".yml"}
+DURABLE_REVIEW_QUEUE_SCHEMA = "durable-review-queue-v1"
+DURABLE_REVIEW_QUEUE_FILE = "review-queue.jsonl"
+TOKEN_PATTERN = re.compile(r"[A-Za-z0-9]+(?:[_.\\/-]+[A-Za-z0-9]+)*")
+CAMEL_ACRONYM_BOUNDARY = re.compile(r"([A-Z]+)([A-Z][a-z])")
+CAMEL_WORD_BOUNDARY = re.compile(r"([a-z0-9])([A-Z])")
+TOKEN_SEPARATOR_PATTERN = re.compile(r"[_.\\/-]+")
+ATX_HEADING_PATTERN = re.compile(r"^\s{0,3}(#{1,6})[ \t]+(.+?)(?:[ \t]+#+[ \t]*)?$")
+FENCE_OPEN_PATTERN = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
+FENCE_CLOSE_PATTERN = re.compile(r"^\s{0,3}(`{3,}|~{3,})[ \t]*$")
+TOML_SECTION_PATTERN = re.compile(r"^\s*\[{1,2}\s*([A-Za-z0-9_.-]+)\s*\]{1,2}\s*$")
+CONFIG_KEY_PATTERN = re.compile(r"^\s*([A-Za-z0-9_.-]+)\s*[:=]")
+YAML_TOP_LEVEL_KEY_PATTERN = re.compile(r"^([A-Za-z0-9_.-]+)\s*:")
 
 DURABLE_TOPIC_DEFAULTS = {
     "project-conventions": {
@@ -139,7 +155,7 @@ class DurableMemoryStore:
         for pattern in patterns:
             match = re.match(pattern, text, re.I)
             if match:
-                subject = " ".join(_tokenize(match.group(1)))
+                subject = _canonical_subject(match.group(1))
                 return subject or None
         return None
 
@@ -227,6 +243,137 @@ class DurableMemoryStore:
         return results, superseded
 
 
+class DurableMemoryReviewQueue:
+    def __init__(self, root):
+        self.root = Path(root)
+        self.path = self.root / DURABLE_REVIEW_QUEUE_FILE
+
+    def load(self):
+        if not self.path.exists():
+            return []
+        records = []
+        for line in self.path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(record, dict):
+                continue
+            if record.get("schema_version") != DURABLE_REVIEW_QUEUE_SCHEMA:
+                continue
+            records.append(record)
+        return records
+
+    def pending(self):
+        return [record for record in self.load() if record.get("status") == "pending"]
+
+    def pending_record(self, record_id):
+        for record in self.pending():
+            if record.get("id") == record_id:
+                return record
+        return None
+
+    def enqueue(self, promotions, source=None):
+        records = self.load()
+        pending_keys = {
+            (str(record.get("topic", "")), str(record.get("text", "")))
+            for record in records
+            if record.get("status") == "pending"
+        }
+        existing_ids = {str(record.get("id", "")) for record in records}
+        queued = []
+        for topic, text in promotions:
+            topic = str(topic).strip()
+            text = str(text).strip()
+            if topic not in DURABLE_TOPIC_DEFAULTS or not text:
+                continue
+            if (topic, text) in pending_keys:
+                continue
+            created_at = now()
+            record = {
+                "schema_version": DURABLE_REVIEW_QUEUE_SCHEMA,
+                "id": self._new_id(topic, text, created_at, existing_ids),
+                "created_at": created_at,
+                "topic": topic,
+                "text": text,
+                "source": dict(source or {}),
+                "status": "pending",
+            }
+            records.append(record)
+            queued.append(record)
+            pending_keys.add((topic, text))
+            existing_ids.add(record["id"])
+        if queued:
+            self._write(records)
+        return queued
+
+    def mark(self, record_id, status, *, topic=None, text=None):
+        records = self.load()
+        updated = None
+        for record in records:
+            if record.get("id") != record_id or record.get("status") != "pending":
+                continue
+            if topic is not None:
+                topic = str(topic).strip()
+                if topic not in DURABLE_TOPIC_DEFAULTS:
+                    raise ValueError(f"unsupported durable memory topic: {topic}")
+                record["topic"] = topic
+            if text is not None:
+                text = str(text).strip()
+                if not text:
+                    raise ValueError("durable memory review text cannot be empty")
+                record["text"] = text
+            record["status"] = status
+            record["reviewed_at"] = now()
+            updated = dict(record)
+            break
+        if updated is not None:
+            self._write(records)
+        return updated
+
+    def update_pending(self, record_id, *, topic=None, text=None):
+        records = self.load()
+        updated = None
+        for record in records:
+            if record.get("id") != record_id or record.get("status") != "pending":
+                continue
+            if topic is not None:
+                topic = str(topic).strip()
+                if topic not in DURABLE_TOPIC_DEFAULTS:
+                    raise ValueError(f"unsupported durable memory topic: {topic}")
+                record["topic"] = topic
+            if text is not None:
+                text = str(text).strip()
+                if not text:
+                    raise ValueError("durable memory review text cannot be empty")
+                record["text"] = text
+            updated = dict(record)
+            break
+        if updated is not None:
+            self._write(records)
+        return updated
+
+    def _new_id(self, topic, text, created_at, existing_ids):
+        seed = f"{created_at}\0{topic}\0{text}\0{len(existing_ids)}"
+        digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:12]
+        candidate = f"dmq_{digest}"
+        counter = 1
+        while candidate in existing_ids:
+            counter += 1
+            digest = hashlib.sha256(f"{seed}\0{counter}".encode("utf-8")).hexdigest()[:12]
+            candidate = f"dmq_{digest}"
+        return candidate
+
+    def _write(self, records):
+        self.root.mkdir(parents=True, exist_ok=True)
+        tmp_path = self.path.with_suffix(self.path.suffix + ".tmp")
+        payload = "\n".join(json.dumps(record, ensure_ascii=False, sort_keys=True) for record in records)
+        tmp_path.write_text(payload.rstrip() + ("\n" if records else ""), encoding="utf-8")
+        tmp_path.replace(self.path)
+
+
 def _ensure_list(value):
     if isinstance(value, list):
         return value
@@ -282,8 +429,33 @@ def file_freshness(raw_path, workspace_root=None):
     return hashlib.sha256(resolved.read_bytes()).hexdigest()
 
 
+def _split_token_parts(token):
+    parts = []
+    for chunk in TOKEN_SEPARATOR_PATTERN.split(str(token)):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        chunk = CAMEL_ACRONYM_BOUNDARY.sub(r"\1 \2", chunk)
+        chunk = CAMEL_WORD_BOUNDARY.sub(r"\1 \2", chunk)
+        parts.extend(part for part in chunk.split() if part)
+    return parts
+
+
 def _tokenize(text):
-    return {token.lower() for token in re.findall(r"[A-Za-z0-9_]+", str(text))}
+    tokens = set()
+    for raw_token in TOKEN_PATTERN.findall(str(text)):
+        parts = _split_token_parts(raw_token)
+        tokens.update(part.lower() for part in parts)
+        if len(parts) > 1:
+            tokens.add("".join(parts).lower())
+    return tokens
+
+
+def _canonical_subject(text):
+    tokens = set()
+    for raw_token in TOKEN_PATTERN.findall(str(text)):
+        tokens.update(part.lower() for part in _split_token_parts(raw_token))
+    return " ".join(sorted(tokens))
 
 
 def _parse_timestamp(value):
@@ -296,7 +468,9 @@ def _parse_timestamp(value):
 
 
 def _note_match_parts(note, query_tokens):
-    note_tags = {tag.lower() for tag in note.get("tags", [])}
+    note_tags = set()
+    for tag in note.get("tags", []):
+        note_tags.update(_tokenize(tag))
     note_tokens = _tokenize(note.get("text", "")) | _tokenize(note.get("source", "")) | _tokenize(note.get("_search_text", "")) | note_tags
     tag_match = int(bool(query_tokens & note_tags))
     keyword_overlap = len(query_tokens & note_tokens)
@@ -594,7 +768,7 @@ def _split_read_result(result):
     return header[2:].strip() if header else "", body_lines, [line.strip() for line in body_lines]
 
 
-def _unline_number_python_body(body_lines):
+def _unline_numbered_body(body_lines):
     if not body_lines:
         return None
     numbered = []
@@ -608,6 +782,10 @@ def _unline_number_python_body(body_lines):
     return "\n".join(line for _, line in numbered)
 
 
+def _unline_number_python_body(body_lines):
+    return _unline_numbered_body(body_lines)
+
+
 def _capped_names(names):
     names = list(names)
     shown = names[:PYTHON_SUMMARY_ITEM_LIMIT]
@@ -616,6 +794,126 @@ def _capped_names(names):
     if remaining > 0:
         value += f" (+{remaining})"
     return value
+
+
+def _path_suffix(path_hint):
+    normalized = str(path_hint or "").replace("\\", "/").rsplit("/", 1)[-1]
+    return Path(normalized).suffix.lower()
+
+
+def _is_test_python_path(path_hint):
+    normalized = str(path_hint or "").replace("\\", "/").lower()
+    basename = normalized.rsplit("/", 1)[-1]
+    return basename.startswith("test_") or basename.endswith("_test.py") or "/tests/" in f"/{normalized}"
+
+
+def _format_summary(prefix, parts, limit):
+    parts = [(label, _dedupe_preserve_order(names)) for label, names in parts if names]
+    rendered_parts = [f"{label}={_capped_names(names)}" for label, names in parts if names]
+    while rendered_parts:
+        summary = f"{prefix}: " + "; ".join(rendered_parts)
+        if len(summary) <= limit:
+            return summary
+        rendered_parts.pop()
+    return ""
+
+
+def _summarize_markdown_source(source, limit):
+    headings = []
+    fence_marker = None
+    fence_length = 0
+    for line in source.splitlines():
+        if fence_marker is not None:
+            fence_match = FENCE_CLOSE_PATTERN.match(line)
+            if fence_match and fence_match.group(1)[0] == fence_marker and len(fence_match.group(1)) >= fence_length:
+                fence_marker = None
+                fence_length = 0
+            continue
+        fence_match = FENCE_OPEN_PATTERN.match(line)
+        if fence_match:
+            fence_marker = fence_match.group(1)[0]
+            fence_length = len(fence_match.group(1))
+            continue
+        match = ATX_HEADING_PATTERN.match(line)
+        if match:
+            heading = match.group(2).strip()
+            if heading:
+                headings.append(heading)
+    if not headings:
+        return ""
+    summary = _format_summary("Markdown", [("headings", headings)], limit)
+    return summary or clip("Markdown: headings", limit)
+
+
+def _summarize_json_source(source, limit):
+    try:
+        payload = json.loads(source)
+    except json.JSONDecodeError:
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    keys = [str(key) for key in payload.keys()]
+    return _format_summary("Config", [("keys", keys)], limit)
+
+
+def _summarize_toml_source(source, limit):
+    sections = []
+    keys = []
+    in_section = False
+    for raw_line in source.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        section_match = TOML_SECTION_PATTERN.match(line)
+        if section_match:
+            sections.append(section_match.group(1).strip())
+            in_section = True
+            continue
+        if not in_section:
+            key_match = CONFIG_KEY_PATTERN.match(line)
+            if key_match:
+                keys.append(key_match.group(1).strip())
+    return _format_summary("Config", [("sections", sections), ("keys", keys)], limit)
+
+
+def _summarize_ini_source(source, limit):
+    parser = configparser.ConfigParser()
+    parser.optionxform = str
+    try:
+        parser.read_string(source)
+    except configparser.Error:
+        return ""
+    sections = parser.sections()
+    keys = []
+    for section in sections:
+        keys.extend(parser.options(section))
+    return _format_summary("Config", [("sections", sections), ("keys", keys)], limit)
+
+
+def _summarize_yaml_source(source, limit):
+    keys = []
+    for raw_line in source.splitlines():
+        if not raw_line or raw_line[0].isspace():
+            continue
+        line = raw_line.strip()
+        if not line or line.startswith(("#", "-", "---", "...")):
+            continue
+        match = YAML_TOP_LEVEL_KEY_PATTERN.match(line)
+        if match:
+            keys.append(match.group(1).strip())
+    return _format_summary("Config", [("keys", keys)], limit)
+
+
+def _summarize_config_source(source, suffix, limit):
+    if suffix == ".json":
+        return _summarize_json_source(source, limit)
+    if suffix == ".toml":
+        return _summarize_toml_source(source, limit)
+    if suffix in {".ini", ".cfg"}:
+        return _summarize_ini_source(source, limit)
+    if suffix in {".yaml", ".yml"}:
+        return _summarize_yaml_source(source, limit)
+    return ""
 
 
 def _assignment_targets(node):
@@ -678,14 +976,47 @@ def _summarize_python_source(source, limit):
     return clip("Python: structure", limit)
 
 
+def _summarize_python_test_source(source, limit):
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return ""
+
+    tests = []
+    classes = []
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_"):
+            tests.append(node.name)
+        elif isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
+            classes.append(node.name)
+            for item in node.body:
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name.startswith("test_"):
+                    tests.append(f"{node.name}.{item.name}")
+
+    return _format_summary("Tests", [("tests", tests), ("classes", classes)], limit)
+
+
 def summarize_read_result(result, limit=180, complete_file=False):
     # 我们不会把完整文件内容塞进记忆层，
     # 这里只保留足够提醒下一轮“刚刚读到了什么”的短摘要。
     path_hint, body_lines, fallback_lines = _split_read_result(result)
-    if complete_file and path_hint.endswith(".py"):
-        source = _unline_number_python_body(body_lines)
-        if source is not None:
+    suffix = _path_suffix(path_hint)
+    if complete_file:
+        source = _unline_numbered_body(body_lines)
+        if source is not None and suffix == ".py":
+            if _is_test_python_path(path_hint):
+                summary = _summarize_python_test_source(source, limit)
+                if summary:
+                    return summary
             summary = _summarize_python_source(source, limit)
+            if summary:
+                return summary
+        if source is not None and suffix in MARKDOWN_SUFFIXES:
+            summary = _summarize_markdown_source(source, limit)
+            if summary:
+                return summary
+        if source is not None and suffix in CONFIG_SUFFIXES:
+            summary = _summarize_config_source(source, suffix, limit)
             if summary:
                 return summary
     return _fallback_read_summary(fallback_lines, limit)
@@ -787,7 +1118,9 @@ class LayeredMemory:
     def __init__(self, state=None, workspace_root=None):
         self.workspace_root = workspace_root
         self.state = normalize_memory_state(state, workspace_root)
-        self.durable_store = DurableMemoryStore(Path(workspace_root) / ".repo-harness" / "memory") if workspace_root is not None else None
+        durable_root = Path(workspace_root) / ".repo-harness" / "memory" if workspace_root is not None else None
+        self.durable_store = DurableMemoryStore(durable_root) if durable_root is not None else None
+        self.durable_review_queue = DurableMemoryReviewQueue(durable_root) if durable_root is not None else None
 
     def to_dict(self):
         self.state = normalize_memory_state(self.state, self.workspace_root)
@@ -839,6 +1172,49 @@ class LayeredMemory:
 
     def render_memory_text(self):
         return render_memory_text(self.state, self.workspace_root)
+
+    def enqueue_durable_reviews(self, promotions, source=None):
+        if self.durable_review_queue is None:
+            return []
+        return self.durable_review_queue.enqueue(promotions, source=source)
+
+    def pending_durable_reviews(self):
+        if self.durable_review_queue is None:
+            return []
+        return self.durable_review_queue.pending()
+
+    def accept_durable_review(self, record_id, *, topic=None, text=None):
+        if self.durable_review_queue is None:
+            return None, [], []
+        record = self.durable_review_queue.pending_record(record_id)
+        if record is None:
+            return None, [], []
+        final_topic = str(topic if topic is not None else record.get("topic", "")).strip()
+        final_text = str(text if text is not None else record.get("text", "")).strip()
+        if final_topic not in DURABLE_TOPIC_DEFAULTS:
+            raise ValueError(f"unsupported durable memory topic: {final_topic}")
+        if not final_text:
+            raise ValueError("durable memory review text cannot be empty")
+        updated = self.durable_review_queue.mark(record_id, "accepted", topic=final_topic, text=final_text)
+        if updated is None:
+            return None, [], []
+        promoted, superseded = self.promote_durable([(final_topic, final_text)])
+        return updated, promoted, superseded
+
+    def update_pending_durable_review(self, record_id, *, topic=None, text=None):
+        if self.durable_review_queue is None:
+            return None
+        return self.durable_review_queue.update_pending(record_id, topic=topic, text=text)
+
+    def reject_durable_review(self, record_id):
+        if self.durable_review_queue is None:
+            return None
+        return self.durable_review_queue.mark(record_id, "rejected")
+
+    def skip_durable_review(self, record_id):
+        if self.durable_review_queue is None:
+            return None
+        return self.durable_review_queue.pending_record(record_id)
 
     def promote_durable(self, promotions):
         if self.durable_store is None:

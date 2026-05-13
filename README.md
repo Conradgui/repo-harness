@@ -205,6 +205,7 @@ uv run repo-harness --provider anthropic
 
 - `/help`：查看内置命令
 - `/memory`：查看提炼后的工作记忆
+- `/memory review`：审核 pending durable memory 候选，确认后才写入长期记忆
 - `/memory_explain <query>`：查看 Explainable Retrieval v1 如何为查询选择 memory
 - `/memory_pack` 或 `/memory-pack`：打开 memory pack 菜单
 - `/session`：查看当前会话文件路径
@@ -215,13 +216,32 @@ uv run repo-harness --provider anthropic
 
 `/memory_explain <query>` 用来调试记忆召回：它不会修改 memory，只展示 Explainable Retrieval v1 对候选记忆的选择结果。输出重点包括 `score_breakdown` 和 `selected_explanations`，说明每条 memory 因为 tag match、keyword overlap、recency、kind 或 source 等确定性信号被选中。
 
-这项能力延续 RepoHarness 记忆系统原则：默认 lexical retrieval，轻量、可复现、文件可追踪；解释应指向本地 `.repo-harness/memory/` 中的来源，而不是依赖不可解释的外部索引。
+这项能力延续 RepoHarness 记忆系统原则：默认 lexical retrieval，轻量、可复现、文件可追踪；解释应指向本地 `.repo-harness/memory/` 中的来源，而不是依赖不可解释的外部索引。检索会对大小写、`_` / `-` 等分隔符和 camelCase / PascalCase 做确定性归一化，但不做 edit distance、同义词表或 semantic retrieval。
 
 ## Code-Aware File Summaries v1
 
 RepoHarness 的 `file_summaries` 仍然是短工作记忆，不是代码索引或知识库。读取完整 Python 文件时，摘要会用标准库 AST 提取少量结构信号，例如 imports、classes、functions 和 constants；摘要继续受固定长度上限控制，并且仍然绑定 freshness hash。
 
-如果读取的是 Python 片段、解析失败或文件不是 Python，系统会回退到原有的前三行短摘要。这个能力不调用模型、不引入 embedding / database / background service，也不改变 memory section 预算。
+读取完整 Markdown 文件时，摘要会提取 ATX headings，并忽略 fenced code block 内的伪标题。读取完整 JSON / TOML / INI / CFG / YAML 文件时，摘要只提取浅层 keys / sections。读取 Python 测试文件时，摘要优先提取 `test_*` functions、`Test*` classes 和 class 内 `test_*` methods。
+
+如果读取的是片段、解析失败或没有可提取结构，系统会回退到原有的前三行短摘要。这个能力不调用模型、不引入 embedding / database / background service，也不改变 memory section 预算。
+
+## Durable Memory Review Queue
+
+RepoHarness 不会再把模型最终回答里解析出的长期事实直接写入 durable topics。用户明确要求保存长期记忆时，候选会先进入：
+
+```text
+.repo-harness/memory/review-queue.jsonl
+```
+
+在 REPL 里输入 `/memory review` 可以逐条审核：
+
+- `accept`：把候选写入固定四类 durable topics。
+- `edit`：先编辑 topic 或 text，再写入 durable topics。
+- `reject`：拒绝候选，不写入 durable memory。
+- `skip`：保留 pending，稍后再处理。
+
+secret-shaped、临时任务状态和噪声输出不会进入 queue；人工 edit 后也会再次执行同一类安全过滤。Pending queue 不进入 prompt memory、不参与 `/memory_explain`，也不会被 `safe-transfer` memory pack 导出。
 
 ## Memory Pack
 

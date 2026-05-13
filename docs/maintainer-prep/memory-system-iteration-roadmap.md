@@ -251,7 +251,7 @@ Memory Pack v1 的 validate 边界必须和导入边界一致。一个 pack 只�
 
 - 提升调试能力。
 - 降低“模型为什么突然引用这条记忆”的黑箱感。
-- 为后续 semantic retrieval 提供可对比基线。
+- 为当前 lexical retrieval 提供可复盘、可测试的调试基线。
 
 当前输出字段：
 
@@ -284,12 +284,15 @@ Memory Pack v1 的 validate 边界必须和导入边界一致。一个 pack 只�
 当前 v1 状态：
 
 - 已实现 Python AST 结构摘要，只在确认 `read_file` 读取完整 `.py` 文件时启用。
+- 已实现 Markdown heading 摘要，忽略 fenced code block 内标题。
+- 已实现 JSON / TOML / INI / CFG / YAML 浅层 config 摘要。
+- 已实现 Python test file 摘要，优先提取 `test_*` functions、`Test*` classes 和 class 内 `test_*` methods。
 - 摘要继续受 `summarize_read_result(limit=180)` 控制，不提高 memory 预算。
-- 只提取 imports、classes、functions 和 uppercase top-level constants 的少量名称；超出上限用 `(+N)` 表示。
-- Python 片段、解析失败或非 Python 文件继续回退到前三行短摘要。
+- 只提取少量结构名称；超出上限用 `(+N)` 表示。
+- 片段读取、解析失败或没有可提取结构时继续回退到前三行短摘要。
 - freshness hash、`FILE_SUMMARY_LIMIT`、`WORKING_FILE_LIMIT`、`RELEVANT_MEMORY_LIMIT` 和 Memory Pack 语义均未改变。
 
-可做能力：
+已完成能力：
 
 - 对 Python 文件提取 imports、classes、functions、top-level constants。
 - 对 markdown 提取标题结构。
@@ -303,55 +306,48 @@ Memory Pack v1 的 validate 边界必须和导入边界一致。一个 pack 只�
 - 减少重复读文件。
 - 提升跨轮代码任务连续性。
 
-后续可以继续扩展 markdown/config/test summaries，但必须保持固定上限、确定性解析和 freshness 失效语义。
+后续如继续扩展更多文件类型，必须保持固定上限、确定性解析和 freshness 失效语义。
 
-### 3. Topic Configuration
+### 3. Durable Topic Taxonomy Decision
 
-当前 durable topic 固定为四类。后续可以允许项目配置 topic taxonomy。
+当前 durable topic 固定为四类：
 
-可做能力：
+- `project-conventions`
+- `key-decisions`
+- `dependency-facts`
+- `user-preferences`
 
-```text
-.repo-harness/memory/config.json
-```
+当前产品决定：**不实现 Topic Configuration**。
 
-或：
+原因：
 
-```text
-.repo-harness/memory/topics.yml
-```
+- 长期记忆系统应该尽最大可能保持简洁。
+- 自定义 topic taxonomy 会增加导入、合并、去重、解释和迁移复杂度。
+- 过多 topic 容易让 durable memory 变成半结构化文件堆，削弱“文件可追踪”和“可维护”的核心原则。
+- 如果需要中间层，应使用 review queue 作为进入长期记忆前的缓冲，而不是开放长期 topic 结构。
 
-示例 topic：
+明确不做：
 
-- `architecture-decisions`
-- `testing-strategy`
-- `release-process`
-- `security-boundaries`
-- `team-preferences`
-
-收益：
-
-- 适配不同项目类型。
-- 减少把所有事实塞进默认四类。
-- 让 memory pack 更像可迁移知识库。
-
-注意：
-
-- 配置必须有 schema version。
-- 默认四类仍应保留，避免新用户必须配置。
+- 不新增 `.repo-harness/memory/config.json`。
+- 不新增 `.repo-harness/memory/topics.yml`。
+- 不开放用户或 agent 自定义 durable topic。
+- 不让 Memory Pack v1/v2 依赖可变 topic taxonomy。
 
 ### 4. Durable Memory Review Queue
 
-当前 durable promotion 依赖最终回答中出现可解析的长期事实。后续可以改成 review queue。
+当前 durable promotion 已改为 review queue：最终回答中可解析、通过安全过滤的长期事实候选，不再直接写入 durable topics。
 
-可做能力：
+当前 v1 状态：
 
 - Agent 发现疑似长期事实时，先写入 pending queue。
 - 用户通过 `/memory review` 审核。
-- 支持 accept、edit、reject。
+- 支持 accept、edit、reject、skip。
 - accepted 后再进入 durable topics。
+- edit 后会再次执行 secret-shaped / transient / noisy 过滤。
+- `report.json` 中 `durable_promotions` 只表示真正写入 durable topics 的内容；自动候选入队记录在 `durable_review_queued`。
+- Pending queue 不进入 prompt memory、不参与 `/memory_explain`、不进入 `safe-transfer` memory pack。
 
-建议路径：
+路径：
 
 ```text
 .repo-harness/memory/review-queue.jsonl
@@ -363,7 +359,40 @@ Memory Pack v1 的 validate 边界必须和导入边界一致。一个 pack 只�
 - 允许用户编辑长期记忆表述。
 - 更符合“持续自我迭代但受用户控制”的产品方向。
 
-### 5. Episodic Compaction
+### 5. Fuzzy Lexical Retrieval v1
+
+当前 lexical retrieval 继续保持默认检索方式，但允许做非常克制的词面归一化，让用户不必精确记住分隔符和大小写。
+
+当前 v1 边界：
+
+- 做 token normalization。
+- 做 separator-aware matching。
+- 支持 `memory-pack`、`memory_pack`、`MemoryPack`、`memory pack` 这类写法互相召回。
+- 支持常见分隔符拆分：`_`、`-`、`.`、`/`、`\`。
+- 支持 camelCase / PascalCase 拆分。
+- 继续通过现有 `keyword_overlap` 解释命中原因。
+
+明确不做：
+
+- 不做 edit distance。
+- 不做同义词表或 alias map。
+- 不做字符 n-gram 相似度。
+- 不调用模型判断词义相近。
+- 不引入 embedding、向量库、后台索引或 semantic retrieval。
+
+原则：
+
+- exact lexical match 仍然自然优先。
+- normalization 只扩大确定性 token 集合，不改变 durable memory 格式。
+- `/memory_explain` 必须继续能解释召回原因。
+
+收益：
+
+- 用户不需要精确记住 `memory_pack` 还是 `memory-pack`。
+- 保持实现轻量、确定性、可测试。
+- 避免 semantic retrieval 带来的索引、迁移和调试复杂度。
+
+### 6. Episodic Compaction
 
 当前 episodic notes 超过上限后直接截断。后续可以做压缩归档。
 
@@ -377,28 +406,6 @@ Memory Pack v1 的 validate 边界必须和导入边界一致。一个 pack 只�
 
 - 长任务上下文更稳定。
 - 减少有用事件被截断丢失。
-
-### 6. Optional Semantic Retrieval Adapter
-
-不建议第一阶段上向量库。后续如果要做，应该是可选 adapter，而不是替换当前 lexical retrieval。
-
-原则：
-
-- lexical retrieval 保持默认和 fallback。
-- semantic retrieval 必须可关闭。
-- 索引文件必须可迁移或可重建。
-- 不把 embeddings 当作唯一事实来源。
-
-收益：
-
-- 改善同义表达召回。
-- 支持更自然的用户查询。
-
-风险：
-
-- 引入模型和索引复杂度。
-- 跨设备迁移会涉及 embedding 兼容性。
-- 调试成本明显升高。
 
 ### 7. Memory Safety And Redaction
 
@@ -448,23 +455,27 @@ Memory Pack v1 的 validate 边界必须和导入边界一致。一个 pack 只�
    - file-traceable retrieval reasons
 
 5. Code-Aware Summaries
-   - Python AST summaries first（已完成 v1）
-   - markdown/config/test summaries later
+   - Python AST summaries（已完成 v1）
+   - markdown/config/test summaries（已完成 v1）
 
-6. Topic Configuration
-   - memory topic schema
-   - custom topic loading
-   - docs and migration tests
+6. Durable Memory Review Queue
+   - pending durable facts（已完成 v1）
+   - accept/edit/reject/skip flow（已完成 v1）
+   - `/memory review`（已完成 v1）
 
-7. Review Queue
-   - pending durable facts
-   - accept/edit/reject flow
-   - `/memory review`
+7. Fuzzy Lexical Retrieval v1
+   - token normalization（已完成 v1）
+   - separator-aware matching（已完成 v1）
+   - no edit distance / no synonym table / no semantic retrieval
 
-8. Optional Semantic Retrieval
-   - adapter interface
-   - lexical fallback
-   - rebuildable local index
+8. Episodic Compaction
+   - session summary
+   - reusable fact candidates go through review queue
+
+9. Memory Safety And Redaction
+   - secret-shaped scan before export
+   - redaction summary
+   - import/export safety hardening
 
 ## Handoff Prompt For Next Window
 
@@ -472,12 +483,11 @@ Memory Pack v1 的 validate 边界必须和导入边界一致。一个 pack 只�
 
 ```text
 请基于 docs/maintainer-prep/memory-system-iteration-roadmap.md，
-先实现 Memory Pack v1：
-- 默认 safe-transfer
-- 支持 /memory_pack 和 /memory-pack
-- 支持 repo-harness memory export/import/inspect/validate
-- 导入默认 conservative merge，不覆盖已有内容
-- 先不要实现后续的 explainable retrieval、code-aware summaries、topic config、review queue 或 semantic retrieval
-- 实现后运行完整测试，并更新 README / getting-started 文档
+继续推进 RepoHarness 记忆系统下一阶段：
+- 已完成 Memory Pack v1、Explainable Retrieval v1、Fuzzy Lexical Retrieval v1、Code-Aware Summaries v1 和 Durable Memory Review Queue v1
+- 不做 Topic Configuration、Semantic Retrieval、edit distance、同义词表、embedding 或 vector DB
+- 下一步优先评估 Episodic Compaction / Archival 或 Memory Safety And Redaction
+- 任何可复用事实进入 durable memory 前必须继续经过 Review Queue
+- 阶段完成后运行完整测试，并更新 README / getting-started / maintainer-prep 文档
 ```
 
