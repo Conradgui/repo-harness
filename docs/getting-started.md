@@ -169,6 +169,12 @@ repo-harness> /memory review
 
 逐条选择 `accept`、`edit`、`reject` 或 `skip`。只有 `accept` 或 `edit` 后的内容会写入 `.repo-harness/memory/topics/*.md`。Pending queue 不进入 prompt memory、不参与 `/memory_explain`，也不会被 `safe-transfer` memory pack 导出。
 
+### 当前 memory v1 边界
+
+RepoHarness 这一阶段的记忆系统已经收口在三件事上：可迁移、可审核、可解释。Memory Pack 负责把 accepted durable memory 和必要现场带到其他环境；`/memory review` 负责把长期记忆写入变成人工确认动作；`/memory_explain` 负责说明某条 memory 为什么被选中。
+
+运行报告中，`durable_review_queued` 表示本轮进入 `.repo-harness/memory/review-queue.jsonl` 的候选；`durable_promotions` 只表示真正写入 durable topics 的内容；`durable_rejections` 表示被安全过滤拒绝的候选。这个阶段不做 Topic Configuration、Semantic Retrieval、edit distance、同义词表、embedding 或 vector DB。
+
 ### 文件摘要为什么更短也更有用
 
 RepoHarness 读取完整 Python 文件后，会把 `file_summaries` 写成受限的结构摘要，例如 imports、classes、functions 和 constants。它仍然是短工作记忆：不保存函数体，不保存 docstring 长文本，不提高 memory 预算，也不会替代下一次必要的文件读取。

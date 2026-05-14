@@ -1,6 +1,6 @@
 # RepoHarness Memory System Iteration Roadmap
 
-本文记录 RepoHarness 记忆系统的阶段性设计判断和后续迭代方向。它用于在后续开发窗口中继续推进 memory pack、记忆治理和记忆智能能力。
+本文记录 RepoHarness 记忆系统的阶段性设计判断、已完成 v1 基线和后续迭代方向。它用于在后续开发窗口中区分已收尾能力和真正的下一阶段工作。
 
 ## Current Baseline
 
@@ -32,7 +32,7 @@ RepoHarness 当前的记忆系统是一个确定性、轻量、文件可追踪�
 2. **Memory intelligence**
    RepoHarness 在使用过程中逐步沉淀稳定事实、偏好、项目约定和代码理解，并在后续任务中更准确、可解释地复用。
 
-第一阶段优先做 **Memory Portability and Governance v1**。记忆智能增强放到后续阶段逐步推进。
+当前阶段已经完成 **Memory Portability / Governance / Explainability v1** 收尾：Memory Pack 负责可迁移，Review Queue 负责可审核，`/memory_explain` 负责可解释。下一阶段才进入简单、可审核的 **Memory Self-Iteration v1**。
 
 ## Memory Pack v1 Decisions
 
@@ -223,11 +223,11 @@ Memory Pack v1 的 validate 边界必须和导入边界一致。一个 pack 只�
 
 这些规则服务于同一个原则：记忆系统继续保持确定性、轻量、文件可追踪，而不是依赖隐式信任或不可解释的二进制状态。
 
-## Future Memory Intelligence Improvements
+## Completed Memory Intelligence v1 Baseline
 
-以下内容不放入第一阶段实现，后续逐项推进。
+以下内容记录已经完成或明确收窄的 v1 基线，避免后续窗口把这些能力继续当作待办。
 
-### 1. Explainable Retrieval v1
+### 1. Explainable Retrieval v1（已完成）
 
 目标：让用户和维护者知道某条 memory 为什么被召回，同时保持当前记忆系统确定性、轻量、文件可追踪。
 
@@ -277,7 +277,7 @@ Memory Pack v1 的 validate 边界必须和导入边界一致。一个 pack 只�
 }
 ```
 
-### 2. Code-Aware File Summaries
+### 2. Code-Aware File Summaries（已完成）
 
 当前 `summarize_read_result()` 主要截取文件前几行，对代码理解较弱。
 
@@ -308,7 +308,7 @@ Memory Pack v1 的 validate 边界必须和导入边界一致。一个 pack 只�
 
 后续如继续扩展更多文件类型，必须保持固定上限、确定性解析和 freshness 失效语义。
 
-### 3. Durable Topic Taxonomy Decision
+### 3. Durable Topic Taxonomy Decision（已完成）
 
 当前 durable topic 固定为四类：
 
@@ -333,7 +333,7 @@ Memory Pack v1 的 validate 边界必须和导入边界一致。一个 pack 只�
 - 不开放用户或 agent 自定义 durable topic。
 - 不让 Memory Pack v1/v2 依赖可变 topic taxonomy。
 
-### 4. Durable Memory Review Queue
+### 4. Durable Memory Review Queue（已完成）
 
 当前 durable promotion 已改为 review queue：最终回答中可解析、通过安全过滤的长期事实候选，不再直接写入 durable topics。
 
@@ -359,7 +359,7 @@ Memory Pack v1 的 validate 边界必须和导入边界一致。一个 pack 只�
 - 允许用户编辑长期记忆表述。
 - 更符合“持续自我迭代但受用户控制”的产品方向。
 
-### 5. Fuzzy Lexical Retrieval v1
+### 5. Fuzzy Lexical Retrieval v1（已完成）
 
 当前 lexical retrieval 继续保持默认检索方式，但允许做非常克制的词面归一化，让用户不必精确记住分隔符和大小写。
 
@@ -392,9 +392,13 @@ Memory Pack v1 的 validate 边界必须和导入边界一致。一个 pack 只�
 - 保持实现轻量、确定性、可测试。
 - 避免 semantic retrieval 带来的索引、迁移和调试复杂度。
 
-### 6. Episodic Compaction
+## Later Work
 
-当前 episodic notes 超过上限后直接截断。后续可以做压缩归档。
+后续只从简单、可审核的 Memory Self-Iteration v1 开始；Memory Safety And Redaction 之后单独评估。
+
+### 1. Memory Self-Iteration v1
+
+当前 episodic notes 超过上限后直接截断。下一阶段可以做简单、确定性的自迭代归档。
 
 可做能力：
 
@@ -407,7 +411,7 @@ Memory Pack v1 的 validate 边界必须和导入边界一致。一个 pack 只�
 - 长任务上下文更稳定。
 - 减少有用事件被截断丢失。
 
-### 7. Memory Safety And Redaction
+### 2. Memory Safety And Redaction
 
 后续需要强化记忆导出和 durable promotion 的安全边界。
 
@@ -426,56 +430,39 @@ Memory Pack v1 的 validate 边界必须和导入边界一致。一个 pack 只�
 
 ## Recommended Implementation Order
 
-建议后续分阶段推进：
+当前阶段已经把“可迁移、可审核、可解释”三块收尾为稳定 v1 基线：
 
-1. Memory Pack v1
-   - `memory_pack.py`
-   - zip manifest
-   - safe-transfer export/import
-   - inspect/validate
-   - `/memory_pack`
-   - CLI advanced commands
-   - tests and docs
+1. Memory Portability v1（已完成）
+   - `safe-transfer` 只导出 accepted durable memory。
+   - `continue-work` 导出 durable memory 和 working context，导入后保存 working context snapshot，不覆盖当前 session。
+   - `full-recovery` 导出 durable memory、working context、sessions/checkpoints 和 run artifacts，并保留隐私 warning。
+   - import 继续 conservative merge，不覆盖已有 memory/session/run 文件。
+   - inspect/validate 继续严格检查 schema、路径穿越、重复 entry、topic slug mismatch 和 working context payload。
 
-2. Continue Work Support
-   - working context export
-   - imported working snapshots
-   - no-overwrite import report
+2. Memory Governance v1（已完成）
+   - durable candidates 先进入 `.repo-harness/memory/review-queue.jsonl`。
+   - `/memory review` 的 accept/edit 才写入 durable topics，reject 不写入，skip 保持 pending。
+   - edit/accept 继续执行 secret-shaped、transient、noisy 过滤。
+   - `report.json` 中 `durable_review_queued` 表示本轮入队候选，`durable_promotions` 只表示真正写入 durable topics 的内容，`durable_rejections` 表示被安全过滤拒绝的候选。
 
-3. Full Recovery Archive
-   - sessions/runs export
-   - explicit risk prompt
-   - conflict skip report
+3. Explainable Retrieval v1（已完成）
+   - `/memory_explain <query>` 只读，不调用模型，不写 session。
+   - explanation 包含 `score`、`score_breakdown`、`kind`、`source`、`tags`、`created_at`。
+   - `prompt_metadata.relevant_memory.selected_explanations` 记录实际进入 prompt 的 memory 解释。
+   - prompt 正文只渲染 `Relevant memory:` note 文本，不暴露 debug score。
+   - fuzzy lexical normalization 只做大小写、分隔符、camelCase/PascalCase 归一化，不做 edit distance、同义词、semantic retrieval、embedding 或 vector DB。
 
-4. Explainable Retrieval v1
-   - `/memory_explain <query>`
-   - score_breakdown
-   - selected_explanations
-   - metadata/report exposure
-   - file-traceable retrieval reasons
+下一阶段只进入 **Memory Self-Iteration v1**，目标是简单、可审核的自迭代：
 
-5. Code-Aware Summaries
-   - Python AST summaries（已完成 v1）
-   - markdown/config/test summaries（已完成 v1）
+- 将长任务中的有用 session 片段整理为 bounded episodic summaries。
+- 将可复用事实作为 durable candidates 送入 Review Queue，仍不允许绕过审核直接写 durable topics。
+- 保持 lexical retrieval 为默认和 fallback，不引入语义检索复杂度。
 
-6. Durable Memory Review Queue
-   - pending durable facts（已完成 v1）
-   - accept/edit/reject/skip flow（已完成 v1）
-   - `/memory review`（已完成 v1）
+之后再单独评估 Memory Safety And Redaction：
 
-7. Fuzzy Lexical Retrieval v1
-   - token normalization（已完成 v1）
-   - separator-aware matching（已完成 v1）
-   - no edit distance / no synonym table / no semantic retrieval
-
-8. Episodic Compaction
-   - session summary
-   - reusable fact candidates go through review queue
-
-9. Memory Safety And Redaction
-   - secret-shaped scan before export
-   - redaction summary
-   - import/export safety hardening
+- export 前 secret-shaped scan。
+- redaction summary。
+- import/export safety hardening。
 
 ## Handoff Prompt For Next Window
 
@@ -484,9 +471,9 @@ Memory Pack v1 的 validate 边界必须和导入边界一致。一个 pack 只�
 ```text
 请基于 docs/maintainer-prep/memory-system-iteration-roadmap.md，
 继续推进 RepoHarness 记忆系统下一阶段：
-- 已完成 Memory Pack v1、Explainable Retrieval v1、Fuzzy Lexical Retrieval v1、Code-Aware Summaries v1 和 Durable Memory Review Queue v1
+- 已完成 Memory Portability v1、Memory Governance v1、Explainable Retrieval v1、Fuzzy Lexical Retrieval v1、Code-Aware Summaries v1 和 Durable Memory Review Queue v1
 - 不做 Topic Configuration、Semantic Retrieval、edit distance、同义词表、embedding 或 vector DB
-- 下一步优先评估 Episodic Compaction / Archival 或 Memory Safety And Redaction
+- 下一步只推进 Memory Self-Iteration v1，保持简单、可审核、确定性优先
 - 任何可复用事实进入 durable memory 前必须继续经过 Review Queue
 - 阶段完成后运行完整测试，并更新 README / getting-started / maintainer-prep 文档
 ```

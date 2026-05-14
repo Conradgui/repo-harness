@@ -15,6 +15,33 @@
 
 ## 修复记录
 
+### 2026-05-14：Memory Portability / Governance / Explainability v1 收尾
+
+#### 背景
+
+记忆系统已经经历 Memory Pack、Explainable Retrieval、Fuzzy Lexical Retrieval、Code-Aware Summaries 和 Review Queue 多轮推进。本轮不新增大功能，也不进入 Memory Self-Iteration；目标是把“可迁移、可审核、可解释”三块收口为稳定、可测试、文档一致的 v1 基线。
+
+#### 修复内容
+
+- 文档统一确认 `safe-transfer`、`continue-work`、`full-recovery` 的边界：safe-transfer 只导出 accepted durable memory；continue-work 导入后只保存 working context snapshot；full-recovery 继续保留 privacy warning。
+- 文档统一确认 Review Queue v1 边界：durable candidates 先进入 `.repo-harness/memory/review-queue.jsonl`，`/memory review` 的 accept/edit 后才写 durable topics，pending queue 不进入 prompt memory、`/memory_explain` 或 `safe-transfer`。
+- 文档统一确认 report 字段语义：`durable_review_queued` 表示本轮入队候选，`durable_promotions` 只表示真正写入 durable topics 的内容，`durable_rejections` 表示被安全过滤拒绝的候选。
+- 文档统一确认 Explainable Retrieval v1 边界：`/memory_explain` 只读，`selected_explanations` 记录实际进入 prompt 的 memory 解释，prompt 正文不暴露 debug score。
+- roadmap 和 handoff 不再把已完成的 Code-Aware summaries、Review Queue 或三块 v1 收尾能力列为 future work；下一阶段明确为简单、可审核的 Memory Self-Iteration v1。
+- 追加文档一致性测试，保护 README、getting-started、roadmap、handoff、patch-summary 和 maintainer README 不再互相漂移。
+
+#### 验证结果
+
+- `uv run pytest tests -q --basetemp C:\tmp\rh-test`：160 passed。
+- `uv run ruff check .`：通过。
+- `git diff --check`：无 whitespace error，仅有 Windows LF/CRLF 提示。
+
+#### 后续注意
+
+- 下一阶段才开始 Memory Self-Iteration v1；任何可复用事实仍必须进入 Review Queue。
+- 继续不做 Topic Configuration、Semantic Retrieval、edit distance、同义词表、embedding 或 vector DB。
+- Memory Safety And Redaction 后续单独评估，不和本轮收尾混在一起。
+
 ### 2026-05-12：Memory Intelligence v1 阶段推进
 
 #### 背景

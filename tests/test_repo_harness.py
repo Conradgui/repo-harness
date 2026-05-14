@@ -2122,8 +2122,9 @@ def test_memory_review_queue_docs_cover_repl_report_and_pending_boundaries():
     readme_text = Path("README.md").read_text(encoding="utf-8")
     guide_text = Path("docs/getting-started.md").read_text(encoding="utf-8")
     roadmap_text = Path("docs/maintainer-prep/memory-system-iteration-roadmap.md").read_text(encoding="utf-8")
+    handoff_text = Path("docs/maintainer-prep/memory-system-new-window-handoff.md").read_text(encoding="utf-8")
     patch_summary_text = Path("docs/maintainer-prep/patch-summary.md").read_text(encoding="utf-8")
-    combined = "\n".join([readme_text, guide_text, roadmap_text, patch_summary_text])
+    combined = "\n".join([readme_text, guide_text, roadmap_text, handoff_text, patch_summary_text])
 
     for required in [
         "/memory review",
@@ -2162,6 +2163,7 @@ def test_maintainer_docs_make_documentation_sync_a_completion_gate():
     assert "memory-system-new-window-handoff.md" in maintainer_readme
     assert "文档同步是功能完成后的必需门禁" in maintainer_readme
     assert "README、getting-started、memory roadmap、patch-summary" in maintainer_readme
+    assert "不能把已完成能力继续列为 future work" in maintainer_readme
     assert "README" in study_sop
     assert "docs/getting-started.md" in study_sop
     assert "文档健全是长期可维护性的一部分" in study_sop
@@ -2169,6 +2171,64 @@ def test_maintainer_docs_make_documentation_sync_a_completion_gate():
     assert "Memory Pack v1" in changelog
     assert "Code-Aware File Summaries v1 已完成" in handoff
     assert "后续仍可补" not in handoff
+
+
+def test_memory_v1_closure_docs_are_consistent_about_next_stage():
+    docs = {
+        "readme": Path("README.md").read_text(encoding="utf-8"),
+        "guide": Path("docs/getting-started.md").read_text(encoding="utf-8"),
+        "roadmap": Path("docs/maintainer-prep/memory-system-iteration-roadmap.md").read_text(encoding="utf-8"),
+        "handoff": Path("docs/maintainer-prep/memory-system-new-window-handoff.md").read_text(encoding="utf-8"),
+        "patch_summary": Path("docs/maintainer-prep/patch-summary.md").read_text(encoding="utf-8"),
+        "changelog": Path("docs/maintainer-prep/changelog-draft.md").read_text(encoding="utf-8"),
+        "maintainer_readme": Path("docs/maintainer-prep/README.md").read_text(encoding="utf-8"),
+    }
+
+    core_markers = [
+        "/memory review",
+        "/memory_explain",
+        "safe-transfer",
+        "durable_review_queued",
+        "review-queue.jsonl",
+        "可迁移",
+        "可审核",
+        "可解释",
+    ]
+    for name in ["readme", "guide", "roadmap", "handoff", "patch_summary"]:
+        for required in core_markers:
+            assert required in docs[name], f"{name} missing {required}"
+
+    for name in ["roadmap", "handoff", "patch_summary", "changelog"]:
+        for required in [
+            "Memory Self-Iteration v1",
+            "不做 Topic Configuration",
+            "Semantic Retrieval",
+            "embedding",
+            "vector DB",
+        ]:
+            assert required in docs[name], f"{name} missing {required}"
+
+    for required in [
+        "可迁移",
+        "可审核",
+        "可解释",
+        "Memory Self-Iteration v1",
+    ]:
+        assert required in docs["changelog"]
+
+    assert "memory-system-new-window-handoff.md" in docs["maintainer_readme"]
+    assert "不能把已完成能力继续列为 future work" in docs["maintainer_readme"]
+
+    stale_future_work = [
+        "Future Memory Intelligence Improvements",
+        "以下内容不放入第一阶段实现，后续逐项推进。",
+        "Code-Aware File Summaries 剩余部分",
+        "下一步建议优先评估 **Episodic Compaction / Archival** 或 **Memory Safety And Redaction**",
+        "下一步优先评估 Episodic Compaction / Archival 或 Memory Safety And Redaction",
+    ]
+    for stale_text in stale_future_work:
+        assert stale_text not in docs["handoff"]
+        assert stale_text not in docs["roadmap"]
 
 
 def test_gitignore_keeps_publishable_docs_trackable():

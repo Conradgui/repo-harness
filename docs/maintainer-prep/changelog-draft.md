@@ -15,6 +15,21 @@
 
 ## 待发布记录
 
+### 2026-05-14：Memory v1 收尾
+
+#### 已稳定
+
+- Memory Pack、Review Queue 和 Explainable Retrieval 的文档边界完成同步，当前 v1 聚焦“可迁移、可审核、可解释”。
+- `safe-transfer`、`continue-work`、`full-recovery` 三种 memory pack preset 的使用差异已在 README 和新手指南中固定说明。
+- 长期记忆继续必须通过 `/memory review` 审核；pending queue 不进入 prompt memory、`/memory_explain` 或 `safe-transfer`。
+- `/memory_explain` 继续作为只读解释工具，展示 lexical / fuzzy lexical retrieval 的确定性信号。
+
+#### 行为边界
+
+- 本轮没有新增 Memory Self-Iteration，也没有改变 memory pack schema、durable topic 四分类或 retrieval ranking。
+- 继续不做 Topic Configuration、Semantic Retrieval、edit distance、同义词表、embedding 或 vector DB。
+- 后续下一阶段才进入简单、可审核的 Memory Self-Iteration v1。
+
 ### 2026-05-09：开源文档本机参数清理
 
 #### 已修复

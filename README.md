@@ -243,6 +243,16 @@ RepoHarness 不会再把模型最终回答里解析出的长期事实直接写�
 
 secret-shaped、临时任务状态和噪声输出不会进入 queue；人工 edit 后也会再次执行同一类安全过滤。Pending queue 不进入 prompt memory、不参与 `/memory_explain`，也不会被 `safe-transfer` memory pack 导出。
 
+## Memory v1 当前边界
+
+当前记忆系统 v1 的稳定目标是“可迁移、可审核、可解释”，不是扩大语义检索复杂度：
+
+- 可迁移：Memory Pack 支持 `safe-transfer`、`continue-work` 和 `full-recovery` 三种 preset。
+- 可审核：所有 durable memory 候选先进入 `review-queue.jsonl`；只有 `/memory review` 的 accept/edit 会写入 durable topics。
+- 可解释：`/memory_explain` 和 `selected_explanations` 解释被选中 memory 的确定性 lexical / fuzzy lexical 信号。
+
+相关运行报告字段也保持固定语义：`durable_review_queued` 表示本轮入队候选，`durable_promotions` 只表示真正写入 durable topics 的内容，`durable_rejections` 表示被安全过滤拒绝的候选。
+
 ## Memory Pack
 
 Memory pack 用来迁移、备份或检查 RepoHarness 的本地记忆系统。它保持当前记忆系统的设计原则：确定性、轻量、文件可追踪、分层清晰。

@@ -43,4 +43,5 @@ Memory Pack v1 之后，维护者工作流增加一个硬性收尾步骤：代�
 - `docs/architecture/agent-harness-v1-overview.md` 或 review-pack 是否需要记录新的状态目录、运行工件或架构边界。
 - `docs/maintainer-prep/*` 是否需要追加维护者决策、修复摘要、changelog 草案或后续路线。
 - 如果更新 README、getting-started、memory roadmap、patch-summary 或任何记忆系统相关文档，必须同步检查 `docs/maintainer-prep/memory-system-new-window-handoff.md` 是否仍与当前事实一致。
+- `memory-system-new-window-handoff.md` 的“当前状态”和“下一步”必须与 roadmap 保持一致，不能把已完成能力继续列为 future work。
 - 测试是否需要保护关键文档资产，避免文档再次落后于代码。

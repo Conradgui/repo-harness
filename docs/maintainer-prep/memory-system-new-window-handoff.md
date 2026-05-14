@@ -232,12 +232,20 @@ RepoHarness 当前记忆系统仍是确定性、轻量、文件可追踪的分�
 
 ## 后续路线
 
-当前 roadmap 中后续阶段建议顺序：
+当前 roadmap 已把“可迁移、可审核、可解释”三块收尾为稳定 v1 基线：
 
-1. Code-Aware File Summaries 剩余部分
-2. Durable Memory Review Queue
-3. Episodic Compaction / Archival
-4. Memory Safety And Redaction
+1. Memory Portability v1
+   - `safe-transfer` 只导出 accepted durable memory。
+   - `continue-work` 导出 durable memory 和 working context，导入后只保存 working context snapshot。
+   - `full-recovery` 导出 durable memory、working context、sessions/checkpoints 和 run artifacts，并保留 privacy warning。
+2. Memory Governance v1
+   - durable candidates 先进入 `.repo-harness/memory/review-queue.jsonl`。
+   - `/memory review` 的 accept/edit 才写入 durable topics。
+   - `report.json` 中 `durable_review_queued` 表示入队候选，`durable_promotions` 只表示真正写入 durable topics 的内容。
+3. Explainable Retrieval v1
+   - `/memory_explain <query>` 只读，不调用模型，不写 session。
+   - explanation 包含 `score`、`score_breakdown`、`kind`、`source`、`tags`、`created_at`。
+   - `selected_explanations` 只记录实际进入 prompt 的 memory 解释。
 
 明确不做：
 
@@ -245,15 +253,17 @@ RepoHarness 当前记忆系统仍是确定性、轻量、文件可追踪的分�
 - Semantic Retrieval adapter。
 - edit distance / synonym table / embedding / vector DB。
 
-Code-Aware File Summaries 剩余部分和 Durable Memory Review Queue v1 已完成。
+Code-Aware File Summaries v1 和 Fuzzy Lexical Retrieval v1 也已完成，并作为上述三块能力的支撑能力保留。
 
-下一步建议优先评估 **Episodic Compaction / Archival** 或 **Memory Safety And Redaction**。
+下一步只进入 **Memory Self-Iteration v1**。目标是简单、可审核的自迭代，不新增语义检索复杂度。
 
 原因：
 
 - Code-Aware summaries 已支持 Python / Markdown / config / Python test files，继续保持 freshness hash、固定上限和 fallback。
 - Durable memory 候选已先进入 `.repo-harness/memory/review-queue.jsonl`，通过 `/memory review` 的 accept/edit 才会写入 durable topics。
 - Pending queue 不进入 prompt memory、不参与 `/memory_explain`，也不进入 `safe-transfer` memory pack。
+- Memory Pack v1 已覆盖 `safe-transfer`、`continue-work` 和 `full-recovery` 三种迁移/恢复场景。
+- `/memory_explain` 已能解释 lexical 和 fuzzy lexical 命中，不需要引入 embedding 或 vector DB。
 - 后续工作仍应保持确定性和轻量，不引入 embedding、数据库、外部服务。
 
 建议边界：
@@ -264,6 +274,7 @@ Code-Aware File Summaries 剩余部分和 Durable Memory Review Queue v1 已完�
 - 文件被写入后继续失效旧摘要。
 - 所有 durable memory 候选继续先进入 Review Queue，不允许绕过审核直接写入 durable topics。
 - Review Queue edit 后也必须继续执行 secret-shaped / transient / noisy 过滤。
+- Memory Self-Iteration v1 产生的可复用事实仍只能进入 Review Queue，不能直接写 durable topics。
 
 ## 新窗口执行规则
 
