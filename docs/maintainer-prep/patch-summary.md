@@ -15,6 +15,62 @@
 
 ## 修复记录
 
+### 2026-05-15：旧品牌残留清理与维护者文档刷新
+
+#### 背景
+
+维护者文档中仍有旧品牌入口、旧状态目录迁移和旧截图引用相关描述，容易让后续维护窗口误判当前公开入口。本轮目标是让 RepoHarness 成为唯一当前品牌、入口和状态目录，并保留当前未提交的 Memory Self-Iteration v1 改动。
+
+#### 修复内容
+
+- 移除旧状态目录复制迁移逻辑，启动时只使用 `.repo-harness/`。
+- 删除旧状态迁移测试，保留当前 `repo-harness` / `python -m repo_harness` 入口测试。
+- README 移除旧截图引用；截图文件暂不删除，留待后续确认是否重制。
+- 维护者 README、Windows 兼容性记录、版本记录、项目学习 SOP、架构概览、memory roadmap 和 handoff 同步当前 RepoHarness 事实。
+- 新增文本守卫测试，防止 README、docs、源码、测试、配置和 ignore 规则重新引入旧品牌字面量。
+
+#### 验证结果
+
+- 旧品牌残留 targeted 文本检查：无输出。
+- README/docs 旧截图引用检查：无输出。
+- `uv run pytest tests/test_repo_harness.py -q -k "removed_brand or screenshots or module_execution or pyproject"`：5 passed。
+- `uv run pytest tests/test_safety_invariants.py tests/test_repo_harness.py -q`：103 passed。
+- `uv run pytest tests -q --basetemp C:\tmp\rh-test`：168 passed。
+- `uv run ruff check .`：通过。
+- `git diff --check`：无 whitespace error，仅有 Windows LF/CRLF 提示。
+
+#### 后续注意
+
+- 如果后续需要新的 README 截图，应使用当前 `repo-harness` CLI 和 `repo-harness>` REPL prompt 重新生成。
+- 旧截图文件暂未删除，等待后续确认是否重制或移除；README 和 docs 不再引用它们。
+
+### 2026-05-14：Memory Self-Iteration v1 透明可控推进
+
+#### 背景
+
+在“可迁移、可审核、可解释”三块收尾后，下一阶段进入简单记忆系统自迭代。用户明确要求 RepoHarness 对用户完全透明、完全可控，因此本轮不做黑盒自动长期记忆写入，而是把自整理行为暴露到 report 和只读 REPL 入口。
+
+#### 修复内容
+
+- run 收尾阶段新增 bounded episodic compaction，将过长 episodic notes 整理为 `episodic-compaction` 来源的短 note。
+- self-iteration 发现的可复用长期事实候选只进入 `.repo-harness/memory/review-queue.jsonl`，source 标记为 `memory-self-iteration`，不直接写 durable topics。
+- `report.json` 新增 `episodic_compactions`、`self_iteration_review_queued` 和 `self_iteration_rejections`，用于复盘自整理行为。
+- REPL 新增只读入口 `/memory self_iteration`，展示最近一次 compaction、queued candidates、rejections 和 pending review 数量；该入口不触发 compaction、不生成候选、不写 memory。
+- REPL 在最终回答后，如果 self-iteration 产生候选，会提示用户运行 `/memory review` 审核。
+- README、getting-started、roadmap、handoff 和 changelog 同步透明可控边界。
+
+#### 验证结果
+
+- `uv run pytest tests/test_memory.py tests/test_memory_pack.py tests/test_repo_harness.py -q`：125 passed。
+- `uv run pytest tests -q --basetemp C:\tmp\rh-test`：168 passed。
+- `uv run ruff check .`：通过。
+- `git diff --check`：无 whitespace error，仅有 Windows LF/CRLF 提示。
+
+#### 后续注意
+
+- Memory Self-Iteration v1 仍不调用模型生成摘要，不新增顶层 `repo-harness memory ...` CLI 子命令，不新增 semantic retrieval / embedding / vector DB。
+- 长期记忆最终控制点继续只有 `/memory review`。
+
 ### 2026-05-14：Memory Portability / Governance / Explainability v1 收尾
 
 #### 背景
@@ -27,7 +83,7 @@
 - 文档统一确认 Review Queue v1 边界：durable candidates 先进入 `.repo-harness/memory/review-queue.jsonl`，`/memory review` 的 accept/edit 后才写 durable topics，pending queue 不进入 prompt memory、`/memory_explain` 或 `safe-transfer`。
 - 文档统一确认 report 字段语义：`durable_review_queued` 表示本轮入队候选，`durable_promotions` 只表示真正写入 durable topics 的内容，`durable_rejections` 表示被安全过滤拒绝的候选。
 - 文档统一确认 Explainable Retrieval v1 边界：`/memory_explain` 只读，`selected_explanations` 记录实际进入 prompt 的 memory 解释，prompt 正文不暴露 debug score。
-- roadmap 和 handoff 不再把已完成的 Code-Aware summaries、Review Queue 或三块 v1 收尾能力列为 future work；下一阶段明确为简单、可审核的 Memory Self-Iteration v1。
+- roadmap 和 handoff 不再把已完成的 Code-Aware summaries、Review Queue 或三块 v1 收尾能力列为 future work；Memory Self-Iteration v1 已在后续批次完成 v1 基线。
 - 追加文档一致性测试，保护 README、getting-started、roadmap、handoff、patch-summary 和 maintainer README 不再互相漂移。
 
 #### 验证结果
@@ -38,7 +94,7 @@
 
 #### 后续注意
 
-- 下一阶段才开始 Memory Self-Iteration v1；任何可复用事实仍必须进入 Review Queue。
+- Memory Self-Iteration v1 后续批次已经完成 v1 基线；任何可复用事实仍必须进入 Review Queue。
 - 继续不做 Topic Configuration、Semantic Retrieval、edit distance、同义词表、embedding 或 vector DB。
 - Memory Safety And Redaction 后续单独评估，不和本轮收尾混在一起。
 
@@ -125,7 +181,7 @@
 
 #### 背景
 
-RepoHarness 的 `file_summaries` 原本主要截取 `read_file` 输出的前几行。这符合 pico 轻量记忆原则，但对 Python 文件的信息密度较低，容易让 agent 为确认文件结构而重复读取。新能力必须保持短摘要、freshness 失效和确定性解析，不得把 memory 做成代码索引或知识库。
+RepoHarness 的 `file_summaries` 原本主要截取 `read_file` 输出的前几行。这符合 RepoHarness 轻量记忆原则，但对 Python 文件的信息密度较低，容易让 agent 为确认文件结构而重复读取。新能力必须保持短摘要、freshness 失效和确定性解析，不得把 memory 做成代码索引或知识库。
 
 #### 修复内容
 
@@ -244,7 +300,7 @@ Windows 是复现环境，不是根因本身。真正需要修复的是代码库
 
 ##### 2. 可复现性元数据依赖宿主机 locale
 
-- 文件：`pico/evaluator.py`
+- 文件：`repo_harness/evaluator.py`
 - 现象：benchmark 产物中的元数据会随着宿主机 locale 改变。
 - 问题：所谓“可复现性”输出引用了机器当前 locale，而不是稳定约定值。
 - 更正方式：为 benchmark 的可复现性元数据输出稳定 locale 值。
@@ -252,7 +308,7 @@ Windows 是复现环境，不是根因本身。真正需要修复的是代码库
 
 ##### 3. benchmark verifier 默认假设存在 `python3`
 
-- 文件：`pico/evaluator.py`
+- 文件：`repo_harness/evaluator.py`
 - 现象：即使任务本身已正确完成，Windows 上 verifier 仍会失败。
 - 问题：verifier 以 shell 字符串方式执行，并默认存在 `python3` 命令。
 - 更正方式：识别 `python3 -c ...` 形式的 verifier，并改用 `sys.executable` 执行。
@@ -260,7 +316,7 @@ Windows 是复现环境，不是根因本身。真正需要修复的是代码库
 
 ##### 4. shell 安全过滤误删 Windows 启动所需变量
 
-- 文件：`pico/runtime.py`
+- 文件：`repo_harness/runtime.py`
 - 现象：shell 执行时报错，提示缺少 `%ComSpec%` 或 `%SystemRoot%`。
 - 问题：过滤后的执行环境没有保留 Windows shell 启动所必需的基础变量。
 - 更正方式：在过滤环境中保留 `ComSpec`、`SystemRoot` 和 `PATHEXT`。
@@ -268,7 +324,7 @@ Windows 是复现环境，不是根因本身。真正需要修复的是代码库
 
 ##### 5. runtime 没有保证与命令语法兼容的 shell
 
-- 文件：`pico/tools.py`
+- 文件：`repo_harness/tools.py`
 - 现象：使用 POSIX 引号和 `printf` 的命令在 Windows 默认 shell 下执行失败。
 - 问题：测试和部分模型生成命令默认使用 POSIX shell 语义，但 runtime 实际交给平台默认 shell 处理。
 - 更正方式：优先选择 POSIX 兼容 shell，并为常见 Git Bash 路径提供显式兜底。
@@ -296,12 +352,12 @@ Windows 是复现环境，不是根因本身。真正需要修复的是代码库
 
 #### 验证结果
 
-- `uv run pytest tests/test_pico.py -q`：通过。
+- `uv run pytest tests/test_repo_harness.py -q`：通过。
 - `uv run ruff check .`：通过。
 - `uv run pytest -q`：通过。
-- Windows CMD / PowerShell 下 `uv run python -m pico --help`：通过。
+- Windows CMD / PowerShell 下 `uv run python -m repo_harness --help`：通过。
 
 #### 后续注意
 
-- 如果后续执行 `RepoHarness` 全量重命名，本记录中的 `pico/`、`.pico/` 和 `uv run pico` 属于 2026-05-03 当时的历史事实，不应直接改写。
+- 当前维护文档统一使用 RepoHarness 当前入口和 `.repo-harness/` 状态目录；旧品牌入口不再作为支持路径维护。
 - 后续修复应继续追加新的日期记录，并在新记录中使用当时的当前包名、路径和命令。

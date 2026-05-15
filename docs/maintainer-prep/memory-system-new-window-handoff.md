@@ -30,9 +30,9 @@ git rev-parse --short HEAD
 
 ## 已完成阶段
 
-### 1. RepoHarness 重命名
+### 1. RepoHarness 品牌基线
 
-项目已从 `pico` 重命名为 RepoHarness：
+RepoHarness 当前公开入口：
 
 - distribution name：`repo-harness`
 - import package：`repo_harness`
@@ -40,7 +40,7 @@ git rev-parse --short HEAD
 - module entry：`python -m repo_harness`
 - 本地状态目录：`.repo-harness/`
 
-旧 `.pico/` 状态只做复制迁移，不删除，不覆盖 `.repo-harness/` 已有内容。
+旧品牌入口和旧状态迁移兼容已经移除；后续不要重新引入旧 prompt、旧 CLI 或旧状态目录说明。
 
 `AGENT.md` / `AGENTS.md` 不新增。文档已说明它们是可选约定；仓库没有该文件不是 bug。
 
@@ -255,7 +255,7 @@ RepoHarness 当前记忆系统仍是确定性、轻量、文件可追踪的分�
 
 Code-Aware File Summaries v1 和 Fuzzy Lexical Retrieval v1 也已完成，并作为上述三块能力的支撑能力保留。
 
-下一步只进入 **Memory Self-Iteration v1**。目标是简单、可审核的自迭代，不新增语义检索复杂度。
+**Memory Self-Iteration v1 已完成 v1 基线**。它提供透明、可控、可审核的轻量自迭代，不新增语义检索复杂度。
 
 原因：
 
@@ -264,7 +264,8 @@ Code-Aware File Summaries v1 和 Fuzzy Lexical Retrieval v1 也已完成，并�
 - Pending queue 不进入 prompt memory、不参与 `/memory_explain`，也不进入 `safe-transfer` memory pack。
 - Memory Pack v1 已覆盖 `safe-transfer`、`continue-work` 和 `full-recovery` 三种迁移/恢复场景。
 - `/memory_explain` 已能解释 lexical 和 fuzzy lexical 命中，不需要引入 embedding 或 vector DB。
-- 后续工作仍应保持确定性和轻量，不引入 embedding、数据库、外部服务。
+- `/memory self_iteration` 只读展示最近一次 self-iteration 状态，不触发 compaction、不生成候选、不写 durable topics。
+- 后续工作不再继续扩展 Self-Iteration v1；优先单独评估 Memory Safety And Redaction，或处理 README 截图重制/删除、release/branch 收尾。
 
 建议边界：
 
@@ -275,6 +276,7 @@ Code-Aware File Summaries v1 和 Fuzzy Lexical Retrieval v1 也已完成，并�
 - 所有 durable memory 候选继续先进入 Review Queue，不允许绕过审核直接写入 durable topics。
 - Review Queue edit 后也必须继续执行 secret-shaped / transient / noisy 过滤。
 - Memory Self-Iteration v1 产生的可复用事实仍只能进入 Review Queue，不能直接写 durable topics。
+- `report.json` 应记录 `episodic_compactions`、`self_iteration_review_queued` 和 `self_iteration_rejections`，方便复盘自整理行为。
 
 ## 新窗口执行规则
 

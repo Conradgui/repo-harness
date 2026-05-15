@@ -28,20 +28,6 @@
   - OpenAI 兼容 Responses API
   - Anthropic 兼容 Messages API
 
-## 使用截图
-
-CLI 帮助信息：
-
-![repo-harness help](assets/screenshots/repo-harness-help.png)
-
-启动界面：
-
-![repo-harness start](assets/screenshots/repo-harness-start.png)
-
-REPL 内置命令与会话路径：
-
-![repo-harness repl](assets/screenshots/repo-harness-repl.png)
-
 ## 安装
 
 需要 Python 3.10+。
@@ -206,6 +192,7 @@ uv run repo-harness --provider anthropic
 - `/help`：查看内置命令
 - `/memory`：查看提炼后的工作记忆
 - `/memory review`：审核 pending durable memory 候选，确认后才写入长期记忆
+- `/memory self_iteration`：只读查看最近一次 Memory Self-Iteration 状态
 - `/memory_explain <query>`：查看 Explainable Retrieval v1 如何为查询选择 memory
 - `/memory_pack` 或 `/memory-pack`：打开 memory pack 菜单
 - `/session`：查看当前会话文件路径
@@ -243,6 +230,20 @@ RepoHarness 不会再把模型最终回答里解析出的长期事实直接写�
 
 secret-shaped、临时任务状态和噪声输出不会进入 queue；人工 edit 后也会再次执行同一类安全过滤。Pending queue 不进入 prompt memory、不参与 `/memory_explain`，也不会被 `safe-transfer` memory pack 导出。
 
+## Memory Self-Iteration v1
+
+Memory Self-Iteration v1 是透明、可控的轻量自整理。每轮 run 收尾时，RepoHarness 可以把过长的 episodic notes 压缩成 bounded summary，并把看起来可复用的长期事实候选送入 Review Queue；它不会直接写 `.repo-harness/memory/topics/*.md`。
+
+如果本轮产生了候选，REPL 会在最终回答后提示你运行 `/memory review`。你也可以输入：
+
+```text
+/memory self_iteration
+```
+
+这个入口只读展示最近一次 self-iteration 的 compaction、queued candidates、rejections 和 pending review 数量；它不会触发 compaction，不会生成新候选，也不会写 durable memory。
+
+`report.json` 会记录 `episodic_compactions`、`self_iteration_review_queued` 和 `self_iteration_rejections`。这些字段用于解释系统做了什么；长期记忆最终控制点仍然只有 `/memory review`。
+
 ## Memory v1 当前边界
 
 当前记忆系统 v1 的稳定目标是“可迁移、可审核、可解释”，不是扩大语义检索复杂度：
@@ -251,7 +252,7 @@ secret-shaped、临时任务状态和噪声输出不会进入 queue；人工 edi
 - 可审核：所有 durable memory 候选先进入 `review-queue.jsonl`；只有 `/memory review` 的 accept/edit 会写入 durable topics。
 - 可解释：`/memory_explain` 和 `selected_explanations` 解释被选中 memory 的确定性 lexical / fuzzy lexical 信号。
 
-相关运行报告字段也保持固定语义：`durable_review_queued` 表示本轮入队候选，`durable_promotions` 只表示真正写入 durable topics 的内容，`durable_rejections` 表示被安全过滤拒绝的候选。
+相关运行报告字段也保持固定语义：`durable_review_queued` 和 `self_iteration_review_queued` 表示本轮入队候选，`durable_promotions` 只表示真正写入 durable topics 的内容，`durable_rejections` 和 `self_iteration_rejections` 表示被安全过滤拒绝的候选。
 
 ## Memory Pack
 

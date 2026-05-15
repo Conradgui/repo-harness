@@ -141,6 +141,7 @@ repo-harness> update the docs for Windows PowerShell usage
 - `/help`：查看 REPL 内置命令。
 - `/memory`：查看当前会话提炼出来的工作记忆。
 - `/memory review`：审核 pending durable memory 候选，确认后才写入长期记忆。
+- `/memory self_iteration`：只读查看最近一次 Memory Self-Iteration 状态。
 - `/memory_explain <query>`：查看 Explainable Retrieval v1 如何为某个查询选择 memory。
 - `/memory_pack` 或 `/memory-pack`：打开 memory pack 菜单，用于导出、导入、检查或验证记忆包。
 - `/session`：查看当前 session 文件路径。
@@ -169,11 +170,23 @@ repo-harness> /memory review
 
 逐条选择 `accept`、`edit`、`reject` 或 `skip`。只有 `accept` 或 `edit` 后的内容会写入 `.repo-harness/memory/topics/*.md`。Pending queue 不进入 prompt memory、不参与 `/memory_explain`，也不会被 `safe-transfer` memory pack 导出。
 
+### 查看记忆系统自整理
+
+Memory Self-Iteration v1 会在 run 收尾时自动做轻量整理：过长的 episodic notes 会被压缩成 bounded summary；看起来可复用的长期事实候选只会进入 Review Queue。它不会自动写 durable topics。
+
+如果本轮产生了候选，REPL 会在最终回答后提示你运行 `/memory review`。你也可以只读查看最近一次状态：
+
+```text
+repo-harness> /memory self_iteration
+```
+
+输出会显示最近一次 compaction、queued candidates、rejections 和 pending review 数量。这个命令不会触发 compaction，不会生成新候选，也不会修改 memory。运行报告中的 `episodic_compactions`、`self_iteration_review_queued` 和 `self_iteration_rejections` 用于复盘这一步。
+
 ### 当前 memory v1 边界
 
 RepoHarness 这一阶段的记忆系统已经收口在三件事上：可迁移、可审核、可解释。Memory Pack 负责把 accepted durable memory 和必要现场带到其他环境；`/memory review` 负责把长期记忆写入变成人工确认动作；`/memory_explain` 负责说明某条 memory 为什么被选中。
 
-运行报告中，`durable_review_queued` 表示本轮进入 `.repo-harness/memory/review-queue.jsonl` 的候选；`durable_promotions` 只表示真正写入 durable topics 的内容；`durable_rejections` 表示被安全过滤拒绝的候选。这个阶段不做 Topic Configuration、Semantic Retrieval、edit distance、同义词表、embedding 或 vector DB。
+运行报告中，`durable_review_queued` 和 `self_iteration_review_queued` 表示本轮进入 `.repo-harness/memory/review-queue.jsonl` 的候选；`durable_promotions` 只表示真正写入 durable topics 的内容；`durable_rejections` 和 `self_iteration_rejections` 表示被安全过滤拒绝的候选。这个阶段不做 Topic Configuration、Semantic Retrieval、edit distance、同义词表、embedding 或 vector DB。
 
 ### 文件摘要为什么更短也更有用
 

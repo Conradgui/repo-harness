@@ -126,48 +126,6 @@ def test_cli_build_agent_reads_secret_names_from_environment_config(tmp_path):
         assert agent.secret_env_summary()["secret_env_names"] == ["MCA_CUSTOM_SECRET"]
 
 
-def test_cli_build_agent_migrates_legacy_pico_state_without_deleting_source(tmp_path):
-    class DummyModelClient:
-        def complete(self, prompt, max_new_tokens):
-            raise AssertionError("model should not be invoked")
-
-    legacy_session = tmp_path / ".pico" / "sessions" / "legacy.json"
-    legacy_session.parent.mkdir(parents=True)
-    legacy_session.write_text('{"id":"legacy"}', encoding="utf-8")
-    legacy_memory = tmp_path / ".pico" / "memory" / "MEMORY.md"
-    legacy_memory.parent.mkdir(parents=True)
-    legacy_memory.write_text("legacy memory\n", encoding="utf-8")
-
-    with patch("repo_harness.cli.OpenAICompatibleModelClient", return_value=DummyModelClient()):
-        args = mini_cli.build_arg_parser().parse_args(["--cwd", str(tmp_path), "--approval", "auto"])
-        mini_cli.build_agent(args)
-
-    assert legacy_session.exists()
-    assert legacy_memory.exists()
-    assert (tmp_path / ".repo-harness" / "sessions" / "legacy.json").read_text(encoding="utf-8") == '{"id":"legacy"}'
-    assert (tmp_path / ".repo-harness" / "memory" / "MEMORY.md").read_text(encoding="utf-8") == "legacy memory\n"
-
-
-def test_cli_build_agent_does_not_overwrite_existing_repo_harness_state(tmp_path):
-    class DummyModelClient:
-        def complete(self, prompt, max_new_tokens):
-            raise AssertionError("model should not be invoked")
-
-    legacy_session = tmp_path / ".pico" / "sessions" / "same.json"
-    legacy_session.parent.mkdir(parents=True)
-    legacy_session.write_text("legacy\n", encoding="utf-8")
-    current_session = tmp_path / ".repo-harness" / "sessions" / "same.json"
-    current_session.parent.mkdir(parents=True)
-    current_session.write_text("current\n", encoding="utf-8")
-
-    with patch("repo_harness.cli.OpenAICompatibleModelClient", return_value=DummyModelClient()):
-        args = mini_cli.build_arg_parser().parse_args(["--cwd", str(tmp_path), "--approval", "auto"])
-        mini_cli.build_agent(args)
-
-    assert current_session.read_text(encoding="utf-8") == "current\n"
-    assert legacy_session.read_text(encoding="utf-8") == "legacy\n"
-
-
 def test_run_shell_uses_allowlisted_environment_only(tmp_path):
     secret = "shh-allowlist-secret"
     agent = build_agent(tmp_path, [], approval_policy="auto")

@@ -20,9 +20,9 @@ This file should evolve by dated architecture records. If runtime artifact paths
 
 RepoHarness is the current public name for the local Agent Harness. Public entrypoints are `repo-harness`, `python -m repo_harness`, the `repo_harness` package, and `.repo-harness/` local state.
 
-#### Migration semantics
+#### State directory semantics
 
-On startup, RepoHarness copies missing files from a legacy `.pico/` state directory into `.repo-harness/`. Existing `.repo-harness/` files are not overwritten, and `.pico/` is not deleted.
+RepoHarness stores local sessions, runs, checkpoints, memory, and review queues under `.repo-harness/`. Startup no longer copies state from old brand directories.
 
 #### Agent instruction files
 

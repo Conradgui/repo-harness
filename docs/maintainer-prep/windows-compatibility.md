@@ -18,7 +18,7 @@
 
 #### 适配原则
 
-- 保持 `Pico.ask()` 主循环、工具白名单、approval 模型、memory、checkpoint、trace、report、prompt cache 和 benchmark 口径不变。
+- 保持 `RepoHarness.ask()` 主循环、工具白名单、approval 模型、memory、checkpoint、trace、report、prompt cache 和 benchmark 口径不变。
 - 只在操作系统接触面做兼容：shell 环境、shell 执行、benchmark verifier、时区依赖和用户文档。
 - CMD / PowerShell 是 Windows 用户的启动入口；Git Bash 只是内部 shell 工具的可选兼容路径。
 
@@ -35,19 +35,19 @@
 Windows CMD：
 
 ```bat
-cmd /c uv run python -m pico --help
+cmd /c uv run python -m repo_harness --help
 ```
 
 Windows PowerShell：
 
 ```powershell
-powershell -NoProfile -Command "uv run python -m pico --help"
+powershell -NoProfile -Command "uv run python -m repo_harness --help"
 ```
 
 通用回归：
 
 ```bash
-uv run pytest tests/test_pico.py tests/test_evaluator.py -q
+uv run pytest tests/test_repo_harness.py tests/test_evaluator.py -q
 uv run ruff check .
 uv run pytest -q
 ```
@@ -57,4 +57,4 @@ uv run pytest -q
 - Git Bash 不是 Windows 必装项。没有 Git Bash 时，平台 shell 仍会被使用，但模型生成的 POSIX 风格命令可能需要用户或模型改写。
 - CircleCI 第一版只保护 Linux/Python 基线；Windows 入口通过本地 CMD / PowerShell 验证和单元测试覆盖。
 - 本轮不改变 `uv.lock` 的忽略策略。
-- 这条记录属于 `RepoHarness` 重命名前的兼容性基线；其中的 `pico` 命令和 `.pico/` 状态目录是当时事实。
+- 当前 Windows 入口以 `repo-harness` 和 `python -m repo_harness` 为准。

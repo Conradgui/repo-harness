@@ -44,6 +44,7 @@ HELP_DETAILS = textwrap.dedent(
     /help    Show this help message.
     /memory  Show the agent's distilled working memory.
     /memory review  Review pending durable memory candidates.
+    /memory self_iteration  Show the latest memory self-iteration status.
     /memory_explain <query>  Explain which memory notes match a query.
     /memory_pack  Export, import, inspect, or validate memory packs.
     /session Show the path to the saved session file.
@@ -102,30 +103,6 @@ def _configured_secret_names(args):
             if item.strip()
         )
     return sorted(configured_secret_names)
-
-
-def _copy_missing_tree(source, target):
-    source = Path(source)
-    target = Path(target)
-    if not source.exists():
-        return
-    for item in source.rglob("*"):
-        relative = item.relative_to(source)
-        destination = target / relative
-        if item.is_dir():
-            destination.mkdir(parents=True, exist_ok=True)
-            continue
-        if destination.exists():
-            continue
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(item, destination)
-
-
-def migrate_legacy_state(repo_root):
-    legacy_root = Path(repo_root) / ".pico"
-    current_root = Path(repo_root) / ".repo-harness"
-    if legacy_root.exists():
-        _copy_missing_tree(legacy_root, current_root)
 
 
 def _load_memory_pack_api():
@@ -311,6 +288,32 @@ def _memory_explain_text(agent, query):
     for item in explanations:
         lines.append(_format_retrieval_explanation(item))
     return "\n".join(lines)
+
+
+def _memory_self_iteration_text(agent):
+    if hasattr(agent, "memory_self_iteration_text"):
+        return str(agent.memory_self_iteration_text())
+    return "Memory self-iteration:\n- unavailable"
+
+
+def _memory_self_iteration_notice(agent):
+    if not hasattr(agent, "memory_self_iteration_status"):
+        return ""
+    status = agent.memory_self_iteration_status()
+    queued = len(status.get("self_iteration_review_queued", []))
+    compactions = len(status.get("episodic_compactions", []))
+    rejections = len(status.get("self_iteration_rejections", []))
+    if not queued and not compactions and not rejections:
+        return ""
+    parts = []
+    if queued:
+        noun = "candidate" if queued == 1 else "candidates"
+        parts.append(f"queued {queued} durable memory {noun} for review")
+    if compactions:
+        parts.append(f"compacted {compactions} episodic note group")
+    if rejections:
+        parts.append(f"rejected {rejections} unsafe candidate")
+    return "memory self-iteration: " + "; ".join(parts) + "; run /memory review to accept, edit, reject, or skip"
 
 
 def _review_record_label(record):
@@ -781,7 +784,6 @@ def build_agent(args):
     # 还是创建一个新的 RepoHarness 实例。
     configured_secret_names = _configured_secret_names(args)
     workspace = WorkspaceContext.build(args.cwd)
-    migrate_legacy_state(workspace.repo_root)
     store = SessionStore(workspace.repo_root + "/.repo-harness/sessions")
     model = _build_model_client(args)
     session_id = args.resume
@@ -889,6 +891,9 @@ def main(argv=None):
         if user_input == "/memory review":
             run_memory_review(agent)
             continue
+        if user_input == "/memory self_iteration":
+            print(_memory_self_iteration_text(agent))
+            continue
         if user_input == "/memory":
             print(agent.memory_text())
             continue
@@ -910,6 +915,9 @@ def main(argv=None):
         print()
         try:
             print(agent.ask(user_input))
+            notice = _memory_self_iteration_notice(agent)
+            if notice:
+                print(notice)
         except RuntimeError as exc:
             print(str(exc), file=sys.stderr)
 

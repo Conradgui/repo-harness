@@ -26,11 +26,16 @@
 - `memory-system-iteration-roadmap.md`：记忆系统迭代路线，记录 memory pack、记忆治理和后续记忆智能能力的边界与推进顺序。
 - `memory-system-new-window-handoff.md`：记忆系统新窗口交接文档，作为后续维护窗口的快速上下文入口；README、getting-started、roadmap、patch-summary 或记忆系统能力更新时必须同步检查它是否需要更新。
 
-## 2026-05-03：目录基线
+## 2026-05-15：RepoHarness 当前品牌基线
 
-本目录在 Windows 适配和工程化补强阶段形成，当前记录仍使用重命名前的 `pico` 包名、CLI 命令和 `.pico/` 状态目录。
+RepoHarness 是当前唯一公开品牌、包名和 CLI 入口。本目录中的维护者文档应使用当前事实：
 
-后续如果执行 `RepoHarness` 全量重命名，应新增对应日期记录，并在各记录型文档中保留历史事实，不直接把旧记录改写成新品牌下的当前事实。
+- Python 包名：`repo_harness`
+- CLI 命令：`repo-harness`
+- 模块入口：`python -m repo_harness`
+- 本地状态目录：`.repo-harness/`
+
+旧品牌入口和旧状态迁移兼容已经移除；后续文档更新不得重新引入旧包名、旧 CLI、旧 prompt 或旧状态目录说明。
 
 ## 2026-05-05：文档同步门禁
 

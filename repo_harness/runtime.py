@@ -50,6 +50,7 @@ DURABLE_MEMORY_LINE_PATTERNS = (
     ("user-preferences", re.compile(r"^偏好：\s*(.+)$")),
 )
 SECRET_SHAPED_TEXT_PATTERN = re.compile(r"(?i)(\b(api[_ -]?key|token|secret|password)\b|sk-[A-Za-z0-9_-]{6,})")
+SELF_ITERATION_KEEP_RECENT_NOTES = 8
 
 
 @dataclass
@@ -145,6 +146,9 @@ class RepoHarness:
         self.last_durable_review_queued = []
         self.last_durable_rejections = []
         self.last_durable_superseded = []
+        self.last_episodic_compactions = []
+        self.last_self_iteration_review_queued = []
+        self.last_self_iteration_rejections = []
         self._last_tool_result_metadata = {}
         self._last_prefix_refresh = {
             "workspace_changed": False,
@@ -470,6 +474,33 @@ class RepoHarness:
     def memory_review_skip(self, record_id):
         record = self.memory.skip_durable_review(record_id)
         return self._memory_review_result("pending", record)
+
+    def memory_self_iteration_status(self):
+        return {
+            "episodic_compactions": list(self.last_episodic_compactions),
+            "self_iteration_review_queued": list(self.last_self_iteration_review_queued),
+            "self_iteration_rejections": list(self.last_self_iteration_rejections),
+            "pending_review_count": len(self.memory_review_pending()),
+        }
+
+    def memory_self_iteration_text(self):
+        status = self.memory_self_iteration_status()
+        lines = [
+            "Memory self-iteration:",
+            f"- last compactions: {len(status['episodic_compactions'])}",
+            f"- queued candidates: {len(status['self_iteration_review_queued'])}",
+            f"- rejections: {len(status['self_iteration_rejections'])}",
+            f"- pending review candidates: {status['pending_review_count']}",
+        ]
+        for item in status["episodic_compactions"]:
+            lines.append(f"  compaction: {clip(item, 160)}")
+        for item in status["self_iteration_review_queued"]:
+            lines.append(f"  queued: {clip(item, 160)}")
+        for item in status["self_iteration_rejections"]:
+            lines.append(f"  rejected: {item}")
+        lines.append("This command is read-only; it does not compact memory or write durable topics.")
+        lines.append("Use /memory review to accept, edit, reject, or skip pending durable memory candidates.")
+        return "\n".join(lines)
 
     def history_text(self):
         history = self.session["history"]
@@ -853,6 +884,95 @@ class RepoHarness:
         self.last_durable_superseded = []
         return [], rejections, [], queued
 
+    def self_iteration_source(self):
+        task_state = self.current_task_state
+        return {
+            "session_id": self.session.get("id", ""),
+            "run_id": task_state.run_id if task_state is not None else "",
+            "task_id": task_state.task_id if task_state is not None else "",
+            "origin": "memory-self-iteration",
+        }
+
+    def _self_iteration_candidate_promotions(self, notes):
+        promotions = []
+        rejections = []
+        seen = set()
+        for note in notes:
+            text = str(note.get("text", "")).strip() if isinstance(note, dict) else str(note).strip()
+            if not text:
+                continue
+            for topic, pattern in DURABLE_MEMORY_LINE_PATTERNS:
+                match = pattern.match(text)
+                if not match:
+                    continue
+                note_text = match.group(1).strip()
+                if not note_text:
+                    break
+                reason = self.reject_durable_reason(note_text)
+                if reason:
+                    rejections.append(f"{topic}:{reason}")
+                    break
+                key = (topic, note_text)
+                if key not in seen:
+                    promotions.append(key)
+                    seen.add(key)
+                break
+        return promotions, rejections
+
+    def _safe_compaction_parts(self, notes):
+        parts = []
+        for note in notes:
+            text = str(note.get("text", "")).strip() if isinstance(note, dict) else str(note).strip()
+            if not text or self.reject_durable_reason(text):
+                continue
+            if str(note.get("source", "")) == "episodic-compaction":
+                continue
+            parts.append(clip(text, 80))
+        return parts
+
+    def _compact_episodic_notes(self):
+        state = self.memory.to_dict()
+        notes = list(state.get("episodic_notes", []))
+        if len(notes) < memorylib.EPISODIC_NOTE_LIMIT:
+            return []
+        older = notes[:-SELF_ITERATION_KEEP_RECENT_NOTES]
+        recent = notes[-SELF_ITERATION_KEEP_RECENT_NOTES:]
+        parts = self._safe_compaction_parts(older)
+        if not parts:
+            return []
+        summary = clip("Compacted earlier notes: " + "; ".join(parts[:4]), 500)
+        compacted_note = {
+            "text": summary,
+            "tags": ["summary", "compacted"],
+            "source": "episodic-compaction",
+            "created_at": now(),
+            "note_index": int(state.get("next_note_index", 0)),
+            "kind": "episodic",
+        }
+        state["next_note_index"] = compacted_note["note_index"] + 1
+        state["episodic_notes"] = [compacted_note, *recent][-memorylib.EPISODIC_NOTE_LIMIT:]
+        state["notes"] = [note["text"] for note in state["episodic_notes"]]
+        self.memory.state = state
+        self.session["memory"] = self.memory.to_dict()
+        return [summary]
+
+    def run_memory_self_iteration(self):
+        source_notes = list(self.memory.to_dict().get("episodic_notes", []))
+        promotions, rejections = self._self_iteration_candidate_promotions(source_notes)
+        queued_records = self.memory.enqueue_durable_reviews(promotions, source=self.self_iteration_source())
+        queued = [f"{record['topic']}: {record['text']}" for record in queued_records]
+        compactions = self._compact_episodic_notes()
+        self.last_episodic_compactions = compactions
+        self.last_self_iteration_review_queued = queued
+        self.last_self_iteration_rejections = rejections
+        if compactions or queued:
+            self._persist_memory()
+        return {
+            "episodic_compactions": compactions,
+            "self_iteration_review_queued": queued,
+            "self_iteration_rejections": rejections,
+        }
+
     def ask(self, user_message):
         """执行一次完整的 agent 回合，直到产出最终答案或命中停止条件。
 
@@ -1043,6 +1163,7 @@ class RepoHarness:
             self.record({"role": "assistant", "content": final, "created_at": now()})
             task_state.finish_success(final)
             self.promote_durable_memory(user_message, final)
+            self.run_memory_self_iteration()
             checkpoint = self.create_checkpoint(task_state, user_message, trigger="run_finished")
             self.run_store.write_task_state(task_state)
             self.emit_trace(
@@ -1074,6 +1195,7 @@ class RepoHarness:
             task_state.stop_step_limit(final)
         self.record({"role": "assistant", "content": final, "created_at": now()})
         self.promote_durable_memory(user_message, final)
+        self.run_memory_self_iteration()
         self.run_store.write_task_state(task_state)
         checkpoint = self.create_checkpoint(task_state, user_message, trigger=task_state.stop_reason or "run_stopped")
         self.emit_trace(
@@ -1262,6 +1384,9 @@ class RepoHarness:
             "durable_review_queued": list(self.last_durable_review_queued),
             "durable_rejections": list(self.last_durable_rejections),
             "durable_superseded": list(self.last_durable_superseded),
+            "episodic_compactions": list(self.last_episodic_compactions),
+            "self_iteration_review_queued": list(self.last_self_iteration_review_queued),
+            "self_iteration_rejections": list(self.last_self_iteration_rejections),
             "redacted_env": self.detected_secret_env_summary(),
         }
 

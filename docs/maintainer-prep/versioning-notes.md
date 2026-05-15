@@ -24,11 +24,11 @@
 - 模块入口：`python -m repo_harness`
 - 本地状态目录：`.repo-harness/`
 
-#### 迁移规则
+#### 当前状态目录规则
 
-- 首次启动时，如果仓库根目录存在历史 `.pico/`，RepoHarness 只复制 `.repo-harness/` 中缺失的文件。
-- 迁移不会覆盖已有 `.repo-harness/` 文件，也不会删除 `.pico/`。
-- 旧 `pico` CLI 和 `python -m pico` 不再作为支持入口维护。
+- `.repo-harness/` 是唯一受支持的本地状态目录。
+- 启动时不再从旧状态目录复制会话、memory 或运行工件。
+- 旧品牌 CLI 和旧模块入口不再作为支持入口维护。
 
 #### Agent 指令文件规则
 

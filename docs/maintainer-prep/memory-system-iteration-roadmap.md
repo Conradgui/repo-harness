@@ -32,7 +32,7 @@ RepoHarness 当前的记忆系统是一个确定性、轻量、文件可追踪�
 2. **Memory intelligence**
    RepoHarness 在使用过程中逐步沉淀稳定事实、偏好、项目约定和代码理解，并在后续任务中更准确、可解释地复用。
 
-当前阶段已经完成 **Memory Portability / Governance / Explainability v1** 收尾：Memory Pack 负责可迁移，Review Queue 负责可审核，`/memory_explain` 负责可解释。下一阶段才进入简单、可审核的 **Memory Self-Iteration v1**。
+当前阶段已经完成 **Memory Portability / Governance / Explainability v1** 和透明、可控、可审核的 **Memory Self-Iteration v1** 基线：Memory Pack 负责可迁移，Review Queue 负责可审核，`/memory_explain` 负责可解释，`/memory self_iteration` 负责解释最近一次自整理状态。
 
 ## Memory Pack v1 Decisions
 
@@ -49,7 +49,7 @@ RepoHarness 当前的记忆系统是一个确定性、轻量、文件可追踪�
 - 隐私风险最低。
 - 最符合用户对“迁移记忆”的直觉。
 - 路径和机器环境兼容性最好。
-- 与历史 `.pico/` 到 `.repo-harness/` 的迁移原则一致：复制缺失内容，不覆盖已有内容。
+- 与 `.repo-harness/` 当前状态目录原则一致：导入只复制缺失内容，不覆盖已有内容。
 
 ### Presets
 
@@ -452,13 +452,15 @@ Memory Pack v1 的 validate 边界必须和导入边界一致。一个 pack 只�
    - prompt 正文只渲染 `Relevant memory:` note 文本，不暴露 debug score。
    - fuzzy lexical normalization 只做大小写、分隔符、camelCase/PascalCase 归一化，不做 edit distance、同义词、semantic retrieval、embedding 或 vector DB。
 
-下一阶段只进入 **Memory Self-Iteration v1**，目标是简单、可审核的自迭代：
+**Memory Self-Iteration v1 已完成 v1 基线**，当前边界如下：
 
-- 将长任务中的有用 session 片段整理为 bounded episodic summaries。
-- 将可复用事实作为 durable candidates 送入 Review Queue，仍不允许绕过审核直接写 durable topics。
+- 将长任务中的有用 session 片段整理为 bounded episodic summaries，并在 `report.json` 中记录 `episodic_compactions`。
+- 将可复用事实作为 durable candidates 送入 Review Queue，并在 `report.json` 中记录 `self_iteration_review_queued` / `self_iteration_rejections`。
+- REPL 新增只读入口 `/memory self_iteration`，用于解释最近一次 self-iteration；它不触发 compaction、不生成候选、不写 durable memory。
+- 长期记忆最终控制点仍是 `/memory review`，不允许绕过审核直接写 durable topics。
 - 保持 lexical retrieval 为默认和 fallback，不引入语义检索复杂度。
 
-之后再单独评估 Memory Safety And Redaction：
+下一阶段不再继续扩展 Self-Iteration v1，之后单独评估 Memory Safety And Redaction：
 
 - export 前 secret-shaped scan。
 - redaction summary。
@@ -471,9 +473,10 @@ Memory Pack v1 的 validate 边界必须和导入边界一致。一个 pack 只�
 ```text
 请基于 docs/maintainer-prep/memory-system-iteration-roadmap.md，
 继续推进 RepoHarness 记忆系统下一阶段：
-- 已完成 Memory Portability v1、Memory Governance v1、Explainable Retrieval v1、Fuzzy Lexical Retrieval v1、Code-Aware Summaries v1 和 Durable Memory Review Queue v1
+- 已完成 Memory Portability v1、Memory Governance v1、Explainable Retrieval v1、Fuzzy Lexical Retrieval v1、Code-Aware Summaries v1、Durable Memory Review Queue v1 和 Memory Self-Iteration v1 基线
 - 不做 Topic Configuration、Semantic Retrieval、edit distance、同义词表、embedding 或 vector DB
-- 下一步只推进 Memory Self-Iteration v1，保持简单、可审核、确定性优先
+- 下一步优先评估 Memory Safety And Redaction，或进行 README 截图重制/删除、release/branch 收尾
+- `/memory self_iteration` 只能只读解释最近一次自整理状态，不能手动触发写状态
 - 任何可复用事实进入 durable memory 前必须继续经过 Review Queue
 - 阶段完成后运行完整测试，并更新 README / getting-started / maintainer-prep 文档
 ```

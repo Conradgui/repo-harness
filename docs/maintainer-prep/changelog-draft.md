@@ -15,6 +15,35 @@
 
 ## 待发布记录
 
+### 2026-05-15：RepoHarness 品牌残留清理
+
+#### 已修复
+
+- README 不再引用旧品牌截图；旧截图文件暂时保留，等待后续确认是否重制或删除。
+- 启动流程不再复制旧状态目录，`.repo-harness/` 是唯一受支持的本地状态目录。
+- 维护者文档、架构概览和学习 SOP 已统一到 `repo-harness`、`repo_harness`、`python -m repo_harness` 和 `.repo-harness/`。
+- 新增文本守卫测试，避免旧品牌入口、旧模块名或旧状态目录说明再次进入文档和代码。
+
+#### 行为边界
+
+- 本轮不删除图片文件，只移除 README / docs 对旧截图的引用。
+- 本轮不改变 Memory Self-Iteration v1 的 Review Queue 审核边界。
+
+### 2026-05-14：Memory Self-Iteration v1
+
+#### 已新增
+
+- RepoHarness 会在 run 收尾阶段做轻量 Memory Self-Iteration，将过长 episodic notes 整理成 bounded summary。
+- 可复用长期事实候选只会进入 Review Queue，不会自动写入 durable memory。
+- REPL 新增只读命令 `/memory self_iteration`，用于查看最近一次 self-iteration 的 compaction、queued candidates、rejections 和 pending review 数量。
+- `report.json` 新增 `episodic_compactions`、`self_iteration_review_queued` 和 `self_iteration_rejections`，用于解释自整理行为。
+
+#### 行为边界
+
+- 长期记忆仍必须通过 `/memory review` accept/edit 后才写入 durable topics。
+- `/memory self_iteration` 不触发 compaction、不生成候选、不修改 memory。
+- 本轮不新增顶层 `repo-harness memory ...` CLI 子命令，不新增 semantic retrieval、embedding 或 vector DB。
+
 ### 2026-05-14：Memory v1 收尾
 
 #### 已稳定
@@ -26,9 +55,9 @@
 
 #### 行为边界
 
-- 本轮没有新增 Memory Self-Iteration，也没有改变 memory pack schema、durable topic 四分类或 retrieval ranking。
+- 该收尾批次只固定 Memory Pack、Review Queue 和 Explainable Retrieval 的 v1 边界，没有改变 memory pack schema、durable topic 四分类或 retrieval ranking；Memory Self-Iteration v1 已完成单独的 v1 基线。
 - 继续不做 Topic Configuration、Semantic Retrieval、edit distance、同义词表、embedding 或 vector DB。
-- 后续下一阶段才进入简单、可审核的 Memory Self-Iteration v1。
+- 后续路线不再继续扩展 Self-Iteration v1；优先单独评估 Memory Safety And Redaction，或处理截图、release 和分支收尾。
 
 ### 2026-05-09：开源文档本机参数清理
 

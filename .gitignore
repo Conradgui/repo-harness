@@ -34,7 +34,6 @@ tmp/
 tmp-workspaces/
 .worktrees/
 .repo-harness/
-.pico/
 artifacts/
 readme_intro_locked/
 

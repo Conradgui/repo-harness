@@ -19,7 +19,6 @@ DOC_NAMES = ("AGENTS.md", "README.md", "pyproject.toml", "package.json")
 IGNORED_PATH_NAMES = {
     ".git",
     ".repo-harness",
-    ".pico",
     "__pycache__",
     ".pytest_cache",
     ".ruff_cache",

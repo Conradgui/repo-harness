@@ -141,6 +141,13 @@ class DurableMemoryStore:
                 )
         return notes
 
+    def has_note(self, topic, text):
+        text = str(text).strip()
+        if not text:
+            return False
+        candidate_key = _canonical_note_text(text)
+        return any(_canonical_note_text(note.get("text", "")) == candidate_key for note in self.load_topic_notes(topic))
+
     @staticmethod
     def _subject_key(text):
         text = str(text).strip()
@@ -277,12 +284,25 @@ class DurableMemoryReviewQueue:
 
     def enqueue(self, promotions, source=None):
         records = self.load()
+        source = dict(source or {})
         pending_keys = {
             (str(record.get("topic", "")), str(record.get("text", "")))
             for record in records
             if record.get("status") == "pending"
         }
+        reviewed_self_iteration_keys = {
+            key
+            for record in records
+            if str(record.get("status", "")) in {"accepted", "rejected"}
+            and str((record.get("source") or {}).get("origin", "")) == "memory-self-iteration"
+            for key in {
+                (str(record.get("topic", "")), str(record.get("text", ""))),
+                (str(record.get("original_topic", "")), str(record.get("original_text", ""))),
+            }
+            if key[0] and key[1]
+        }
         existing_ids = {str(record.get("id", "")) for record in records}
+        suppress_reviewed = str(source.get("origin", "")) == "memory-self-iteration"
         queued = []
         for topic, text in promotions:
             topic = str(topic).strip()
@@ -291,6 +311,8 @@ class DurableMemoryReviewQueue:
                 continue
             if (topic, text) in pending_keys:
                 continue
+            if suppress_reviewed and (topic, text) in reviewed_self_iteration_keys:
+                continue
             created_at = now()
             record = {
                 "schema_version": DURABLE_REVIEW_QUEUE_SCHEMA,
@@ -298,7 +320,9 @@ class DurableMemoryReviewQueue:
                 "created_at": created_at,
                 "topic": topic,
                 "text": text,
-                "source": dict(source or {}),
+                "original_topic": topic,
+                "original_text": text,
+                "source": source,
                 "status": "pending",
             }
             records.append(record)
@@ -316,11 +340,13 @@ class DurableMemoryReviewQueue:
             if record.get("id") != record_id or record.get("status") != "pending":
                 continue
             if topic is not None:
+                record.setdefault("original_topic", str(record.get("topic", "")).strip())
                 topic = str(topic).strip()
                 if topic not in DURABLE_TOPIC_DEFAULTS:
                     raise ValueError(f"unsupported durable memory topic: {topic}")
                 record["topic"] = topic
             if text is not None:
+                record.setdefault("original_text", str(record.get("text", "")).strip())
                 text = str(text).strip()
                 if not text:
                     raise ValueError("durable memory review text cannot be empty")
@@ -456,6 +482,13 @@ def _canonical_subject(text):
     for raw_token in TOKEN_PATTERN.findall(str(text)):
         tokens.update(part.lower() for part in _split_token_parts(raw_token))
     return " ".join(sorted(tokens))
+
+
+def _canonical_note_text(text):
+    parts = []
+    for raw_token in TOKEN_PATTERN.findall(str(text)):
+        parts.extend(part.lower() for part in _split_token_parts(raw_token))
+    return " ".join(parts)
 
 
 def _parse_timestamp(value):
@@ -1176,6 +1209,12 @@ class LayeredMemory:
     def enqueue_durable_reviews(self, promotions, source=None):
         if self.durable_review_queue is None:
             return []
+        if self.durable_store is not None and str((source or {}).get("origin", "")) == "memory-self-iteration":
+            promotions = [
+                (topic, text)
+                for topic, text in promotions
+                if not self.durable_store.has_note(str(topic).strip(), str(text).strip())
+            ]
         return self.durable_review_queue.enqueue(promotions, source=source)
 
     def pending_durable_reviews(self):

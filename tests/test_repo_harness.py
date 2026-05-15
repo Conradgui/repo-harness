@@ -1656,6 +1656,188 @@ def test_explicit_memory_promotion_rejects_secret_shaped_and_transient_lines(tmp
     assert not dependency_path.exists()
 
 
+def test_memory_self_iteration_compacts_notes_and_queues_review_candidates(tmp_path):
+    agent = build_agent(
+        tmp_path,
+        [
+            "<final>Done.</final>",
+        ],
+    )
+    for index in range(11):
+        agent.memory.append_note(f"old task observation {index}", tags=("task",), source="test")
+    agent.memory.append_note(
+        "Project convention: Use explicit memory review before durable writes.",
+        tags=("stable",),
+        source="test",
+    )
+    agent.session["memory"] = agent.memory.to_dict()
+
+    assert agent.ask("Continue the task") == "Done."
+
+    memory_state = agent.memory.to_dict()
+    compacted_notes = [
+        note
+        for note in memory_state["episodic_notes"]
+        if note.get("source") == "episodic-compaction"
+    ]
+    conventions_path = tmp_path / ".repo-harness" / "memory" / "topics" / "project-conventions.md"
+    pending = read_review_queue(tmp_path)
+    report = json.loads(agent.run_store.report_path(agent.current_task_state).read_text(encoding="utf-8"))
+
+    assert compacted_notes
+    assert compacted_notes[0]["text"].startswith("Compacted earlier notes:")
+    assert not conventions_path.exists()
+    assert pending[0]["topic"] == "project-conventions"
+    assert pending[0]["text"] == "Use explicit memory review before durable writes."
+    assert pending[0]["source"]["origin"] == "memory-self-iteration"
+    assert report["episodic_compactions"] == [compacted_notes[0]["text"]]
+    assert report["self_iteration_review_queued"] == [
+        "project-conventions: Use explicit memory review before durable writes."
+    ]
+    assert report["self_iteration_rejections"] == []
+    assert report["durable_promotions"] == []
+
+
+def test_memory_self_iteration_filters_secret_candidates(tmp_path):
+    agent = build_agent(
+        tmp_path,
+        [
+            "<final>Done.</final>",
+        ],
+    )
+    for index in range(11):
+        agent.memory.append_note(f"old task observation {index}", tags=("task",), source="test")
+    agent.memory.append_note(
+        "Dependency: API key is sk-self-iteration-secret.",
+        tags=("stable",),
+        source="test",
+    )
+    agent.session["memory"] = agent.memory.to_dict()
+
+    assert agent.ask("Continue the task") == "Done."
+
+    report = json.loads(agent.run_store.report_path(agent.current_task_state).read_text(encoding="utf-8"))
+    assert read_review_queue(tmp_path) == []
+    assert report["self_iteration_review_queued"] == []
+    assert report["self_iteration_rejections"] == ["dependency-facts:secret_shaped"]
+    assert not (tmp_path / ".repo-harness" / "memory" / "topics" / "dependency-facts.md").exists()
+
+
+def test_memory_self_iteration_does_not_requeue_accepted_or_rejected_candidates(tmp_path):
+    agent = build_agent(
+        tmp_path,
+        [
+            "<final>First pass.</final>",
+            "<final>Second pass.</final>",
+            "<final>Third pass.</final>",
+        ],
+    )
+    for index in range(10):
+        agent.memory.append_note(f"old task observation {index}", tags=("task",), source="test")
+    agent.memory.append_note(
+        "Project convention: Use explicit memory review before durable writes.",
+        tags=("stable",),
+        source="test",
+    )
+    agent.memory.append_note(
+        "Preference: Keep explanations concise.",
+        tags=("stable",),
+        source="test",
+    )
+    agent.session["memory"] = agent.memory.to_dict()
+
+    assert agent.ask("Continue the task") == "First pass."
+    pending = read_review_queue(tmp_path)
+    accepted = next(record for record in pending if record["topic"] == "project-conventions")
+    rejected = next(record for record in pending if record["topic"] == "user-preferences")
+
+    agent.memory_review_accept(accepted["id"])
+    agent.memory_review_reject(rejected["id"])
+
+    assert agent.ask("Continue the task again") == "Second pass."
+    assert agent.ask("Continue the task once more") == "Third pass."
+
+    queue = read_review_queue(tmp_path)
+    assert [
+        (record["topic"], record["text"], record["status"])
+        for record in queue
+        if record.get("source", {}).get("origin") == "memory-self-iteration"
+    ] == [
+        ("project-conventions", "Use explicit memory review before durable writes.", "accepted"),
+        ("user-preferences", "Keep explanations concise.", "rejected"),
+    ]
+    latest_report = json.loads(agent.run_store.report_path(agent.current_task_state).read_text(encoding="utf-8"))
+    assert latest_report["self_iteration_review_queued"] == []
+
+
+def test_memory_self_iteration_does_not_requeue_edit_accepted_candidate(tmp_path):
+    agent = build_agent(
+        tmp_path,
+        [
+            "<final>First pass.</final>",
+            "<final>Second pass.</final>",
+        ],
+    )
+    for index in range(11):
+        agent.memory.append_note(f"old task observation {index}", tags=("task",), source="test")
+    agent.memory.append_note(
+        "Project convention: Use explicit memory review before durable writes.",
+        tags=("stable",),
+        source="test",
+    )
+    agent.session["memory"] = agent.memory.to_dict()
+
+    assert agent.ask("Continue the task") == "First pass."
+    pending = read_review_queue(tmp_path)
+    result = agent.memory_review_edit(
+        pending[0]["id"],
+        topic="project-conventions",
+        text="Use explicit review before writing durable memory.",
+    )
+
+    assert result["status"] == "accepted"
+    assert agent.ask("Continue the task again") == "Second pass."
+
+    queue = read_review_queue(tmp_path)
+    assert [
+        (record["text"], record["status"])
+        for record in queue
+        if record.get("source", {}).get("origin") == "memory-self-iteration"
+    ] == [
+        ("Use explicit review before writing durable memory.", "accepted"),
+    ]
+    latest_report = json.loads(agent.run_store.report_path(agent.current_task_state).read_text(encoding="utf-8"))
+    assert latest_report["self_iteration_review_queued"] == []
+
+
+def test_memory_self_iteration_skips_existing_durable_equivalent_fact(tmp_path):
+    agent = build_agent(
+        tmp_path,
+        [
+            "<final>First pass.</final>",
+            "<final>Second pass.</final>",
+        ],
+    )
+    agent.memory.promote_durable(
+        [("project-conventions", "Use memory pack for safe transfer.")]
+    )
+    for index in range(11):
+        agent.memory.append_note(f"old task observation {index}", tags=("task",), source="test")
+    agent.memory.append_note(
+        "Project convention: use memory-pack for safe transfer",
+        tags=("stable",),
+        source="test",
+    )
+    agent.session["memory"] = agent.memory.to_dict()
+
+    assert agent.ask("Continue the task") == "First pass."
+    assert agent.ask("Continue the task again") == "Second pass."
+
+    assert read_review_queue(tmp_path) == []
+    latest_report = json.loads(agent.run_store.report_path(agent.current_task_state).read_text(encoding="utf-8"))
+    assert latest_report["self_iteration_review_queued"] == []
+
+
 def test_explicit_memory_promotion_supersedes_matching_durable_fact(tmp_path):
     agent = build_agent(
         tmp_path,
@@ -1894,6 +2076,16 @@ class DummyCliAgent:
     def memory_explain_text(self, query):
         return f"Memory explanation for: {query}\n- score=3 kind=durable source=project-conventions text=Use constrained tools instead of guessing."
 
+    def memory_self_iteration_text(self):
+        return (
+            "Memory self-iteration:\n"
+            "- last compactions: 1\n"
+            "- queued candidates: 1\n"
+            "- rejections: 0\n"
+            "- pending review candidates: 1\n"
+            "Use /memory review to accept, edit, reject, or skip pending durable memory candidates."
+        )
+
     def reset(self):
         raise AssertionError("memory command should not reset the session")
 
@@ -2003,6 +2195,7 @@ def test_repl_help_mentions_memory_pack_menu():
     assert "memory packs" in mini_cli.HELP_DETAILS
     assert "/memory_explain <query>" in mini_cli.HELP_DETAILS
     assert "/memory review" in mini_cli.HELP_DETAILS
+    assert "/memory self_iteration" in mini_cli.HELP_DETAILS
 
 
 def test_repl_memory_pack_aliases_show_menu_without_model_call(tmp_path, capsys):
@@ -2036,6 +2229,52 @@ def test_repl_memory_explain_is_read_only_and_does_not_call_model(tmp_path, caps
     assert "Memory explanation for: conventions" in output
     assert "score=3" in output
     assert "usage: /memory_explain <query>" in output
+
+
+def test_repl_memory_self_iteration_is_read_only_and_does_not_call_model(tmp_path, capsys):
+    agent = DummyCliAgent(tmp_path)
+    original_session = dict(agent.session)
+    with patch("repo_harness.cli.build_agent", return_value=agent), patch(
+        "repo_harness.cli.build_welcome",
+        return_value="welcome",
+    ), patch("builtins.input", side_effect=["/memory self_iteration", "/exit"]):
+        result = mini_cli.main(["--cwd", str(tmp_path)])
+
+    assert result == 0
+    assert agent.session == original_session
+    output = capsys.readouterr().out
+    assert "Memory self-iteration:" in output
+    assert "queued candidates: 1" in output
+    assert "Use /memory review" in output
+
+
+def test_repl_final_answer_reports_self_iteration_review_candidates(tmp_path, capsys):
+    agent = build_agent(
+        tmp_path,
+        [
+            "<final>Done.</final>",
+        ],
+    )
+    for index in range(11):
+        agent.memory.append_note(f"old task observation {index}", tags=("task",), source="test")
+    agent.memory.append_note(
+        "Project convention: Use explicit memory review before durable writes.",
+        tags=("stable",),
+        source="test",
+    )
+    agent.session["memory"] = agent.memory.to_dict()
+
+    with patch("repo_harness.cli.build_agent", return_value=agent), patch(
+        "repo_harness.cli.build_welcome",
+        return_value="welcome",
+    ), patch("builtins.input", side_effect=["Continue the task", "/exit"]):
+        result = mini_cli.main(["--cwd", str(tmp_path)])
+
+    assert result == 0
+    output = capsys.readouterr().out
+    assert "Done." in output
+    assert "memory self-iteration: queued 1 durable memory candidate for review" in output
+    assert "run /memory review to accept, edit, reject, or skip" in output
 
 
 def test_repl_memory_review_accepts_pending_candidate_without_model_call(tmp_path, capsys):
@@ -2128,9 +2367,11 @@ def test_memory_review_queue_docs_cover_repl_report_and_pending_boundaries():
 
     for required in [
         "/memory review",
+        "/memory self_iteration",
         "review-queue.jsonl",
         "durable-review-queue-v1",
         "durable_review_queued",
+        "self_iteration_review_queued",
         "Pending queue",
         "safe-transfer",
     ]:
@@ -2150,6 +2391,47 @@ def test_explainable_retrieval_docs_cover_repl_command_and_metadata():
         "selected_explanations",
     ]:
         assert required in combined
+
+
+def test_memory_self_iteration_docs_cover_transparency_and_review_control():
+    docs = {
+        "readme": Path("README.md").read_text(encoding="utf-8"),
+        "guide": Path("docs/getting-started.md").read_text(encoding="utf-8"),
+        "roadmap": Path("docs/maintainer-prep/memory-system-iteration-roadmap.md").read_text(encoding="utf-8"),
+        "handoff": Path("docs/maintainer-prep/memory-system-new-window-handoff.md").read_text(encoding="utf-8"),
+        "patch_summary": Path("docs/maintainer-prep/patch-summary.md").read_text(encoding="utf-8"),
+        "changelog": Path("docs/maintainer-prep/changelog-draft.md").read_text(encoding="utf-8"),
+    }
+
+    for name, text in docs.items():
+        for required in [
+            "/memory self_iteration",
+            "episodic_compactions",
+            "self_iteration_review_queued",
+            "self_iteration_rejections",
+            "/memory review",
+        ]:
+            assert required in text, f"{name} missing {required}"
+
+    for name in ["readme", "guide", "roadmap", "handoff", "changelog"]:
+        assert "不触发 compaction" in docs[name] or "不会触发 compaction" in docs[name] or "does not compact" in docs[name]
+        assert (
+            "不写 durable" in docs[name]
+            or "不会写 durable" in docs[name]
+            or "不会自动写入 durable memory" in docs[name]
+            or "不会自动写 durable topics" in docs[name]
+        )
+
+    stale_status = [
+        "下一阶段才进入简单、可审核的 **Memory Self-Iteration v1**",
+        "后续下一阶段才进入简单、可审核的 Memory Self-Iteration v1",
+        "不新增 CLI 命令",
+    ]
+    for stale_text in stale_status:
+        assert stale_text not in docs["roadmap"]
+        assert stale_text not in docs["handoff"]
+        assert stale_text not in docs["patch_summary"]
+        assert stale_text not in docs["changelog"]
 
 
 def test_maintainer_docs_make_documentation_sync_a_completion_gate():
@@ -2254,8 +2536,67 @@ def test_pyproject_exposes_only_repo_harness_entrypoint():
 
     assert 'name = "repo-harness"' in pyproject_text
     assert 'repo-harness = "repo_harness.cli:main"' in pyproject_text
-    assert 'pico = "pico.cli:main"' not in pyproject_text
+    removed_entrypoint = "pi" + 'co = "pi' + 'co.cli:main"'
+    assert removed_entrypoint not in pyproject_text
     assert 'packages = ["repo_harness"]' in pyproject_text
+
+
+def test_repo_text_does_not_reintroduce_removed_brand_markers():
+    removed_name = "pi" + "co"
+    removed_markers = [
+        removed_name,
+        "." + removed_name,
+        "uv run " + removed_name,
+        "python -m " + removed_name,
+        removed_name + "/",
+    ]
+    roots = [
+        Path("README.md"),
+        Path("docs"),
+        Path("repo_harness"),
+        Path("tests"),
+        Path("pyproject.toml"),
+        Path(".gitignore"),
+    ]
+    paths = []
+    for root in roots:
+        if root.is_file():
+            paths.append(root)
+        else:
+            paths.extend(path for path in root.rglob("*") if path.is_file())
+
+    offenders = []
+    for path in paths:
+        if "__pycache__" in path.parts:
+            continue
+        if path.suffix.lower() in {
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".gif",
+            ".webp",
+            ".zip",
+            ".pyc",
+        }:
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore").lower()
+        for marker in removed_markers:
+            if marker in text:
+                offenders.append(f"{path}: {marker}")
+
+    assert offenders == []
+
+
+def test_readme_does_not_reference_removed_brand_screenshots():
+    readme_text = Path("README.md").read_text(encoding="utf-8")
+
+    for screenshot in [
+        "repo-harness-help.png",
+        "repo-harness-start.png",
+        "repo-harness-repl.png",
+        "assets/screenshots",
+    ]:
+        assert screenshot not in readme_text
 
 
 def test_module_execution_help_works():
@@ -2269,9 +2610,10 @@ def test_module_execution_help_works():
     assert "usage:" in result.stdout.lower()
 
 
-def test_legacy_pico_module_execution_is_not_supported():
+def test_removed_legacy_module_execution_is_not_supported():
+    removed_module = "pi" + "co"
     result = subprocess.run(
-        [sys.executable, "-m", "pico", "--help"],
+        [sys.executable, "-m", removed_module, "--help"],
         capture_output=True,
         text=True,
     )
