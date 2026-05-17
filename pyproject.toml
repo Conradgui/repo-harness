@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Local repository harness for coding agents"
 requires-python = ">=3.10"
 dependencies = [
+  "tomli>=2.0.0; python_version < '3.11'",
   "tzdata>=2025.2",
 ]
 

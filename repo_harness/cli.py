@@ -15,6 +15,15 @@ import textwrap
 from pathlib import Path
 
 from . import memory as memorylib
+from .config import (
+    DEFAULT_ANTHROPIC_BASE_URL,
+    DEFAULT_ANTHROPIC_MODEL,
+    DEFAULT_OLLAMA_HOST,
+    DEFAULT_OLLAMA_MODEL,
+    DEFAULT_OPENAI_BASE_URL,
+    DEFAULT_OPENAI_MODEL,
+    resolve_runtime_config,
+)
 from .models import AnthropicCompatibleModelClient, OllamaModelClient, OpenAICompatibleModelClient
 from .runtime import RepoHarness, SessionStore
 from .workspace import WorkspaceContext, middle
@@ -22,6 +31,11 @@ from .workspace import WorkspaceContext, middle
 DEFAULT_SECRET_ENV_NAMES = (
     "OPENAI_API_KEY",
     "OPENAI_API_TOKEN",
+    "REPO_HARNESS_API_KEY",
+    "REPO_HARNESS_OPENAI_API_KEY",
+    "REPO_HARNESS_ANTHROPIC_API_KEY",
+    "REPO_HARNESS_DEEPSEEK_API_KEY",
+    "DEEPSEEK_API_KEY",
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
     "RIGHT_CODES_API_KEY",
@@ -46,6 +60,7 @@ HELP_DETAILS = textwrap.dedent(
     /memory review  Review pending durable memory candidates.
     /memory self_iteration  Show the latest memory self-iteration status.
     /memory_explain <query>  Explain which memory notes match a query.
+    /remember <text>  Queue a durable memory candidate for /memory review.
     /memory_pack  Export, import, inspect, or validate memory packs.
     /session Show the path to the saved session file.
     /reset   Clear the current session history and memory.
@@ -54,13 +69,14 @@ HELP_DETAILS = textwrap.dedent(
 ).strip()
 
 
-DEFAULT_OLLAMA_MODEL = "qwen3.5:4b"
-DEFAULT_OLLAMA_HOST = "http://127.0.0.1:11434"
-DEFAULT_OPENAI_MODEL = "gpt-5.4"
-DEFAULT_OPENAI_BASE_URL = "https://www.right.codes/codex/v1"
-DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
-DEFAULT_ANTHROPIC_BASE_URL = "https://www.right.codes/claude/v1"
 SECRET_ENV_NAMES_VAR = "REPO_HARNESS_SECRET_ENV_NAMES"
+
+
+class _ExplicitStoreAction(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        del parser, option_string
+        setattr(namespace, self.dest, values)
+        setattr(namespace, f"_{self.dest}_explicit", True)
 
 
 def _effective_model(args, provider):
@@ -81,6 +97,11 @@ def _effective_model(args, provider):
         if model:
             return model
         return DEFAULT_ANTHROPIC_MODEL
+    if provider == "deepseek":
+        model = os.environ.get("DEEPSEEK_MODEL") or os.environ.get("REPO_HARNESS_MODEL")
+        if model:
+            return model
+        return "deepseek-v4-pro"
     return DEFAULT_OLLAMA_MODEL
 
 
@@ -391,6 +412,26 @@ def run_memory_review(agent):
             print("usage: accept, edit, reject, skip, or quit")
 
 
+def run_remember(agent, text):
+    if not hasattr(agent, "remember_candidate"):
+        print("remember: unavailable")
+        return
+    result = agent.remember_candidate(text)
+    status = result.get("status")
+    if status == "usage":
+        print("usage: /remember <text>")
+        return
+    if status == "rejected":
+        print(f"remember rejected: {result.get('reason', 'unknown')}")
+        return
+    if status == "duplicate":
+        print("remember: candidate already pending; run /memory review")
+        return
+    record = result.get("record") if isinstance(result.get("record"), dict) else {}
+    print(f"remember: queued durable memory candidate for review: {_review_record_label(record)}")
+    print("run /memory review to accept, edit, reject, or skip")
+
+
 def _resolve_export_modules(api, preset, requested_modules):
     if hasattr(api, "resolve_modules"):
         resolved = _call_memory_pack_function(
@@ -680,14 +721,23 @@ def run_memory_pack_menu(cwd):
         print("Choose 1, 2, 3, 4, 5, or 0.")
 
 
-def _build_model_client(args):
-    provider = getattr(args, "provider", "openai")
+def _build_model_client(args, runtime_config=None):
+    provider = runtime_config.provider if runtime_config is not None else getattr(args, "provider", "openai")
+    profile = runtime_config.provider_profile if runtime_config is not None else None
     # CLI 只负责把 provider 选择翻译成具体 client。
     # 真正的提示词格式、缓存支持、HTTP 协议差异，都封装在 models.py 里。
     if provider == "openai":
-        model = _effective_model(args, provider)
-        base_url = getattr(args, "base_url", None) or os.environ.get("OPENAI_API_BASE") or DEFAULT_OPENAI_BASE_URL
-        api_key = os.environ.get("OPENAI_API_KEY", "")
+        model = profile.model if profile is not None else _effective_model(args, provider)
+        base_url = profile.base_url if profile is not None else (
+            getattr(args, "base_url", None) or os.environ.get("OPENAI_API_BASE") or DEFAULT_OPENAI_BASE_URL
+        )
+        api_key_env = profile.api_key_env if profile is not None else "OPENAI_API_KEY"
+        api_key = _first_env(
+            api_key_env,
+            "REPO_HARNESS_OPENAI_API_KEY",
+            "REPO_HARNESS_API_KEY",
+            "OPENAI_API_KEY",
+        )
         return OpenAICompatibleModelClient(
             model=model,
             base_url=base_url,
@@ -695,10 +745,21 @@ def _build_model_client(args):
             temperature=args.temperature,
             timeout=getattr(args, "openai_timeout", getattr(args, "ollama_timeout", 300)),
         )
-    if provider == "anthropic":
-        model = _effective_model(args, provider)
-        base_url = getattr(args, "base_url", None) or os.environ.get("ANTHROPIC_API_BASE") or DEFAULT_ANTHROPIC_BASE_URL
-        api_key = _first_env("ANTHROPIC_API_KEY", "RIGHT_CODES_API_KEY", "OPENAI_API_KEY")
+    if provider in {"anthropic", "deepseek"}:
+        model = profile.model if profile is not None else _effective_model(args, provider)
+        base_url = profile.base_url if profile is not None else (
+            getattr(args, "base_url", None) or os.environ.get("ANTHROPIC_API_BASE") or DEFAULT_ANTHROPIC_BASE_URL
+        )
+        api_key_env = profile.api_key_env if profile is not None else "ANTHROPIC_API_KEY"
+        fallback_names = (
+            api_key_env,
+            "REPO_HARNESS_DEEPSEEK_API_KEY" if provider == "deepseek" else "REPO_HARNESS_ANTHROPIC_API_KEY",
+            "REPO_HARNESS_API_KEY",
+            "DEEPSEEK_API_KEY" if provider == "deepseek" else "ANTHROPIC_API_KEY",
+            "RIGHT_CODES_API_KEY",
+            "OPENAI_API_KEY",
+        )
+        api_key = _first_env(*fallback_names)
         return AnthropicCompatibleModelClient(
             model=model,
             base_url=base_url,
@@ -707,8 +768,8 @@ def _build_model_client(args):
             timeout=getattr(args, "openai_timeout", getattr(args, "ollama_timeout", 300)),
         )
 
-    model = _effective_model(args, provider)
-    host = getattr(args, "host", DEFAULT_OLLAMA_HOST)
+    model = profile.model if profile is not None else _effective_model(args, provider)
+    host = profile.base_url if profile is not None else getattr(args, "host", DEFAULT_OLLAMA_HOST)
     return OllamaModelClient(
         model=model,
         host=host,
@@ -782,10 +843,11 @@ def build_agent(args):
     # 这里是 CLI 到 runtime 的装配点：
     # 先整理 secret 名单，再采集工作区快照，随后决定是恢复旧 session
     # 还是创建一个新的 RepoHarness 实例。
-    configured_secret_names = _configured_secret_names(args)
     workspace = WorkspaceContext.build(args.cwd)
+    runtime_config = resolve_runtime_config(args, workspace)
+    configured_secret_names = _configured_secret_names(args)
     store = SessionStore(workspace.repo_root + "/.repo-harness/sessions")
-    model = _build_model_client(args)
+    model = _build_model_client(args, runtime_config=runtime_config)
     session_id = args.resume
     if session_id == "latest":
         session_id = store.latest()
@@ -796,8 +858,8 @@ def build_agent(args):
             session_store=store,
             session_id=session_id,
             approval_policy=args.approval,
-            max_steps=args.max_steps,
-            max_new_tokens=args.max_new_tokens,
+            max_steps=runtime_config.max_steps,
+            max_new_tokens=runtime_config.max_new_tokens,
             secret_env_names=configured_secret_names,
         )
     return RepoHarness(
@@ -805,8 +867,8 @@ def build_agent(args):
         workspace=workspace,
         session_store=store,
         approval_policy=args.approval,
-        max_steps=args.max_steps,
-        max_new_tokens=args.max_new_tokens,
+        max_steps=runtime_config.max_steps,
+        max_new_tokens=runtime_config.max_new_tokens,
         secret_env_names=configured_secret_names,
     )
 
@@ -817,16 +879,36 @@ def build_arg_parser():
         description="Minimal coding agent for Ollama, OpenAI-compatible, or Anthropic-compatible models.",
         epilog="Advanced memory packs: repo-harness memory export/import/inspect/validate",
     )
+    parser.set_defaults(
+        _provider_explicit=False,
+        _model_explicit=False,
+        _base_url_explicit=False,
+        _max_steps_explicit=False,
+        _max_new_tokens_explicit=False,
+    )
     parser.add_argument("prompt", nargs="*", help="Optional one-shot prompt.")
     parser.add_argument("--cwd", default=".", help="Workspace directory.")
-    parser.add_argument("--provider", choices=("ollama", "openai", "anthropic"), default="openai", help="Model backend to use.")
+    parser.add_argument(
+        "--provider",
+        choices=("ollama", "openai", "anthropic", "deepseek"),
+        default="openai",
+        action=_ExplicitStoreAction,
+        help="Model backend to use.",
+    )
     parser.add_argument(
         "--model",
         default=None,
+        action=_ExplicitStoreAction,
         help="Model name override. Defaults to qwen3.5:4b for Ollama, OPENAI_MODEL for openai, and ANTHROPIC_MODEL for anthropic when set.",
     )
+    parser.add_argument("--config", default=None, help="Path to .repo-harness.toml.")
     parser.add_argument("--host", default=DEFAULT_OLLAMA_HOST, help="Ollama server URL.")
-    parser.add_argument("--base-url", default=None, help="Provider API base URL for openai or anthropic.")
+    parser.add_argument(
+        "--base-url",
+        default=None,
+        action=_ExplicitStoreAction,
+        help="Provider API base URL for openai, anthropic, or deepseek.",
+    )
     parser.add_argument("--ollama-timeout", type=int, default=300, help="Ollama request timeout in seconds.")
     parser.add_argument("--openai-timeout", type=int, default=300, help="OpenAI-compatible request timeout in seconds.")
     parser.add_argument("--resume", default=None, help="Session id to resume or 'latest'.")
@@ -838,8 +920,20 @@ def build_arg_parser():
         default=[],
         help="Extra environment variable names to treat as secrets for trace/report redaction.",
     )
-    parser.add_argument("--max-steps", type=int, default=6, help="Maximum tool/model iterations per request.")
-    parser.add_argument("--max-new-tokens", type=int, default=512, help="Maximum model output tokens per step.")
+    parser.add_argument(
+        "--max-steps",
+        type=int,
+        default=None,
+        action=_ExplicitStoreAction,
+        help="Maximum tool/model iterations per request.",
+    )
+    parser.add_argument(
+        "--max-new-tokens",
+        type=int,
+        default=None,
+        action=_ExplicitStoreAction,
+        help="Maximum model output tokens per step.",
+    )
     parser.add_argument("--temperature", type=float, default=0.2, help="Sampling temperature sent to Ollama.")
     parser.add_argument("--top-p", type=float, default=0.9, help="Top-p sampling value sent to Ollama.")
     return parser
@@ -890,6 +984,10 @@ def main(argv=None):
             continue
         if user_input == "/memory review":
             run_memory_review(agent)
+            continue
+        if user_input.startswith("/remember"):
+            text = user_input[len("/remember"):].strip()
+            run_remember(agent, text)
             continue
         if user_input == "/memory self_iteration":
             print(_memory_self_iteration_text(agent))

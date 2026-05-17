@@ -9,7 +9,29 @@ import json
 import time
 from http.client import RemoteDisconnected
 import urllib.error
+import urllib.parse
 import urllib.request
+
+
+RETRYABLE_HTTP_CODES = {408, 409, 425, 429, 500, 502, 503, 504}
+
+
+def _sanitize_base_url(base_url):
+    parsed = urllib.parse.urlsplit(str(base_url))
+    host = parsed.hostname or ""
+    if parsed.port:
+        host = f"{host}:{parsed.port}"
+    return urllib.parse.urlunsplit((parsed.scheme, host, parsed.path.rstrip("/"), "", ""))
+
+
+def _provider_metadata(protocol, model, base_url, attempts, retry_count):
+    return {
+        "provider_protocol": protocol,
+        "provider_model": model,
+        "provider_base_url": _sanitize_base_url(base_url),
+        "provider_attempts": attempts,
+        "provider_retry_count": retry_count,
+    }
 
 
 class FakeModelClient:
@@ -80,10 +102,14 @@ class OllamaModelClient:
 
 
 def _normalize_versioned_base_url(base_url):
-    base = str(base_url).rstrip("/")
+    base = _sanitize_base_url(base_url)
     if not base.endswith("/v1"):
         base += "/v1"
     return base
+
+
+def _normalize_base_url(base_url):
+    return _sanitize_base_url(base_url).rstrip("/")
 
 
 def _extract_openai_text(data):
@@ -286,8 +312,11 @@ class OpenAICompatibleModelClient:
             headers=headers,
             method="POST",
         )
-        attempts = 3
-        for attempt in range(attempts):
+        max_attempts = 3
+        attempts_used = 0
+        retry_count = 0
+        for attempt in range(max_attempts):
+            attempts_used = attempt + 1
             try:
                 with urllib.request.urlopen(request, timeout=self.timeout) as response:
                     body_text = response.read().decode("utf-8")
@@ -296,12 +325,28 @@ class OpenAICompatibleModelClient:
                 break
             except urllib.error.HTTPError as exc:
                 body = exc.read().decode("utf-8", errors="replace")
-                if exc.code >= 500 and attempt < attempts - 1:
+                self.last_completion_metadata = _provider_metadata(
+                    "openai-compatible",
+                    self.model,
+                    self.base_url,
+                    attempts_used,
+                    retry_count,
+                )
+                if exc.code in RETRYABLE_HTTP_CODES and attempt < max_attempts - 1:
+                    retry_count += 1
                     time.sleep(0.5 * (attempt + 1))
                     continue
                 raise RuntimeError(f"OpenAI-compatible request failed with HTTP {exc.code}: {body}") from exc
             except (urllib.error.URLError, RemoteDisconnected) as exc:
-                if attempt < attempts - 1:
+                self.last_completion_metadata = _provider_metadata(
+                    "openai-compatible",
+                    self.model,
+                    self.base_url,
+                    attempts_used,
+                    retry_count,
+                )
+                if attempt < max_attempts - 1:
+                    retry_count += 1
                     time.sleep(0.5 * (attempt + 1))
                     continue
                 raise RuntimeError(
@@ -318,6 +363,13 @@ class OpenAICompatibleModelClient:
                 # 这些元数据会一路传回 runtime，进入 trace 和 report，
                 # 用来观察 prompt cache 是否真的命中。
                 self.last_completion_metadata = {
+                    **_provider_metadata(
+                        "openai-compatible",
+                        self.model,
+                        self.base_url,
+                        attempts_used,
+                        retry_count,
+                    ),
                     "prompt_cache_supported": self.supports_prompt_cache,
                     "prompt_cache_key": prompt_cache_key,
                     "prompt_cache_retention": prompt_cache_retention,
@@ -336,6 +388,13 @@ class OpenAICompatibleModelClient:
         if data.get("error"):
             raise RuntimeError(f"OpenAI-compatible error: {data['error']}")
         self.last_completion_metadata = {
+            **_provider_metadata(
+                "openai-compatible",
+                self.model,
+                self.base_url,
+                attempts_used,
+                retry_count,
+            ),
             "prompt_cache_supported": self.supports_prompt_cache,
             "prompt_cache_key": prompt_cache_key,
             "prompt_cache_retention": prompt_cache_retention,
@@ -356,7 +415,7 @@ def _extract_anthropic_text(data):
 class AnthropicCompatibleModelClient:
     def __init__(self, model, base_url, api_key, temperature, timeout):
         self.model = model
-        self.base_url = _normalize_versioned_base_url(base_url)
+        self.base_url = _normalize_base_url(base_url)
         self.api_key = api_key
         self.temperature = temperature
         self.timeout = timeout
@@ -399,20 +458,39 @@ class AnthropicCompatibleModelClient:
             headers=headers,
             method="POST",
         )
-        attempts = 3
-        for attempt in range(attempts):
+        max_attempts = 3
+        attempts_used = 0
+        retry_count = 0
+        for attempt in range(max_attempts):
+            attempts_used = attempt + 1
             try:
                 with urllib.request.urlopen(request, timeout=self.timeout) as response:
                     body_text = response.read().decode("utf-8")
                 break
             except urllib.error.HTTPError as exc:
                 body = exc.read().decode("utf-8", errors="replace")
-                if exc.code >= 500 and attempt < attempts - 1:
+                self.last_completion_metadata = _provider_metadata(
+                    "anthropic-compatible",
+                    self.model,
+                    self.base_url,
+                    attempts_used,
+                    retry_count,
+                )
+                if exc.code in RETRYABLE_HTTP_CODES and attempt < max_attempts - 1:
+                    retry_count += 1
                     time.sleep(0.5 * (attempt + 1))
                     continue
                 raise RuntimeError(f"Anthropic-compatible request failed with HTTP {exc.code}: {body}") from exc
             except (urllib.error.URLError, RemoteDisconnected) as exc:
-                if attempt < attempts - 1:
+                self.last_completion_metadata = _provider_metadata(
+                    "anthropic-compatible",
+                    self.model,
+                    self.base_url,
+                    attempts_used,
+                    retry_count,
+                )
+                if attempt < max_attempts - 1:
+                    retry_count += 1
                     time.sleep(0.5 * (attempt + 1))
                     continue
                 raise RuntimeError(
@@ -431,6 +509,13 @@ class AnthropicCompatibleModelClient:
             raise RuntimeError(f"Anthropic-compatible error: {data['error']}")
         text = _extract_anthropic_text(data)
         if text:
+            self.last_completion_metadata = _provider_metadata(
+                "anthropic-compatible",
+                self.model,
+                self.base_url,
+                attempts_used,
+                retry_count,
+            )
             return text
         raise RuntimeError("Anthropic-compatible error: could not extract text from response")
 

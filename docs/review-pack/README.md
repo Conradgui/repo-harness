@@ -14,6 +14,18 @@ This file is not a permanent one-shot description. When the package name, CLI co
 
 ## Review Snapshots
 
+### 2026-05-17: v3 Compat Phase 1 Foundation
+
+This review snapshot covers `.repo-harness.toml`, OpenAI / Anthropic / DeepSeek provider profiles, DeepSeek through the Anthropic-compatible protocol, provider reliability metadata, lightweight tool policy, and `/remember <text>`.
+
+Durable memory governance remains:
+
+```text
+candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+```
+
+Phase 1 is complete foundation work. Phase 2 owns skills, todo ledger, worker manager, sandbox, runtime control plane layering, Textual TUI, and release evidence. Reference v3 commit: `91a7c17`; old stable reference tag: `archive-before-repoharness-rename-20260503`.
+
 ### 2026-05-03: RepoHarness Rename Snapshot
 
 #### Project pitch

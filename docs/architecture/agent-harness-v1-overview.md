@@ -14,6 +14,18 @@ This file should evolve by dated architecture records. If runtime artifact paths
 
 ## Architecture Records
 
+### 2026-05-17: v3 Compat Phase 1 Foundation
+
+RepoHarness adds `.repo-harness.toml` configuration, provider profiles for OpenAI, Anthropic, and DeepSeek, and DeepSeek as an Anthropic-compatible provider. Runtime provider metadata records protocol, model, sanitized base URL, attempts, and retry count.
+
+The memory boundary is unchanged:
+
+```text
+candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+```
+
+`/remember <text>` only queues candidates. Phase 1 excludes skills, todo ledger, worker manager, sandbox, runtime control plane layering, Textual TUI, and release evidence; those remain Phase 2. Reference v3 commit: `91a7c17`; old stable reference tag: `archive-before-repoharness-rename-20260503`.
+
 ### 2026-05-03: RepoHarness Rename Snapshot
 
 #### Summary

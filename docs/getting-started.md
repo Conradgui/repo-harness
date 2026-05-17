@@ -1,5 +1,29 @@
 ﻿# RepoHarness 新手指南
 
+## v3 Compat Phase 1 Foundation
+
+RepoHarness can be configured with `.repo-harness.toml`. The Phase 1 foundation release supports OpenAI, Anthropic, and DeepSeek provider profiles. DeepSeek uses the Anthropic-compatible protocol.
+
+```toml
+provider = "deepseek"
+max_steps = 50
+max_new_tokens = 8192
+
+[providers.deepseek]
+client = "anthropic"
+model = "deepseek-v4-pro"
+base_url = "https://api.deepseek.com/anthropic"
+api_key_env = "DEEPSEEK_API_KEY"
+```
+
+CLI arguments override environment variables, environment variables override `.repo-harness.toml`, and the file overrides code defaults. `/remember <text>` is only a Review Queue entrypoint:
+
+```text
+candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+```
+
+Phase 2 will handle skills, todo ledger, worker manager, sandbox, runtime control plane layering, Textual TUI, and release evidence. Reference v3 commit: `91a7c17`; old stable reference tag: `archive-before-repoharness-rename-20260503`.
+
 `repo-harness` 是一个运行在本地终端里的轻量 coding agent，也可以理解为一个面向代码仓库的 Agent Harness：它把模型、仓库上下文、受约束工具、审批机制、会话状态、运行工件和记忆系统组织成一个可持续工作的命令行助手。
 
 这份指南面向三类读者：

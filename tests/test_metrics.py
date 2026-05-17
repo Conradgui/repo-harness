@@ -1,4 +1,5 @@
 ﻿from repo_harness.metrics import (
+    _provider_profile,
     run_context_ablation_v2,
     run_memory_ablation_v2,
     run_recovery_ablation_v2,
@@ -80,5 +81,34 @@ def test_write_benchmark_core_report_marks_resume_safe_metrics(tmp_path):
     assert "只适合放文档/面试展开的指标" in report_text
     assert "resume_success_rate" in report_text
     assert "memory_hit_rate" in report_text
+
+
+def test_provider_profile_supports_deepseek_and_blocks_missing_key(monkeypatch, tmp_path):
+    (tmp_path / ".repo-harness.toml").write_text(
+        "\n".join(
+            [
+                'provider = "deepseek"',
+                "[providers.deepseek]",
+                'client = "anthropic"',
+                'model = "deepseek-chat"',
+                'base_url = "https://api.deepseek.com/anthropic"',
+                'api_key_env = "DEEPSEEK_API_KEY"',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    blocked = _provider_profile("deepseek", workspace_root=tmp_path)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-deepseek")
+    ready = _provider_profile("deepseek", workspace_root=tmp_path)
+
+    assert blocked["status"] == "blocked"
+    assert "DEEPSEEK_API_KEY missing" in blocked["reason"]
+    assert ready["status"] == "ready"
+    assert ready["provider"] == "deepseek"
+    assert ready["client"] == "anthropic"
+    assert ready["model"] == "deepseek-chat"
 
 

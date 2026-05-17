@@ -1,5 +1,15 @@
 # 维护者提交准备
 
+## v3 Compat Phase 1 Foundation
+
+Track `repo-harness-v3-compat-roadmap.md` and `repo-harness-v3-compat-status.md` with the same completion gate as README, getting-started, architecture, review-pack, memory handoff, project study SOP, patch-summary, and changelog. Phase 1 documents `.repo-harness.toml`, DeepSeek, `/remember`, and the Review Queue boundary:
+
+```text
+candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+```
+
+Phase 2 owns skills, todo ledger, worker manager, sandbox, runtime control plane layering, Textual TUI, and release evidence. Reference v3 commit: `91a7c17`; old stable reference tag: `archive-before-repoharness-rename-20260503`.
+
 ## 文档说明
 
 这个目录用于集中存放维护者在项目验证、问题归因、修复复盘、版本管理和提交准备过程中沉淀的资料。它同时服务当前维护者本人和未来可能接手项目的维护者。

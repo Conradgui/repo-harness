@@ -2,6 +2,7 @@
 import json
 import subprocess
 import sys
+import urllib.error
 import zipfile
 from pathlib import Path
 from unittest.mock import patch
@@ -354,6 +355,7 @@ def test_patch_file_replaces_exact_match(tmp_path):
     file_path = tmp_path / "sample.txt"
     file_path.write_text("hello world\n", encoding="utf-8")
     agent = build_agent(tmp_path, [])
+    agent.run_tool("read_file", {"path": "sample.txt", "start": 1, "end": 10})
 
     result = agent.run_tool(
         "patch_file",
@@ -400,6 +402,56 @@ def test_repeated_identical_tool_call_is_rejected(tmp_path):
     result = agent.run_tool("list_files", {})
 
     assert result == "error: repeated identical tool call for list_files; choose a different tool or return a final answer"
+
+
+def test_run_shell_workspace_search_is_rejected_by_tool_policy(tmp_path):
+    agent = build_agent(tmp_path, [], approval_policy="auto")
+
+    result = agent.run_tool("run_shell", {"command": "rg hello .", "timeout": 20})
+
+    assert "tool policy rejected run_shell" in result
+    assert "use search/read_file/list_files" in result
+    assert agent._last_tool_result_metadata["tool_error_code"] == "tool_policy_workspace_read"
+
+
+def test_run_shell_pipeline_tail_is_allowed_by_tool_policy(tmp_path):
+    agent = build_agent(tmp_path, [], approval_policy="auto")
+
+    with patch("repo_harness.tools.subprocess.run") as fake_run:
+        fake_run.return_value = type(
+            "Result",
+            (),
+            {"returncode": 0, "stdout": "ok\n", "stderr": ""},
+        )()
+        result = agent.run_tool("run_shell", {"command": "printf 'a\\nb\\n' | tail -n 1", "timeout": 20})
+
+    assert "exit_code: 0" in result
+    assert "ok" in result
+
+
+def test_write_file_existing_path_requires_fresh_read(tmp_path):
+    (tmp_path / "sample.txt").write_text("old\n", encoding="utf-8")
+    agent = build_agent(tmp_path, [], approval_policy="auto")
+
+    rejected = agent.run_tool("write_file", {"path": "sample.txt", "content": "new\n"})
+    agent.run_tool("read_file", {"path": "sample.txt", "start": 1, "end": 10})
+    accepted = agent.run_tool("write_file", {"path": "sample.txt", "content": "new\n"})
+
+    assert "fresh read_file" in rejected
+    assert accepted == "wrote sample.txt (4 chars)"
+    assert (tmp_path / "sample.txt").read_text(encoding="utf-8") == "new\n"
+
+
+def test_patch_file_existing_path_requires_fresh_read(tmp_path):
+    (tmp_path / "sample.txt").write_text("old\n", encoding="utf-8")
+    agent = build_agent(tmp_path, [], approval_policy="auto")
+
+    rejected = agent.run_tool("patch_file", {"path": "sample.txt", "old_text": "old", "new_text": "new"})
+    agent.run_tool("read_file", {"path": "sample.txt", "start": 1, "end": 10})
+    accepted = agent.run_tool("patch_file", {"path": "sample.txt", "old_text": "old", "new_text": "new"})
+
+    assert "fresh read_file" in rejected
+    assert accepted == "patched sample.txt"
 
 
 def test_welcome_screen_keeps_box_shape_for_long_paths(tmp_path):
@@ -574,6 +626,91 @@ def test_openai_compatible_client_sends_prompt_cache_fields_and_records_usage():
     assert client.last_completion_metadata["cached_tokens"] == 1536
     assert client.last_completion_metadata["cache_hit"] is True
     assert client.last_completion_metadata["input_tokens"] == 2048
+    assert client.last_completion_metadata["provider_protocol"] == "openai-compatible"
+    assert client.last_completion_metadata["provider_model"] == "right.codes/codex-mini"
+    assert client.last_completion_metadata["provider_base_url"] == "https://right.codes/v1"
+    assert client.last_completion_metadata["provider_attempts"] == 1
+    assert client.last_completion_metadata["provider_retry_count"] == 0
+
+
+def test_openai_provider_retry_metadata_records_retry_count_and_sanitized_url():
+    calls = {"count": 0}
+
+    class FakeResponse:
+        headers = {"Content-Type": "application/json"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return json.dumps({"output_text": "<final>ok</final>"}).encode("utf-8")
+
+    def fake_urlopen(request, timeout):
+        del request, timeout
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise urllib.error.HTTPError(
+                url="https://example.test/v1/responses",
+                code=429,
+                msg="too many requests",
+                hdrs={},
+                fp=None,
+            )
+        return FakeResponse()
+
+    client = OpenAICompatibleModelClient(
+        model="gpt-test",
+        base_url="https://token@example.test/v1?api_key=secret#fragment",
+        api_key="sk-test",
+        temperature=0.2,
+        timeout=30,
+    )
+
+    with patch("time.sleep"), patch("urllib.request.urlopen", fake_urlopen):
+        result = client.complete("hello", 42)
+
+    assert result == "<final>ok</final>"
+    assert client.last_completion_metadata["provider_base_url"] == "https://example.test/v1"
+    assert client.last_completion_metadata["provider_attempts"] == 2
+    assert client.last_completion_metadata["provider_retry_count"] == 1
+
+
+def test_anthropic_provider_non_retryable_4xx_fails_fast():
+    calls = {"count": 0}
+
+    def fake_urlopen(request, timeout):
+        del request, timeout
+        calls["count"] += 1
+        raise urllib.error.HTTPError(
+            url="https://example.test/messages",
+            code=400,
+            msg="bad request",
+            hdrs={},
+            fp=None,
+        )
+
+    client = AnthropicCompatibleModelClient(
+        model="claude-test",
+        base_url="https://example.test",
+        api_key="sk-test",
+        temperature=0.2,
+        timeout=30,
+    )
+
+    with patch("urllib.request.urlopen", fake_urlopen):
+        try:
+            client.complete("hello", 42)
+        except RuntimeError as exc:
+            assert "HTTP 400" in str(exc)
+        else:
+            raise AssertionError("non-retryable 4xx should fail")
+
+    assert calls["count"] == 1
+    assert client.last_completion_metadata["provider_attempts"] == 1
+    assert client.last_completion_metadata["provider_retry_count"] == 0
 
 
 def test_openai_compatible_client_extracts_text_from_event_stream():
@@ -797,6 +934,96 @@ def test_build_arg_parser_accepts_anthropic_provider(tmp_path):
     args = harness_pkg.build_arg_parser().parse_args(["--cwd", str(tmp_path), "--provider", "anthropic"])
 
     assert args.provider == "anthropic"
+
+
+def test_build_arg_parser_accepts_deepseek_provider(tmp_path):
+    args = harness_pkg.build_arg_parser().parse_args(["--cwd", str(tmp_path), "--provider", "deepseek"])
+
+    assert args.provider == "deepseek"
+
+
+def test_build_agent_uses_deepseek_provider_from_repo_harness_toml(tmp_path):
+    (tmp_path / ".repo-harness.toml").write_text(
+        "\n".join(
+            [
+                'provider = "deepseek"',
+                "max_steps = 50",
+                "max_tokens = 4096",
+                "",
+                "[providers.deepseek]",
+                'client = "anthropic"',
+                'model = "deepseek-chat"',
+                'base_url = "https://api.deepseek.com/anthropic?api_key=secret#frag"',
+                'api_key_env = "DEEPSEEK_API_KEY"',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    args = harness_pkg.build_arg_parser().parse_args(["--cwd", str(tmp_path)])
+
+    with patch.dict(os.environ, {"DEEPSEEK_API_KEY": "sk-deepseek"}, clear=True), patch(
+        "repo_harness.cli.AnthropicCompatibleModelClient"
+    ) as mock_anthropic:
+        agent = harness_pkg.build_agent(args)
+
+    mock_anthropic.assert_called_once()
+    assert mock_anthropic.call_args.kwargs["model"] == "deepseek-chat"
+    assert mock_anthropic.call_args.kwargs["base_url"] == "https://api.deepseek.com/anthropic?api_key=secret#frag"
+    assert mock_anthropic.call_args.kwargs["api_key"] == "sk-deepseek"
+    assert agent.max_steps == 50
+    assert agent.max_new_tokens == 4096
+
+
+def test_cli_explicit_model_and_base_url_override_repo_harness_toml(tmp_path):
+    (tmp_path / ".repo-harness.toml").write_text(
+        "\n".join(
+            [
+                'provider = "deepseek"',
+                "",
+                "[providers.deepseek]",
+                'client = "anthropic"',
+                'model = "toml-model"',
+                'base_url = "https://toml.example/anthropic"',
+                'api_key_env = "DEEPSEEK_API_KEY"',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    args = harness_pkg.build_arg_parser().parse_args(
+        [
+            "--cwd",
+            str(tmp_path),
+            "--model",
+            "cli-model",
+            "--base-url",
+            "https://cli.example/anthropic",
+        ]
+    )
+
+    with patch.dict(os.environ, {"DEEPSEEK_API_KEY": "sk-deepseek"}, clear=True), patch(
+        "repo_harness.cli.AnthropicCompatibleModelClient"
+    ) as mock_anthropic:
+        harness_pkg.build_agent(args)
+
+    assert mock_anthropic.call_args.kwargs["model"] == "cli-model"
+    assert mock_anthropic.call_args.kwargs["base_url"] == "https://cli.example/anthropic"
+
+
+def test_repo_harness_toml_max_tokens_alias_sets_max_new_tokens(tmp_path):
+    (tmp_path / ".repo-harness.toml").write_text(
+        'provider = "openai"\nmax_tokens = 1234\n',
+        encoding="utf-8",
+    )
+    args = harness_pkg.build_arg_parser().parse_args(["--cwd", str(tmp_path)])
+
+    with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-openai"}, clear=True), patch(
+        "repo_harness.cli.OpenAICompatibleModelClient"
+    ):
+        agent = harness_pkg.build_agent(args)
+
+    assert agent.max_new_tokens == 1234
 
 
 def test_build_agent_uses_anthropic_provider_and_openai_key_fallback(tmp_path):
@@ -2334,6 +2561,59 @@ def test_repl_memory_review_reports_security_rejected_edit_without_accepting(tmp
     assert not (tmp_path / ".repo-harness" / "memory" / "topics" / "dependency-facts.md").exists()
 
 
+def test_remember_command_queues_review_candidate_without_writing_durable_topic(tmp_path, capsys):
+    agent = build_agent(tmp_path, [])
+
+    with patch("repo_harness.cli.build_agent", return_value=agent), patch(
+        "repo_harness.cli.build_welcome",
+        return_value="welcome",
+    ), patch("builtins.input", side_effect=["/remember Project convention: Use constrained tools.", "/exit"]):
+        result = mini_cli.main(["--cwd", str(tmp_path)])
+
+    assert result == 0
+    output = capsys.readouterr().out
+    assert "queued durable memory candidate for review" in output
+    assert "run /memory review" in output
+    queue = read_review_queue(tmp_path)
+    assert [(record["topic"], record["text"], record["source"]["origin"]) for record in queue] == [
+        ("project-conventions", "Use constrained tools.", "user-remember")
+    ]
+    assert queue[0]["source"]["session_id"] == agent.session["id"]
+    assert not (tmp_path / ".repo-harness" / "memory" / "topics").exists()
+
+
+def test_remember_command_preserves_unlabeled_text_under_user_preferences(tmp_path):
+    agent = build_agent(tmp_path, [])
+
+    result = agent.remember_candidate("Keep explanations concise.")
+
+    assert result["status"] == "queued"
+    queue = read_review_queue(tmp_path)
+    assert queue[0]["topic"] == "user-preferences"
+    assert queue[0]["text"] == "Keep explanations concise."
+
+
+def test_remember_command_rejects_empty_and_secret_shaped_text(tmp_path, capsys):
+    agent = build_agent(tmp_path, [])
+
+    empty = agent.remember_candidate("")
+    secret = agent.remember_candidate("Dependency: API key is sk-live-secret.")
+
+    assert empty["status"] == "usage"
+    assert secret["status"] == "rejected"
+    assert secret["reason"] == "secret_shaped"
+    assert read_review_queue(tmp_path) == []
+
+    with patch("repo_harness.cli.build_agent", return_value=agent), patch(
+        "repo_harness.cli.build_welcome",
+        return_value="welcome",
+    ), patch("builtins.input", side_effect=["/remember", "/exit"]):
+        result = mini_cli.main(["--cwd", str(tmp_path)])
+
+    assert result == 0
+    assert "usage: /remember <text>" in capsys.readouterr().out
+
+
 def test_memory_pack_docs_cover_repl_cli_presets_and_privacy():
     readme_text = Path("README.md").read_text(encoding="utf-8")
     guide_text = Path("docs/getting-started.md").read_text(encoding="utf-8")
@@ -2376,6 +2656,40 @@ def test_memory_review_queue_docs_cover_repl_report_and_pending_boundaries():
         "safe-transfer",
     ]:
         assert required in combined
+
+
+def test_v3_compat_phase1_docs_cover_foundation_boundaries():
+    docs = {
+        "readme": Path("README.md").read_text(encoding="utf-8"),
+        "guide": Path("docs/getting-started.md").read_text(encoding="utf-8"),
+        "architecture": Path("docs/architecture/agent-harness-v1-overview.md").read_text(encoding="utf-8"),
+        "review_pack": Path("docs/review-pack/README.md").read_text(encoding="utf-8"),
+        "maintainer": Path("docs/maintainer-prep/README.md").read_text(encoding="utf-8"),
+        "handoff": Path("docs/maintainer-prep/memory-system-new-window-handoff.md").read_text(encoding="utf-8"),
+        "study_sop": Path("docs/maintainer-prep/project-study-sop.md").read_text(encoding="utf-8"),
+        "patch_summary": Path("docs/maintainer-prep/patch-summary.md").read_text(encoding="utf-8"),
+        "changelog": Path("docs/maintainer-prep/changelog-draft.md").read_text(encoding="utf-8"),
+        "roadmap": Path("docs/maintainer-prep/repo-harness-v3-compat-roadmap.md").read_text(encoding="utf-8"),
+        "status": Path("docs/maintainer-prep/repo-harness-v3-compat-status.md").read_text(encoding="utf-8"),
+    }
+    combined = "\n".join(docs.values())
+
+    for required in [
+        ".repo-harness.toml",
+        "DeepSeek",
+        "/remember",
+        "candidate fact -> Review Queue -> /memory review accept/edit -> durable topics",
+        "Phase 1",
+        "Phase 2",
+        "91a7c17",
+        "archive-before-repoharness-rename-20260503",
+    ]:
+        assert required in combined
+
+    for name in ["roadmap", "status"]:
+        assert "Textual TUI" in docs[name]
+        assert "worker manager" in docs[name]
+        assert "sandbox" in docs[name]
 
 
 def test_explainable_retrieval_docs_cover_repl_command_and_metadata():
@@ -2566,6 +2880,10 @@ def test_repo_text_does_not_reintroduce_removed_brand_markers():
             paths.extend(path for path in root.rglob("*") if path.is_file())
 
     offenders = []
+    allowed_reference_docs = {
+        Path("docs/maintainer-prep/repo-harness-v3-compat-roadmap.md"),
+        Path("docs/maintainer-prep/repo-harness-v3-compat-status.md"),
+    }
     for path in paths:
         if "__pycache__" in path.parts:
             continue
@@ -2580,6 +2898,12 @@ def test_repo_text_does_not_reintroduce_removed_brand_markers():
         }:
             continue
         text = path.read_text(encoding="utf-8", errors="ignore").lower()
+        if path in allowed_reference_docs:
+            text = "\n".join(
+                line
+                for line in text.splitlines()
+                if "reference" not in line and "do not restore" not in line
+            )
         for marker in removed_markers:
             if marker in text:
                 offenders.append(f"{path}: {marker}")

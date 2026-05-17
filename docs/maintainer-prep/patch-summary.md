@@ -1,5 +1,17 @@
 # 修复摘要记录
 
+## 2026-05-17: v3 Compat Phase 1 Foundation
+
+This patch adds `.repo-harness.toml`, OpenAI / Anthropic / DeepSeek provider profiles, DeepSeek through the Anthropic-compatible protocol, provider reliability metadata, lightweight tool policy, and `/remember <text>`.
+
+Durable memory remains review-controlled:
+
+```text
+candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+```
+
+Phase 2 owns skills, todo ledger, worker manager, sandbox, runtime control plane layering, Textual TUI, and release evidence. Reference v3 commit: `91a7c17`; old stable reference tag: `archive-before-repoharness-rename-20260503`.
+
 ## 文档说明
 
 这份文档用于记录项目维护过程中的重要修复摘要。它帮助维护者复盘每次修复的背景、根因、涉及位置、处理方式和验证结果。

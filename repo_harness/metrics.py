@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .evaluator import run_fixed_benchmark
+from .config import resolve_runtime_config
 from .models import AnthropicCompatibleModelClient, FakeModelClient, OpenAICompatibleModelClient
 from .runtime import RepoHarness, SessionStore
 from .workspace import WorkspaceContext
@@ -681,7 +682,41 @@ def _provider_summary_from_artifact(payload):
     }
 
 
-def _provider_profile(provider):
+def _provider_profile(provider, workspace_root=None):
+    if provider in {"openai", "anthropic", "deepseek"}:
+        workspace_root = Path(workspace_root or ".")
+        args = type(
+            "Args",
+            (),
+            {
+                "config": None,
+                "provider": provider,
+                "_provider_explicit": True,
+                "model": None,
+                "_model_explicit": False,
+                "base_url": None,
+                "_base_url_explicit": False,
+                "max_steps": None,
+                "_max_steps_explicit": False,
+                "max_new_tokens": None,
+                "_max_new_tokens_explicit": False,
+            },
+        )()
+        workspace = type("Workspace", (), {"repo_root": str(workspace_root), "cwd": str(workspace_root)})()
+        runtime_config = resolve_runtime_config(args, workspace)
+        profile = runtime_config.provider_profile
+        api_key = os.environ.get(profile.api_key_env, "") if profile.api_key_env else ""
+        if not api_key:
+            return {"provider": provider, "status": "blocked", "reason": f"{profile.api_key_env} missing"}
+        return {
+            "provider": provider,
+            "status": "ready",
+            "client": profile.client,
+            "model": profile.model,
+            "base_url": profile.base_url,
+            "api_key_env": profile.api_key_env,
+            "api_key": api_key,
+        }
     if provider == "gpt":
         api_key = os.environ.get("OPENAI_API_KEY", "")
         if not api_key:
@@ -710,7 +745,7 @@ def _make_provider_client(provider):
     if profile["status"] != "ready":
         raise RuntimeError(profile["reason"])
     timeout = 60
-    if provider == "gpt":
+    if profile.get("client") == "openai" or provider == "gpt":
         return OpenAICompatibleModelClient(
             model=profile["model"],
             base_url=profile["base_url"],
@@ -739,12 +774,12 @@ def run_provider_experiments(benchmark_path, workspace_root, artifact_root, max_
     workspace_root = Path(workspace_root)
     artifact_root = Path(artifact_root)
     providers = []
-    for provider_name in ("gpt", "claude"):
+    for provider_name in ("gpt", "claude", "deepseek"):
         profile = _provider_profile(provider_name)
         if profile["status"] != "ready":
             providers.append(profile)
             continue
-        if provider_name == "gpt":
+        if profile.get("client") == "openai" or provider_name == "gpt":
             def factory(task, workspace, profile=profile):
                 del task, workspace
                 return OpenAICompatibleModelClient(

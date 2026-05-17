@@ -20,6 +20,7 @@ from .context_manager import ContextManager
 from .run_store import RunStore
 from .task_state import TaskState
 from . import tools as toolkit
+from .tool_policy import ToolPolicy, ToolPolicyRejection
 from .workspace import IGNORED_PATH_NAMES, MAX_HISTORY, WorkspaceContext, clip, now
 
 SENSITIVE_ENV_NAME_MARKERS = ("API_KEY", "TOKEN", "SECRET", "PASSWORD")
@@ -94,8 +95,8 @@ class RepoHarness:
         session=None,
         run_store=None,
         approval_policy="ask",
-        max_steps=6,
-        max_new_tokens=512,
+        max_steps=50,
+        max_new_tokens=8192,
         depth=0,
         max_depth=1,
         read_only=False,
@@ -133,6 +134,7 @@ class RepoHarness:
         )
         self.session["memory"] = self.memory.to_dict()
         self.tools = self.build_tools()
+        self.tool_policy = ToolPolicy(self)
         self.prefix_state = self.build_prefix()
         self.prefix = self.prefix_state.text
         self.context_manager = ContextManager(self)
@@ -474,6 +476,35 @@ class RepoHarness:
     def memory_review_skip(self, record_id):
         record = self.memory.skip_durable_review(record_id)
         return self._memory_review_result("pending", record)
+
+    def remember_candidate(self, text):
+        original_text = str(text or "").strip()
+        if not original_text:
+            return {"status": "usage", "record": {}, "reason": "empty"}
+        topic = "user-preferences"
+        note_text = original_text
+        for candidate_topic, pattern in DURABLE_MEMORY_LINE_PATTERNS:
+            match = pattern.match(original_text)
+            if match:
+                topic = candidate_topic
+                note_text = match.group(1).strip()
+                break
+        reason = self.reject_durable_reason(note_text)
+        if reason:
+            return {"status": "rejected", "record": {}, "reason": reason}
+        queued = self.memory.enqueue_durable_reviews(
+            [(topic, note_text)],
+            source={
+                "session_id": self.session.get("id", ""),
+                "run_id": self.current_task_state.run_id if self.current_task_state is not None else "",
+                "task_id": self.current_task_state.task_id if self.current_task_state is not None else "",
+                "origin": "user-remember",
+            },
+        )
+        self._persist_memory()
+        if not queued:
+            return {"status": "duplicate", "record": {}, "reason": "duplicate"}
+        return {"status": "queued", "record": dict(queued[0]), "reason": ""}
 
     def memory_self_iteration_status(self):
         return {
@@ -1273,18 +1304,22 @@ class RepoHarness:
                 "diff_summary": [],
             }
             return message
-        if self.repeated_tool_call(name, args):
+        try:
+            self.tool_policy.check(name, args)
+        except ToolPolicyRejection as exc:
+            risk_level = "high" if tool["risky"] else "low"
             self._last_tool_result_metadata = {
                 "tool_status": "rejected",
-                "tool_error_code": "repeated_identical_call",
+                "tool_error_code": exc.code,
                 "security_event_type": "",
-                "risk_level": "high" if tool["risky"] else "low",
+                "risk_level": risk_level,
                 "read_only": not tool["risky"],
                 "affected_paths": [],
                 "workspace_changed": False,
                 "diff_summary": [],
             }
-            return f"error: repeated identical tool call for {name}; choose a different tool or return a final answer"
+            self.record_process_note_for_tool(name, self._last_tool_result_metadata)
+            return exc.message
         if tool["risky"] and not self.approve(name, args):
             self._last_tool_result_metadata = {
                 "tool_status": "rejected",
@@ -1328,6 +1363,7 @@ class RepoHarness:
                 "diff_summary": diff_summary,
             }
             self.record_process_note_for_tool(name, self._last_tool_result_metadata)
+            self.tool_policy.record_result(name, args, self._last_tool_result_metadata)
             return result
         except Exception as exc:
             after_snapshot = self.capture_workspace_snapshot() if tool["risky"] else before_snapshot

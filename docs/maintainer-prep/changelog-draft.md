@@ -1,5 +1,19 @@
 # 更新日志草案
 
+## 2026-05-17: v3 Compat Phase 1 Foundation
+
+- Added `.repo-harness.toml` configuration with CLI > environment > file > default precedence.
+- Added DeepSeek as a first-class provider through the Anthropic-compatible protocol.
+- Added provider reliability metadata and lightweight tool policy.
+- Added `/remember <text>` as a Review Queue-only durable memory candidate entrypoint.
+- Durable memory remains governed by:
+
+```text
+candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+```
+
+Phase 2 owns skills, todo ledger, worker manager, sandbox, runtime control plane layering, Textual TUI, and release evidence. Reference v3 commit: `91a7c17`; old stable reference tag: `archive-before-repoharness-rename-20260503`.
+
 ## 文档说明
 
 这份文档用于维护待发布变更的 release note 草案。它帮助维护者在开发过程中持续积累用户可读的变更说明，发版前再按实际版本号、提交范围和用户影响裁剪成正式 changelog。

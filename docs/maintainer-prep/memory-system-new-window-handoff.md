@@ -1,5 +1,17 @@
 # RepoHarness Memory System 新窗口交接文档
 
+## v3 Compat Phase 1 Foundation
+
+The current foundation release adds `.repo-harness.toml`, provider profiles for OpenAI / Anthropic / DeepSeek, DeepSeek through the Anthropic-compatible protocol, tool policy, and `/remember <text>`.
+
+Memory governance is unchanged:
+
+```text
+candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+```
+
+`/remember` and memory self-iteration only queue Review Queue candidates. Phase 2 owns skills, todo ledger, worker manager, sandbox, runtime control plane layering, Textual TUI, and release evidence. Reference v3 commit: `91a7c17`; old stable reference tag: `archive-before-repoharness-rename-20260503`.
+
 ## 目的
 
 这份文档用于在新 Codex 窗口中无缝继续 RepoHarness 记忆系统迭代。新窗口应优先读取本文，再读取：
