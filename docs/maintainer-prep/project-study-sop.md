@@ -1,5 +1,20 @@
 # 项目学习 SOP
 
+## v3 Parity Closeout Study Note
+
+When studying the closeout, include these modules and flows after the Phase 2 pass:
+
+- `repo_harness/plan_mode.py`, `repo_harness/permissions.py`, and `repo_harness/session_events.py`.
+- `/usage`, `/model [name]`, `/history`, `/context`, `/compact`, `/working-memory`, and `/memory organize`.
+- `ask_user`, full skill frontmatter, fork skill events, worker send/stop, sandbox `required`, and TUI runtime flow.
+- `artifact_graph`, `verifier_suggestions`, `runtime_reminders`, and the 50-scenario release evidence gate.
+
+The durable memory invariant remains:
+
+```text
+candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+```
+
 ## v3 Compat Phase 2 Workflow And UX Study Note
 
 When studying current RepoHarness, include these Phase 2 workflow modules after the Phase 1 provider/config/memory pass:

@@ -1,5 +1,21 @@
 ﻿# RepoHarness 新手指南
 
+## v3 Parity Closeout
+
+The closeout release completes the workflow/runtime surface expected from the v3 compatibility track:
+
+- `/plan <topic>`, `/plan-exit`, and `/mode` create a plan artifact in `.repo-harness/plans/` and restrict tool use while planning.
+- `/usage`, `/model [name]`, `/history`, `/context`, `/compact`, and `/working-memory` expose runtime state and context governance.
+- `/memory organize` runs review-gated memory organization; it queues candidates but does not write durable topics.
+- `ask_user`, full skill frontmatter, worker send/stop notifications, `--sandbox required`, and the TUI smoke path all use the same runtime/permission/report machinery.
+- Release evidence now executes 50 scenario checks and reads runtime reports, traces, and session events.
+
+The memory boundary remains unchanged:
+
+```text
+candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+```
+
 ## v3 Compat Phase 2 Workflow And UX
 
 Phase 2 adds workflow commands on top of the Phase 1 foundation:
@@ -8,7 +24,7 @@ Phase 2 adds workflow commands on top of the Phase 1 foundation:
 - `/skill <name> [args]` injects a selected skill into the current interaction as controlled prompt text.
 - `todo_add`, `todo_update`, and `todo_list` keep session-scoped work status in the prompt and report.
 - `/agents`, `/subagent explore <task>`, and `/subagent worker --scope <path[,path]> <task>` run bounded worker tasks.
-- `--sandbox read_only`, `--sandbox best_effort`, and `[sandbox]` in `.repo-harness.toml` control shell execution.
+- `--sandbox read_only`, `--sandbox best_effort`, `--sandbox required`, and `[sandbox]` in `.repo-harness.toml` control shell execution.
 - `--tui` opens the optional Textual TUI; `--repl` keeps the standard REPL path.
 
 These workflow features inherit provider config, secret redaction, tool policy, and memory governance. They can create candidates or runtime artifacts, but they do not bypass:

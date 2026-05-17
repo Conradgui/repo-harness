@@ -443,3 +443,24 @@ def test_durable_promotion_subject_key_ignores_joined_retrieval_tokens(tmp_path)
     ]
     assert "MemoryPack is enabled." in text
     assert "memory-pack is enabled." not in text
+
+
+def test_memory_organize_queues_candidates_without_writing_topics(tmp_path):
+    from repo_harness import FakeModelClient, RepoHarness, SessionStore, WorkspaceContext
+
+    (tmp_path / "README.md").write_text("demo\n", encoding="utf-8")
+    agent = RepoHarness(
+        model_client=FakeModelClient([]),
+        workspace=WorkspaceContext.build(tmp_path),
+        session_store=SessionStore(tmp_path / ".repo-harness" / "sessions"),
+        approval_policy="auto",
+    )
+    agent.memory.append_note("Preference: keep memory review-gated", source="test")
+    agent.session["memory"] = agent.memory.to_dict()
+
+    output = agent.memory_organize_text()
+
+    assert "Memory organize" in output
+    assert agent.memory_review_pending()
+    topics_dir = tmp_path / ".repo-harness" / "memory" / "topics"
+    assert not list(topics_dir.glob("*.md")) if topics_dir.exists() else True

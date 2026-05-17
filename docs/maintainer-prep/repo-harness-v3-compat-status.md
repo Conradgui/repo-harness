@@ -6,6 +6,7 @@ status: completed
 
 Phase 1 Foundation Release is completed on branch `repo-harness/v3-compat-phase1`.
 Phase 2 Workflow And UX Release is completed on branch `repo-harness/v3-compat-phase2`.
+v3 Parity Closeout is completed on branch `repo-harness/v3-compat-parity-closeout`.
 
 Reference Pico v3 commit: `91a7c17`.
 Old stable reference tag: `archive-before-repoharness-rename-20260503`.
@@ -32,13 +33,25 @@ Allowed status values: `planned`, `in_progress`, `completed`, `blocked`.
 - Optional Textual TUI entry through `--tui`.
 - Release evidence scenario gate under RepoHarness-named output paths.
 
+## v3 Parity Closeout Completed
+
+- Plan mode commands `/plan <topic>`, `/plan-exit`, and `/mode`, with active artifacts in `.repo-harness/plans/`.
+- Slash command parity for `/usage`, `/model [name]`, `/history`, `/context`, `/compact`, and `/working-memory`.
+- Unified permission checker, session event bus, context usage metadata, compaction events, and enriched trace fields.
+- `ask_user` tool and TUI ask-user prompt path.
+- Full skill frontmatter, argument substitution, fork skills, and skill events.
+- Worker send/stop notifications and plan-mode Explore-only enforcement.
+- Sandbox `required` mode and backend fallback/unavailable metadata.
+- `/memory organize` queues Review Queue candidates only.
+- Runtime artifact graph, verifier suggestions, runtime reminders, and 50-scenario release evidence gate.
+
 Durable memory governance remains:
 
 ```text
 candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
 ```
 
-Skills, workers, `/remember`, and release evidence do not directly write `.repo-harness/memory/topics/*.md`.
+Skills, workers, `/remember`, `/memory organize`, and release evidence do not directly write `.repo-harness/memory/topics/*.md`.
 
 ## Release Fields
 
@@ -47,6 +60,8 @@ Skills, workers, `/remember`, and release evidence do not directly write `.repo-
 - Phase 1 push branch: `repo-harness/v3-compat-phase1`
 - Phase 2 commit: final pushed `feat: add v3 compat workflow ux` commit on `repo-harness/v3-compat-phase2`
 - Phase 2 push branch: `repo-harness/v3-compat-phase2`
+- Parity closeout branch: `repo-harness/v3-compat-parity-closeout`
+- Parity closeout commit: final pushed `feat: add v3 parity closeout` commit on `repo-harness/v3-compat-parity-closeout`
 
 ## Verification
 
@@ -56,3 +71,11 @@ Skills, workers, `/remember`, and release evidence do not directly write `.repo-
 - `uv run ruff check .`: passed.
 - `git diff --check`: passed with Windows LF/CRLF warnings only.
 - `uv run pytest tests -q --basetemp C:\tmp\rh-test`: 194 passed.
+- `uv run pytest tests/test_plan_mode.py tests/test_usage.py tests/test_ask_user.py tests/test_permissions_acceptance.py -q`: 8 passed.
+- `uv run pytest tests/test_context_governance_acceptance.py tests/test_runtime_evidence_acceptance.py -q`: 4 passed.
+- `uv run pytest tests/test_skills_acceptance.py tests/test_agent_workers_acceptance.py tests/test_sandbox_runner.py -q`: 13 passed.
+- `uv run pytest tests/test_tui.py tests/test_run_evidence.py -q`: 4 passed.
+- `uv run pytest tests/test_repo_harness.py tests/test_memory.py tests/test_safety_invariants.py -q -k "plan or usage or context or compact or skill or worker or sandbox or tui or evidence or review or organize"`: 17 passed, 123 deselected.
+- `uv run ruff check .`: passed.
+- `git diff --check`: passed with Windows LF/CRLF warnings only.
+- `uv run pytest tests -q --basetemp C:\tmp\rh-test`: 215 passed.

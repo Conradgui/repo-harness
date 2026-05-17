@@ -2,7 +2,7 @@
 
 ## Summary
 
-RepoHarness v3 compatibility is split into two complete engineering releases. Phase 1 is completed, and Phase 2 is completed as the workflow and UX release. The reference Pico v3 commit is `91a7c17`; the old stable reference tag is `archive-before-repoharness-rename-20260503`.
+RepoHarness v3 compatibility was delivered as two complete engineering releases plus a parity closeout. Phase 1 is completed, Phase 2 is completed as the workflow and UX release, and the closeout completes the remaining runtime, command, evidence, and governance gaps. The reference Pico v3 commit is `91a7c17`; the old stable reference tag is `archive-before-repoharness-rename-20260503`.
 
 ## Phase 1: Foundation Release
 
@@ -37,6 +37,27 @@ Phase 2 completes the workflow and UX layer:
 - Release evidence and scenario gate under RepoHarness-named paths.
 
 Skills, workers, `/remember`, and release evidence do not write durable topics directly.
+
+## v3 Parity Closeout
+
+The closeout completes the remaining parity surface:
+
+- Plan mode through `/plan <topic>`, `/plan-exit`, `/mode`, and `.repo-harness/plans/<slug>-plan.md`.
+- Slash command parity for `/usage`, `/model [name]`, `/history`, `/context`, `/compact`, and `/working-memory`.
+- Unified permission checker and tool profiles for default, plan, readonly, worker, skill, and memory organize flows.
+- `ask_user` tool, session event bus, context usage metadata, manual compaction, runtime artifact graph, verifier suggestions, and runtime reminders.
+- Full skill frontmatter, `$ARGUMENTS`, `${REPO_HARNESS_SKILL_DIR}`, fork skills, and skill events.
+- Worker send/stop notifications and plan-mode Explore-only enforcement.
+- Sandbox mode `required` and backend availability metadata.
+- TUI runtime flow with slash suggestions and ask-user prompt support.
+- `/memory organize`, which borrows the organization idea but only queues Review Queue candidates.
+- 50-scenario release evidence gate that reads runtime reports, traces, and session events.
+
+Memory organize remains review-gated:
+
+```text
+candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+```
 
 ## Boundaries
 

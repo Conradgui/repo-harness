@@ -25,6 +25,7 @@ from .config import (
     resolve_runtime_config,
 )
 from .models import AnthropicCompatibleModelClient, OllamaModelClient, OpenAICompatibleModelClient
+from .models import _sanitize_base_url
 from .runtime import RepoHarness, SessionStore
 from .workspace import WorkspaceContext, middle
 
@@ -58,6 +59,7 @@ HELP_DETAILS = textwrap.dedent(
     /help    Show this help message.
     /memory  Show the agent's distilled working memory.
     /memory review  Review pending durable memory candidates.
+    /memory organize  Organize memory candidates into the Review Queue.
     /memory self_iteration  Show the latest memory self-iteration status.
     /memory_explain <query>  Explain which memory notes match a query.
     /remember <text>  Queue a durable memory candidate for /memory review.
@@ -66,6 +68,15 @@ HELP_DETAILS = textwrap.dedent(
     /agents  Show subagent worker status.
     /subagent explore <task>  Run a read-only worker.
     /subagent worker --scope <path[,path]> <task>  Run a scoped write worker.
+    /plan <topic>  Enter plan mode and write .repo-harness/plans/<topic>-plan.md.
+    /plan-exit  Leave plan mode.
+    /mode  Show the current runtime mode.
+    /usage  Show provider and latest usage metadata.
+    /model [name]  Show or change the current runtime model only.
+    /history  Show compact session history.
+    /context  Show context usage estimates.
+    /compact  Manually compact session history.
+    /working-memory  Show working memory.
     /memory_pack  Export, import, inspect, or validate memory packs.
     /session Show the path to the saved session file.
     /reset   Clear the current session history and memory.
@@ -456,6 +467,127 @@ def run_subagent(agent, text):
         return
     result = agent.spawn_worker(task, task, subagent_type="Explore" if mode == "explore" else "worker", write_scope=write_scope)
     print(f"{result['id']} {result['status']}: {result.get('result', '')}")
+
+
+def _format_usage(agent):
+    metadata = dict(getattr(agent, "last_completion_metadata", {}) or {})
+    model = str(getattr(agent.model_client, "model", metadata.get("provider_model", "")) or "-")
+    base_url = metadata.get("provider_base_url") or getattr(agent.model_client, "base_url", getattr(agent.model_client, "host", ""))
+    if base_url:
+        base_url = _sanitize_base_url(base_url)
+    lines = [
+        "Usage:",
+        f"provider protocol: {metadata.get('provider_protocol', agent.model_client.__class__.__name__)}",
+        f"model: {model}",
+        f"base URL: {base_url or '-'}",
+        f"provider attempts: {metadata.get('provider_attempts', 0)}",
+        f"provider retry count: {metadata.get('provider_retry_count', 0)}",
+    ]
+    for key in ("input_tokens", "output_tokens", "total_tokens", "cache_read_tokens", "cache_write_tokens"):
+        if key in metadata:
+            lines.append(f"{key}: {metadata[key]}")
+    return "\n".join(lines)
+
+
+def _format_context(agent):
+    usage = agent.context_usage()
+    lines = ["context_usage:"]
+    lines.append(f"total_estimated_tokens: {usage.get('total_estimated_tokens', 0)}")
+    for name, section in usage.get("sections", {}).items():
+        lines.append(f"- {name}: chars={section.get('chars', 0)} tokens={section.get('tokens', 0)}")
+    return "\n".join(lines)
+
+
+def _format_history(agent):
+    return f"History for session {agent.session['id']}:\n{agent.history_text()}"
+
+
+def _format_compaction(summary):
+    return "\n".join(
+        [
+            "compact:",
+            f"pre_tokens: {summary.get('pre_tokens', 0)}",
+            f"post_tokens: {summary.get('post_tokens', 0)}",
+            f"trigger: {summary.get('trigger', '')}",
+        ]
+    )
+
+
+def handle_repl_command(agent, user_input):
+    user_input = str(user_input or "").strip()
+    if not user_input.startswith("/"):
+        return False, False, ""
+    if user_input in {"/exit", "/quit"}:
+        return True, True, ""
+    if user_input == "/help":
+        return True, False, HELP_DETAILS
+    if user_input == "/skills":
+        return True, False, agent.render_skills()
+    if user_input.startswith("/skill"):
+        body = user_input[len("/skill"):].strip()
+        if not body:
+            return True, False, "usage: /skill <name> [args]"
+        name, _, arguments = body.partition(" ")
+        return True, False, agent.invoke_skill(name, arguments)
+    if user_input == "/agents":
+        return True, False, agent.render_workers()
+    if user_input.startswith("/subagent"):
+        return False, False, ""
+    if user_input == "/plan-exit":
+        agent.exit_plan_mode()
+        return True, False, "runtime mode: default"
+    if user_input.startswith("/plan"):
+        body = user_input[len("/plan"):].strip()
+        if agent.runtime_mode == "plan":
+            return True, False, f"plan mode already active: {agent.active_plan_path}"
+        if not body:
+            return True, False, "usage: /plan <topic>"
+        topic = body.split()[0]
+        plan_path = agent.enter_plan_mode(topic)
+        return True, False, f"runtime mode: plan\nplan path: {plan_path}"
+    if user_input == "/mode":
+        output = f"runtime mode: {agent.runtime_mode}"
+        if agent.active_plan_path:
+            output += f"\nplan path: {agent.active_plan_path}"
+        return True, False, output
+    if user_input.startswith("/model"):
+        body = user_input[len("/model"):].strip()
+        if not body:
+            return True, False, f"model: {getattr(agent.model_client, 'model', '-')}"
+        if hasattr(agent.model_client, "model"):
+            agent.model_client.model = body
+        return True, False, f"model: {body}"
+    if user_input == "/usage":
+        return True, False, _format_usage(agent)
+    if user_input == "/history":
+        return True, False, _format_history(agent)
+    if user_input == "/context":
+        return True, False, _format_context(agent)
+    if user_input == "/working-memory":
+        return True, False, "Working memory:\n" + agent.memory_text()
+    if user_input == "/compact":
+        return True, False, _format_compaction(agent.compact_history(trigger="manual"))
+    if user_input == "/memory":
+        return True, False, agent.memory_text()
+    if user_input == "/memory organize":
+        return True, False, agent.memory_organize_text()
+    if user_input == "/memory self_iteration":
+        return True, False, _memory_self_iteration_text(agent)
+    if user_input.startswith("/memory_explain"):
+        query = user_input[len("/memory_explain"):].strip()
+        if not query:
+            return True, False, "usage: /memory_explain <query>"
+        return True, False, _memory_explain_text(agent, query)
+    if user_input.startswith("/remember"):
+        return False, False, ""
+    if user_input in {"/memory review", "/memory_pack", "/memory-pack"}:
+        return False, False, ""
+    if user_input == "/session":
+        return True, False, str(agent.session_path)
+    if user_input == "/reset":
+        agent.reset()
+        return True, False, "session reset"
+    return False, False, ""
 
 
 def _resolve_export_modules(api, preset, requested_modules):
@@ -939,7 +1071,7 @@ def build_arg_parser():
     )
     parser.add_argument("--ollama-timeout", type=int, default=300, help="Ollama request timeout in seconds.")
     parser.add_argument("--openai-timeout", type=int, default=300, help="OpenAI-compatible request timeout in seconds.")
-    parser.add_argument("--sandbox", choices=("off", "best_effort", "read_only"), default=None, help="Sandbox mode for run_shell.")
+    parser.add_argument("--sandbox", choices=("off", "best_effort", "read_only", "required"), default=None, help="Sandbox mode for run_shell.")
     parser.add_argument("--sandbox-backend", default=None, help="Sandbox backend name.")
     parser.add_argument("--tui", action="store_true", help="Start the RepoHarness terminal UI.")
     parser.add_argument("--repl", action="store_true", help="Use the plain line-oriented REPL.")
@@ -1012,24 +1144,12 @@ def main(argv=None):
 
         if not user_input:
             continue
-        if user_input in {"/exit", "/quit"}:
-            return 0
-        if user_input == "/help":
-            print(HELP_DETAILS)
-            continue
-        if user_input == "/skills":
-            print(agent.render_skills())
-            continue
-        if user_input.startswith("/skill"):
-            body = user_input[len("/skill"):].strip()
-            if not body:
-                print("usage: /skill <name> [args]")
-                continue
-            name, _, arguments = body.partition(" ")
-            print(agent.invoke_skill(name, arguments))
-            continue
-        if user_input == "/agents":
-            print(agent.render_workers())
+        handled, should_exit, output = handle_repl_command(agent, user_input)
+        if handled:
+            if output:
+                print(output)
+            if should_exit:
+                return 0
             continue
         if user_input.startswith("/subagent"):
             run_subagent(agent, user_input[len("/subagent"):].strip())
@@ -1043,26 +1163,6 @@ def main(argv=None):
         if user_input.startswith("/remember"):
             text = user_input[len("/remember"):].strip()
             run_remember(agent, text)
-            continue
-        if user_input == "/memory self_iteration":
-            print(_memory_self_iteration_text(agent))
-            continue
-        if user_input == "/memory":
-            print(agent.memory_text())
-            continue
-        if user_input.startswith("/memory_explain"):
-            query = user_input[len("/memory_explain"):].strip()
-            if not query:
-                print("usage: /memory_explain <query>")
-                continue
-            print(_memory_explain_text(agent, query))
-            continue
-        if user_input == "/session":
-            print(agent.session_path)
-            continue
-        if user_input == "/reset":
-            agent.reset()
-            print("session reset")
             continue
 
         print()

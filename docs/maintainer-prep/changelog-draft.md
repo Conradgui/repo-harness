@@ -1,5 +1,17 @@
 # 更新日志草案
 
+## 2026-05-18: v3 Parity Closeout
+
+- Added plan mode and slash command parity for usage, model switching, history, context, compaction, and working memory.
+- Added unified permission decisions, session events, ask-user prompts, full skill metadata, worker lifecycle notifications, sandbox `required`, and TUI runtime flow.
+- Added `/memory organize`; it queues Review Queue candidates only.
+- Added runtime evidence fields and a 50-scenario release gate that reads reports, traces, and session events.
+- Durable memory remains governed by:
+
+```text
+candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+```
+
 ## 2026-05-17: v3 Compat Phase 2 Workflow And UX
 
 - Added RepoHarness skills discovery with `/skills` and `/skill <name> [args]`.

@@ -19,7 +19,7 @@ DEFAULT_MAX_STEPS = 50
 DEFAULT_MAX_NEW_TOKENS = {
     "ollama": 512,
     "openai": 8192,
-    "anthropic": 8192,
+    "anthropic": 32000,
     "deepseek": 8192,
 }
 

@@ -17,9 +17,14 @@ from pathlib import Path
 
 from . import memory as memorylib
 from .context_manager import ContextManager
+from .engine import Engine
+from .permissions import PermissionChecker
+from .plan_mode import PlanModeManager
+from . import runtime_evidence
 from .runtime_control import RuntimeControlPlane
 from .run_store import RunStore
 from .sandbox import SandboxConfig, SandboxRunner
+from .session_events import SessionEventBus
 from . import skills as skillslib
 from .task_state import TaskState
 from .todo_ledger import TodoLedger
@@ -110,6 +115,7 @@ class RepoHarness:
         feature_flags=None,
         sandbox_config=None,
         write_scope=None,
+        ask_user_callback=None,
     ):
         self.model_client = model_client
         self.workspace = workspace
@@ -122,6 +128,7 @@ class RepoHarness:
         self.max_depth = max_depth
         self.read_only = read_only
         self.write_scope = tuple(str(path).strip() for path in (write_scope or ()) if str(path).strip())
+        self.ask_user_callback = ask_user_callback
         self.shell_env_allowlist = tuple(shell_env_allowlist or DEFAULT_SHELL_ENV_ALLOWLIST)
         self.secret_env_names = {str(name).upper() for name in (secret_env_names or ())}
         self.feature_flags = dict(DEFAULT_FEATURE_FLAGS)
@@ -138,6 +145,8 @@ class RepoHarness:
             "memory": memorylib.default_memory_state(),
         }
         self._ensure_session_shape()
+        self.session_event_bus = SessionEventBus(self.session_store.root, self.session["id"])
+        self.tool_profile = str(self.session.get("runtime_mode", {}).get("mode", "default") or "default")
         self.memory = memorylib.LayeredMemory(
             self.session.setdefault("memory", memorylib.default_memory_state()),
             workspace_root=self.root,
@@ -148,7 +157,10 @@ class RepoHarness:
         self.skills = skillslib.discover_skills(self.root, user_home=self._safe_user_home())
         self.tools = self.build_tools()
         self.tool_policy = ToolPolicy(self)
+        self.permission_checker = PermissionChecker(self)
+        self.plan_mode = PlanModeManager(self)
         self.control_plane = RuntimeControlPlane(self)
+        self.engine = Engine(self)
         self.prefix_state = self.build_prefix()
         self.prefix = self.prefix_state.text
         self.context_manager = ContextManager(self)
@@ -166,6 +178,8 @@ class RepoHarness:
         self.last_self_iteration_review_queued = []
         self.last_self_iteration_rejections = []
         self._last_tool_result_metadata = {}
+        self._run_changed_paths = []
+        self.runtime_reminders = []
         self._last_prefix_refresh = {
             "workspace_changed": False,
             "prefix_changed": False,
@@ -184,6 +198,14 @@ class RepoHarness:
     def _ensure_session_shape(self):
         self.session.setdefault("history", [])
         self.session.setdefault("memory", memorylib.default_memory_state())
+        runtime_mode = self.session.setdefault("runtime_mode", {})
+        if not isinstance(runtime_mode, dict):
+            runtime_mode = {}
+            self.session["runtime_mode"] = runtime_mode
+        runtime_mode.setdefault("mode", "default")
+        runtime_mode.setdefault("active_plan_path", "")
+        runtime_mode.setdefault("topic", "")
+        self.session.setdefault("compactions", [])
         checkpoints = self.session.setdefault("checkpoints", {})
         if not isinstance(checkpoints, dict):
             checkpoints = {}
@@ -196,6 +218,26 @@ class RepoHarness:
         resume_state = self.session.setdefault("resume_state", {})
         if not isinstance(resume_state, dict):
             self.session["resume_state"] = {}
+
+    @property
+    def runtime_mode(self):
+        return str(self.session.setdefault("runtime_mode", {}).get("mode", "default") or "default")
+
+    @property
+    def active_plan_path(self):
+        return str(self.session.setdefault("runtime_mode", {}).get("active_plan_path", "") or "")
+
+    def emit_session_event(self, event, **payload):
+        bus = getattr(self, "session_event_bus", None)
+        if bus is None:
+            return {}
+        return bus.emit(event, **self.redact_artifact(payload))
+
+    def enter_plan_mode(self, topic):
+        return self.plan_mode.enter(topic)
+
+    def exit_plan_mode(self):
+        return self.plan_mode.exit()
 
     def current_runtime_identity(self):
         return {
@@ -431,6 +473,12 @@ class RepoHarness:
 
     def memory_text(self):
         base = self.memory.render_memory_text()
+        compactions = list(self.session.get("compactions", []))
+        if compactions:
+            latest = compactions[-1]
+            summary = str(latest.get("summary", "")).strip()
+            if summary:
+                base = base + "\n\nCompacted session summary:\n" + summary
         todo_text = self.todo_ledger.render_prompt()
         return base if not todo_text else base + "\n\n" + todo_text
 
@@ -500,7 +548,44 @@ class RepoHarness:
         return skillslib.render_skills_list(self.skills)
 
     def invoke_skill(self, name, arguments=""):
-        return skillslib.invoke_skill(self.skills, name, arguments)
+        skill = self.skills.get(str(name).strip())
+        if skill is None:
+            return f"skill not found: {name}"
+        prompt = skillslib.render_skill_prompt(skill, arguments)
+        self.emit_session_event("skill_invoked", name=skill.name, context=skill.context, arguments=str(arguments))
+        if skill.disable_model_invocation:
+            self.emit_session_event("skill_completed", name=skill.name, status="prompt_only")
+            return prompt
+        if skill.context == "fork":
+            child = RepoHarness(
+                model_client=self.model_client,
+                workspace=self.workspace,
+                session_store=self.session_store,
+                run_store=self.run_store,
+                approval_policy="auto",
+                max_steps=min(self.max_steps, 8),
+                max_new_tokens=self.max_new_tokens,
+                depth=self.depth + 1,
+                max_depth=max(self.max_depth, self.depth + 2),
+                read_only=True,
+                secret_env_names=self.secret_env_names,
+                shell_env_allowlist=self.shell_env_allowlist,
+                sandbox_config=self.sandbox_config,
+            )
+            result = child.ask(prompt)
+            self.emit_session_event("skill_fork_completed", name=skill.name, child_session_id=child.session["id"])
+            self.emit_session_event("skill_completed", name=skill.name, status="completed")
+            return result
+        original_model = getattr(self.model_client, "model", None)
+        if skill.model and hasattr(self.model_client, "model"):
+            self.model_client.model = skill.model
+        try:
+            result = self.ask(prompt)
+        finally:
+            if original_model is not None and hasattr(self.model_client, "model"):
+                self.model_client.model = original_model
+        self.emit_session_event("skill_completed", name=skill.name, status="completed")
+        return result
 
     @staticmethod
     def _safe_user_home():
@@ -576,6 +661,20 @@ class RepoHarness:
         lines.append("Use /memory review to accept, edit, reject, or skip pending durable memory candidates.")
         return "\n".join(lines)
 
+    def memory_organize_text(self):
+        status = self.run_memory_self_iteration()
+        lines = [
+            "Memory organize:",
+            f"- queued candidates: {len(status.get('self_iteration_review_queued', []))}",
+            f"- compactions: {len(status.get('episodic_compactions', []))}",
+            f"- rejections: {len(status.get('self_iteration_rejections', []))}",
+            "Durable memory is still review-gated: candidate fact -> Review Queue -> /memory review accept/edit -> durable topics.",
+            "Run /memory review to accept, edit, reject, or skip candidates.",
+        ]
+        for item in status.get("self_iteration_review_queued", []):
+            lines.append(f"  queued: {clip(item, 160)}")
+        return "\n".join(lines)
+
     def history_text(self):
         history = self.session["history"]
         if not history:
@@ -610,8 +709,66 @@ class RepoHarness:
         return prompt
 
     def record(self, item):
+        item = dict(item)
+        if item.get("role") in {"user", "assistant", "tool"}:
+            task_state = getattr(self, "current_task_state", None)
+            item.setdefault("run_id", getattr(task_state, "run_id", "") or "manual")
+            item.setdefault("turn_id", getattr(task_state, "task_id", "") or "manual")
         self.session["history"].append(item)
         self.session_path = self.session_store.save(self.session)
+
+    @staticmethod
+    def _estimate_tokens(text):
+        return max(0, (len(str(text)) + 3) // 4)
+
+    def context_usage(self, prompt_metadata=None):
+        metadata = prompt_metadata or self.last_prompt_metadata or {}
+        sections = {}
+        source_sections = metadata.get("sections", {}) if isinstance(metadata, dict) else {}
+        total = 0
+        for name, section in source_sections.items():
+            chars = int(section.get("rendered_chars", section.get("raw_chars", 0)) or 0)
+            tokens = self._estimate_tokens("x" * chars)
+            sections[name] = {"chars": chars, "tokens": tokens}
+            total += tokens
+        return {
+            "estimation_method": "chars_div_4",
+            "total_estimated_tokens": total,
+            "sections": sections,
+            "auto_compacted": bool(metadata.get("auto_compacted", False)) if isinstance(metadata, dict) else False,
+            "budget_reductions": list(metadata.get("budget_reductions", [])) if isinstance(metadata, dict) else [],
+        }
+
+    def compact_history(self, trigger="manual"):
+        pre_text = self.history_text()
+        pre_tokens = self._estimate_tokens(pre_text)
+        history = list(self.session.get("history", []))
+        if len(history) <= 8:
+            summary = "No old history needed compaction."
+            retained = history
+        else:
+            older = history[:-6]
+            retained = history[-6:]
+            parts = []
+            for item in older[-12:]:
+                role = str(item.get("role", ""))
+                content = str(item.get("content", ""))
+                if item.get("role") == "tool":
+                    content = f"{item.get('name', 'tool')} {item.get('args', {})}: {content}"
+                parts.append(f"[{role}] {clip(content, 140)}")
+            summary = "\n".join(parts) or "Older session history was compacted."
+        self.session["history"] = retained
+        compaction = {
+            "trigger": str(trigger),
+            "created_at": now(),
+            "summary": summary,
+            "pre_tokens": pre_tokens,
+            "post_tokens": self._estimate_tokens("\n".join(str(item.get("content", "")) for item in retained)),
+        }
+        self.session.setdefault("compactions", []).append(compaction)
+        self.session_path = self.session_store.save(self.session)
+        self.emit_session_event("compaction_created", **compaction)
+        return compaction
 
     @staticmethod
     def looks_sensitive_env_name(name):
@@ -725,15 +882,34 @@ class RepoHarness:
             }
         )
         metadata.update(self.detected_secret_env_summary())
+        metadata["context_usage"] = self.context_usage(metadata)
         return prompt, metadata
 
     def emit_trace(self, task_state, event, payload=None):
         payload = self.redact_artifact(payload or {})
         payload["event"] = event
         payload["created_at"] = now()
+        payload.setdefault("phase", self._trace_phase(event))
+        payload.setdefault("status", payload.get("tool_status", "ok" if "error" not in event else "error"))
+        payload.setdefault("run_id", getattr(task_state, "run_id", ""))
+        payload.setdefault("turn_id", getattr(task_state, "task_id", ""))
+        payload.setdefault("span_id", "span_" + uuid.uuid4().hex[:8])
+        payload.setdefault("artifact_paths", list(payload.get("affected_paths", []) or []))
+        payload.setdefault("duration_ms", int(payload.get("duration_ms", 0) or 0))
+        payload.setdefault("error_type", str(payload.get("tool_error_code", "") or ""))
         # trace 是运行中的逐事件时间线，适合回答“这一轮 agent 到底做了什么”。
         self.run_store.append_trace(task_state, payload)
         return payload
+
+    @staticmethod
+    def _trace_phase(event):
+        if str(event).startswith("model"):
+            return "model"
+        if str(event).startswith("tool"):
+            return "tool"
+        if "checkpoint" in str(event):
+            return "checkpoint"
+        return "runtime"
 
     def capture_workspace_snapshot(self):
         snapshot = {}
@@ -885,6 +1061,21 @@ class RepoHarness:
         tags = ["process", status, *affected_paths]
         self.memory.append_note(text, tags=tuple(tags), source=name, kind="process")
         self.session["memory"] = self.memory.to_dict()
+
+    def _record_runtime_reminder(self, name, metadata):
+        status = str(metadata.get("tool_status", "")).strip()
+        if status not in {"partial_success", "error", "rejected"}:
+            return
+        reminder = {
+            "tool": str(name),
+            "status": status,
+            "tool_error_code": str(metadata.get("tool_error_code", "")),
+            "affected_paths": list(metadata.get("affected_paths", []) or []),
+            "created_at": now(),
+        }
+        self.runtime_reminders.append(reminder)
+        if self.current_task_state is not None:
+            self.current_task_state.runtime_reminders = list(self.runtime_reminders)
 
     def reject_durable_reason(self, note_text):
         text = str(note_text or "").strip()
@@ -1075,6 +1266,9 @@ class RepoHarness:
         task_state.resume_status = self.resume_state.get("status", CHECKPOINT_NONE_STATUS)
         self.current_task_state = task_state
         self.current_run_dir = self.run_store.start_run(task_state)
+        self._run_changed_paths = []
+        self.runtime_reminders = []
+        self.emit_session_event("turn_started", run_id=task_state.run_id, turn_id=task_state.task_id, user_request=clip(user_message, 300))
         self.emit_trace(
             task_state,
             "run_started",
@@ -1107,6 +1301,12 @@ class RepoHarness:
                     "prompt_metadata": prompt_metadata,
                     "duration_ms": int((time.monotonic() - prompt_started_at) * 1000),
                 },
+            )
+            self.emit_session_event(
+                "context_usage_recorded",
+                run_id=task_state.run_id,
+                turn_id=task_state.task_id,
+                context_usage=prompt_metadata.get("context_usage", {}),
             )
             if prompt_metadata.get("resume_status") == CHECKPOINT_PARTIAL_STALE_STATUS:
                 checkpoint = self.create_checkpoint(task_state, user_message, trigger="freshness_mismatch")
@@ -1169,6 +1369,7 @@ class RepoHarness:
                 prompt_cache_key=prompt_cache_key,
                 prompt_cache_retention=prompt_cache_retention,
             )
+            self.emit_session_event("model_requested", run_id=task_state.run_id, turn_id=task_state.task_id, attempts=task_state.attempts)
             completion_metadata = dict(getattr(self.model_client, "last_completion_metadata", {}) or {})
             if completion_metadata:
                 # 把后端返回的 usage/cache 统计并回 prompt_metadata，
@@ -1186,6 +1387,7 @@ class RepoHarness:
                     "duration_ms": int((time.monotonic() - model_started_at) * 1000),
                 },
             )
+            self.emit_session_event("model_parsed", run_id=task_state.run_id, turn_id=task_state.task_id, kind=kind)
 
             if kind == "tool":
                 tool_steps += 1
@@ -1212,8 +1414,17 @@ class RepoHarness:
                         "args": args,
                         "result": clip(result, 500),
                         "duration_ms": int((time.monotonic() - tool_started_at) * 1000),
+                        "artifact_paths": list((self._last_tool_result_metadata or {}).get("affected_paths", [])),
                         **dict(self._last_tool_result_metadata or {}),
                     },
+                )
+                self.emit_session_event(
+                    "tool_executed",
+                    run_id=task_state.run_id,
+                    turn_id=task_state.task_id,
+                    name=name,
+                    status=(self._last_tool_result_metadata or {}).get("tool_status", ""),
+                    artifact_paths=list((self._last_tool_result_metadata or {}).get("affected_paths", [])),
                 )
                 checkpoint = self.create_checkpoint(task_state, user_message, trigger="tool_executed")
                 self.run_store.write_task_state(task_state)
@@ -1233,11 +1444,19 @@ class RepoHarness:
                 continue
 
             final = (payload or raw).strip()
+            if self.runtime_mode == "plan" and not self.plan_mode.artifact_has_content():
+                notice = self.plan_mode.final_block_message()
+                self.emit_trace(task_state, "runtime_notice", {"content": notice, "status": "blocked"})
+                self.record({"role": "assistant", "content": notice, "created_at": now()})
+                continue
             self.record({"role": "assistant", "content": final, "created_at": now()})
             task_state.finish_success(final)
             self.promote_durable_memory(user_message, final)
             self.run_memory_self_iteration()
             checkpoint = self.create_checkpoint(task_state, user_message, trigger="run_finished")
+            if self.runtime_mode == "plan":
+                self.exit_plan_mode()
+            self._finalize_runtime_evidence(task_state)
             self.run_store.write_task_state(task_state)
             self.emit_trace(
                 task_state,
@@ -1269,6 +1488,7 @@ class RepoHarness:
         self.record({"role": "assistant", "content": final, "created_at": now()})
         self.promote_durable_memory(user_message, final)
         self.run_memory_self_iteration()
+        self._finalize_runtime_evidence(task_state)
         self.run_store.write_task_state(task_state)
         checkpoint = self.create_checkpoint(task_state, user_message, trigger=task_state.stop_reason or "run_stopped")
         self.emit_trace(
@@ -1326,6 +1546,7 @@ class RepoHarness:
                 "workspace_changed": False,
                 "diff_summary": [],
             }
+            self._record_runtime_reminder(name, self._last_tool_result_metadata)
             return f"error: unknown tool '{name}'"
         try:
             self.validate_tool(name, args)
@@ -1345,7 +1566,36 @@ class RepoHarness:
                 "workspace_changed": False,
                 "diff_summary": [],
             }
+            self._record_runtime_reminder(name, self._last_tool_result_metadata)
             return message
+        decision = self.permission_checker.check(name, args)
+        self.emit_session_event(
+            "permission_decision",
+            tool=name,
+            decision="allow" if decision.allowed else "deny",
+            reason=decision.reason,
+            security_event_type=decision.security_event_type,
+            profile=decision.profile,
+        )
+        if not decision.allowed:
+            risk_level = "high" if tool["risky"] else "low"
+            self._last_tool_result_metadata = {
+                "tool_status": "rejected",
+                "tool_error_code": decision.reason,
+                "security_event_type": decision.security_event_type,
+                "risk_level": risk_level,
+                "read_only": not tool["risky"],
+                "affected_paths": [],
+                "workspace_changed": False,
+                "diff_summary": [],
+            }
+            self.record_process_note_for_tool(name, self._last_tool_result_metadata)
+            self._record_runtime_reminder(name, self._last_tool_result_metadata)
+            if decision.reason == "approval_denied":
+                return f"error: approval denied for {name}"
+            if decision.reason == "plan_mode_path_mismatch":
+                return f"error: plan mode only allows writing the active plan artifact: {self.active_plan_path}"
+            return f"error: {decision.reason}"
         try:
             self.tool_policy.check(name, args)
         except ToolPolicyRejection as exc:
@@ -1361,6 +1611,7 @@ class RepoHarness:
                 "diff_summary": [],
             }
             self.record_process_note_for_tool(name, self._last_tool_result_metadata)
+            self._record_runtime_reminder(name, self._last_tool_result_metadata)
             return exc.message
         write_scope_error = self._write_scope_error(name, args)
         if write_scope_error:
@@ -1375,6 +1626,7 @@ class RepoHarness:
                 "diff_summary": [],
             }
             self.record_process_note_for_tool(name, self._last_tool_result_metadata)
+            self._record_runtime_reminder(name, self._last_tool_result_metadata)
             return write_scope_error
         if tool["risky"] and not self.approve(name, args):
             self._last_tool_result_metadata = {
@@ -1387,6 +1639,7 @@ class RepoHarness:
                 "workspace_changed": False,
                 "diff_summary": [],
             }
+            self._record_runtime_reminder(name, self._last_tool_result_metadata)
             return f"error: approval denied for {name}"
         before_snapshot = self.capture_workspace_snapshot() if tool["risky"] else {}
         after_snapshot = before_snapshot
@@ -1418,8 +1671,12 @@ class RepoHarness:
                 "workspace_fingerprint": self.workspace.fingerprint(),
                 "diff_summary": diff_summary,
             }
+            if affected_paths:
+                self._run_changed_paths.extend(path for path in affected_paths if path not in self._run_changed_paths)
             self.record_process_note_for_tool(name, self._last_tool_result_metadata)
             self.tool_policy.record_result(name, args, self._last_tool_result_metadata)
+            if tool_status not in {"ok"}:
+                self._record_runtime_reminder(name, self._last_tool_result_metadata)
             return result
         except Exception as exc:
             after_snapshot = self.capture_workspace_snapshot() if tool["risky"] else before_snapshot
@@ -1438,6 +1695,7 @@ class RepoHarness:
                 "diff_summary": diff_summary,
             }
             self.record_process_note_for_tool(name, self._last_tool_result_metadata)
+            self._record_runtime_reminder(name, self._last_tool_result_metadata)
             return f"error: tool {name} failed: {exc}"
 
     def repeated_tool_call(self, name, args):
@@ -1466,6 +1724,14 @@ class RepoHarness:
         allowed_text = ", ".join(str(path.relative_to(self.root)) for path in allowed)
         return f"error: worker write_scope does not allow {name} on {target.relative_to(self.root)}; allowed: {allowed_text}"
 
+    def _finalize_runtime_evidence(self, task_state):
+        graph = runtime_evidence.artifact_graph(self.root, list(getattr(self, "_run_changed_paths", [])))
+        suggestions = runtime_evidence.verifier_suggestions(self.root)
+        task_state.artifact_graph = graph
+        task_state.verifier_suggestions = suggestions
+        task_state.runtime_reminders = list(getattr(self, "runtime_reminders", []))
+        return graph, suggestions
+
     @staticmethod
     def new_task_id():
         return "task_" + datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
@@ -1477,6 +1743,7 @@ class RepoHarness:
     def build_report(self, task_state):
         # report 是一次运行的最终摘要；
         # 和 trace 的区别在于，trace 关注过程，report 关注结果与关键指标。
+        graph, suggestions = self._finalize_runtime_evidence(task_state)
         return {
             "run_id": task_state.run_id,
             "task_id": task_state.task_id,
@@ -1499,6 +1766,9 @@ class RepoHarness:
             "todos": self.todo_ledger.to_dict(),
             "todo_changes": list(getattr(task_state, "todo_changes", []) or self.session.get("todo_changes", [])),
             "workers": self.worker_manager.to_dict(),
+            "artifact_graph": graph,
+            "verifier_suggestions": suggestions,
+            "runtime_reminders": list(task_state.runtime_reminders),
             "redacted_env": self.detected_secret_env_summary(),
         }
 

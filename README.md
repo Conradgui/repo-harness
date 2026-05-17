@@ -1,5 +1,23 @@
 # RepoHarness
 
+## v3 Parity Closeout
+
+RepoHarness now includes the final v3 parity closeout on top of Phase 1 and Phase 2. The closeout adds plan mode, richer slash command parity, a unified permission gate, session event logging, context compaction, full skill metadata, worker send/stop notifications, required sandbox mode, a TUI runtime flow, `/memory organize`, runtime evidence, and a 50-scenario release gate.
+
+New REPL commands:
+
+- `/plan <topic>`, `/plan-exit`, and `/mode` manage read-oriented planning and write the active plan to `.repo-harness/plans/<slug>-plan.md`.
+- `/usage`, `/model [name]`, `/history`, `/context`, `/compact`, and `/working-memory` expose runtime state without changing project config.
+- `/memory organize` organizes candidate facts into the Review Queue only.
+
+Sandbox modes are now `off`, `best_effort`, `read_only`, and `required`. Anthropic-compatible defaults use a larger provider-aware output budget unless explicitly configured.
+
+`/remember`, `/memory organize`, skills, workers, release evidence, and automatic memory self-iteration never write durable topics directly. Durable memory still follows:
+
+```text
+candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+```
+
 ## v3 Compat Phase 2 Workflow And UX
 
 RepoHarness now includes the workflow layer from the v3 compatibility track while keeping the public `repo-harness` CLI, `repo_harness` package, `.repo-harness/` state directory, Phase 1 provider config, and review-controlled durable memory.
@@ -9,7 +27,7 @@ Phase 2 adds:
 - Skills discovery from `skills/<name>/SKILL.md` and `.repo-harness/skills/<name>/SKILL.md`, plus `/skills` and `/skill <name> [args]`.
 - A session-scoped todo ledger with `todo_add`, `todo_update`, and `todo_list`; reports include `todos` and `todo_changes`.
 - Bounded workers through `/agents`, `/subagent explore <task>`, and `/subagent worker --scope <path[,path]> <task>`.
-- Sandbox settings through `.repo-harness.toml`, `--sandbox`, and `--sandbox-backend`; supported modes are `off`, `best_effort`, and `read_only`.
+- Sandbox settings through `.repo-harness.toml`, `--sandbox`, and `--sandbox-backend`; supported modes are `off`, `best_effort`, `read_only`, and `required`.
 - Optional TUI entry through `--tui`, backed by the same runtime as the REPL.
 - A Phase 2 release evidence runner that writes RepoHarness-named scenario evidence.
 

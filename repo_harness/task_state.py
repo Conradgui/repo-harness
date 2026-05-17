@@ -38,6 +38,9 @@ class TaskState:
     checkpoint_id: str = ""
     resume_status: str = ""
     todo_changes: list = field(default_factory=list)
+    artifact_graph: dict = field(default_factory=dict)
+    verifier_suggestions: list = field(default_factory=list)
+    runtime_reminders: list = field(default_factory=list)
 
     @classmethod
     def create(cls, task_id, user_request, run_id=""):
@@ -60,6 +63,9 @@ class TaskState:
             checkpoint_id=str(data.get("checkpoint_id", "")),
             resume_status=str(data.get("resume_status", "")),
             todo_changes=list(data.get("todo_changes", [])),
+            artifact_graph=dict(data.get("artifact_graph", {}) or {}),
+            verifier_suggestions=list(data.get("verifier_suggestions", [])),
+            runtime_reminders=list(data.get("runtime_reminders", [])),
         )
 
     def record_attempt(self):
@@ -110,5 +116,8 @@ class TaskState:
             "checkpoint_id": self.checkpoint_id,
             "resume_status": self.resume_status,
             "todo_changes": list(self.todo_changes),
+            "artifact_graph": dict(self.artifact_graph),
+            "verifier_suggestions": list(self.verifier_suggestions),
+            "runtime_reminders": list(self.runtime_reminders),
         }
 

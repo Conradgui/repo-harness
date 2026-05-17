@@ -58,3 +58,24 @@ def test_sandbox_config_resolves_from_repo_harness_toml(tmp_path):
 
     assert config.sandbox.mode == "best_effort"
     assert config.sandbox.backend == "native"
+
+
+def test_sandbox_required_rejects_when_backend_unavailable(tmp_path):
+    agent = build_agent(tmp_path, SandboxConfig(mode="required", backend="bubblewrap"))
+    agent.sandbox_runner.which = lambda name: None
+
+    result = agent.run_tool("run_shell", {"command": "echo hi", "timeout": 20})
+
+    assert "sandbox required but unavailable" in result
+    assert agent._last_tool_result_metadata["tool_error_code"] == "tool_failed"
+
+
+def test_best_effort_records_degrade_and_runs_without_backend(tmp_path):
+    agent = build_agent(tmp_path, SandboxConfig(mode="best_effort", backend="bubblewrap"))
+    agent.sandbox_runner.which = lambda name: None
+
+    result = agent.run_tool("run_shell", {"command": "echo hi", "timeout": 20})
+
+    assert "exit_code: 0" in result
+    assert "hi" in result
+    assert "sandbox_unavailable" in agent.session_event_bus.path.read_text(encoding="utf-8")

@@ -14,6 +14,24 @@ This file should evolve by dated architecture records. If runtime artifact paths
 
 ## Architecture Records
 
+### 2026-05-18: v3 Parity Closeout
+
+RepoHarness now routes runtime mode changes, permission decisions, context usage, model requests, parsed model results, tool execution, worker notifications, compaction, and skill activity through session events and enriched trace metadata. `RepoHarness.ask()` remains the public API, while the TUI and REPL use the same runtime state and command handlers.
+
+Closeout additions:
+
+- Plan mode stores active plans under `.repo-harness/plans/` and restricts tools until a non-empty plan artifact exists.
+- `/usage`, `/model [name]`, `/history`, `/context`, `/compact`, and `/working-memory` expose runtime state without mutating project configuration.
+- Tool permissions, tool policy, worker scope, plan mode, and sandbox denials share one metadata path.
+- Runtime reports include `prompt_metadata.context_usage`, `artifact_graph`, `verifier_suggestions`, and `runtime_reminders`.
+- `/memory organize` queues Review Queue candidates only.
+
+Durable memory governance remains:
+
+```text
+candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+```
+
 ### 2026-05-17: v3 Compat Phase 2 Workflow And UX
 
 RepoHarness keeps the existing public `RepoHarness` runtime API while extracting small internal seams for model completion and tool execution through `runtime_control.py`. The REPL, optional TUI, worker manager, todo ledger, sandbox runner, and release evidence runner use the same runtime state and report path.

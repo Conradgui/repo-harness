@@ -14,6 +14,23 @@ This file is not a permanent one-shot description. When the package name, CLI co
 
 ## Review Snapshots
 
+### 2026-05-18: v3 Parity Closeout
+
+This snapshot covers the closeout layer: plan mode, slash command parity, unified permission decisions, ask-user prompts, full skill metadata, worker lifecycle notifications, required sandbox mode, TUI runtime flow, review-gated memory organization, runtime evidence, and a 50-scenario release gate.
+
+Review points:
+
+- `/memory organize` and automatic organization only write Review Queue candidates.
+- Plan mode can write only the active `.repo-harness/plans/` artifact.
+- `/model <name>` changes only the current runtime and does not write `.repo-harness.toml`.
+- The release gate reads runtime reports, traces, and session events instead of marking scenarios passed statically.
+
+Durable memory governance remains:
+
+```text
+candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+```
+
 ### 2026-05-17: v3 Compat Phase 2 Workflow And UX
 
 This review snapshot covers the complete Phase 2 workflow layer: skills, todo ledger, bounded workers, sandbox runner, runtime control plane extraction, optional Textual TUI, and release evidence scenario gate.

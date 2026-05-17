@@ -1,5 +1,17 @@
 # RepoHarness Memory System 新窗口交接文档
 
+## v3 Parity Closeout
+
+The closeout is complete when plan mode, slash command parity, unified permissions, ask-user prompts, full skill metadata, worker send/stop notifications, sandbox `required`, TUI runtime flow, `/memory organize`, runtime evidence, and the 50-scenario release gate are implemented, tested, documented, committed, and pushed.
+
+Memory governance is unchanged:
+
+```text
+candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+```
+
+`/memory organize` and automatic memory self-iteration only queue Review Queue candidates; durable topics still require `/memory review` accept/edit.
+
 ## v3 Compat Phase 2 Workflow And UX
 
 Phase 2 is complete when skills, todo ledger, bounded workers, sandbox runner, runtime control plane seams, optional Textual TUI, and release evidence scenario gate are implemented, tested, documented, committed, and pushed on `repo-harness/v3-compat-phase2`.

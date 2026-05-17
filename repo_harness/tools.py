@@ -58,6 +58,26 @@ BASE_TOOL_SPECS = {
         "risky": False,
         "description": "List the session todo ledger.",
     },
+    "ask_user": {
+        "schema": {"question": "str", "choices": "list=[]"},
+        "risky": False,
+        "description": "Ask the user a short question and record the answer.",
+    },
+    "agent": {
+        "schema": {"task": "str", "type": "str='Explore'", "scope": "list=[]"},
+        "risky": False,
+        "description": "Spawn a bounded subagent worker.",
+    },
+    "send_message": {
+        "schema": {"id": "str", "message": "str"},
+        "risky": False,
+        "description": "Send a message to an existing subagent.",
+    },
+    "task_stop": {
+        "schema": {"id": "str"},
+        "risky": False,
+        "description": "Stop a subagent worker.",
+    },
 }
 
 DELEGATE_TOOL_SPEC = {
@@ -77,6 +97,10 @@ TOOL_EXAMPLES = {
     "todo_add": '<tool>{"name":"todo_add","args":{"text":"Run tests","status":"pending"}}</tool>',
     "todo_update": '<tool>{"name":"todo_update","args":{"id":"todo_1","status":"completed"}}</tool>',
     "todo_list": '<tool>{"name":"todo_list","args":{}}</tool>',
+    "ask_user": '<tool>{"name":"ask_user","args":{"question":"Proceed?","choices":["yes","no"]}}</tool>',
+    "agent": '<tool>{"name":"agent","args":{"task":"inspect README","type":"Explore"}}</tool>',
+    "send_message": '<tool>{"name":"send_message","args":{"id":"agent_1","message":"continue"}}</tool>',
+    "task_stop": '<tool>{"name":"task_stop","args":{"id":"agent_1"}}</tool>',
 }
 
 
@@ -183,6 +207,31 @@ def validate_tool(agent, name, args):
         return
 
     if name == "todo_list":
+        return
+
+    if name == "ask_user":
+        if not str(args.get("question", "")).strip():
+            raise ValueError("question must not be empty")
+        choices = args.get("choices", [])
+        if choices is not None and not isinstance(choices, list):
+            raise ValueError("choices must be a list")
+        return
+
+    if name == "agent":
+        if not str(args.get("task", "")).strip():
+            raise ValueError("task must not be empty")
+        return
+
+    if name == "send_message":
+        if not str(args.get("id", "")).strip():
+            raise ValueError("id must not be empty")
+        if not str(args.get("message", "")).strip():
+            raise ValueError("message must not be empty")
+        return
+
+    if name == "task_stop":
+        if not str(args.get("id", "")).strip():
+            raise ValueError("id must not be empty")
         return
 
     if name == "delegate":
@@ -396,6 +445,43 @@ def tool_todo_list(agent, args):
     return agent.todo_ledger.render()
 
 
+def tool_ask_user(agent, args):
+    question = str(args.get("question", "")).strip()
+    choices = [str(item) for item in (args.get("choices") or [])]
+    callback = getattr(agent, "ask_user_callback", None)
+    if callback is not None:
+        answer = callback(question, choices)
+    elif choices:
+        answer = choices[0]
+    else:
+        try:
+            answer = input(question + " ")
+        except EOFError:
+            answer = ""
+    return f"answer: {answer}"
+
+
+def tool_agent(agent, args):
+    scope = args.get("scope") or args.get("write_scope") or []
+    result = agent.spawn_worker(
+        args.get("task", ""),
+        args.get("task", ""),
+        subagent_type=args.get("type", "Explore"),
+        write_scope=scope,
+    )
+    return f"{result['id']} {result['status']}: {result.get('result', '')}"
+
+
+def tool_send_message(agent, args):
+    result = agent.worker_manager.send(args.get("id", ""), args.get("message", ""))
+    return f"{result['id']} {result['status']}: {result.get('result', '')}"
+
+
+def tool_task_stop(agent, args):
+    result = agent.worker_manager.stop(args.get("id", ""))
+    return f"{result['id']} {result['status']}"
+
+
 _TOOL_RUNNERS = {
     "list_files": tool_list_files,
     "read_file": tool_read_file,
@@ -406,5 +492,9 @@ _TOOL_RUNNERS = {
     "todo_add": tool_todo_add,
     "todo_update": tool_todo_update,
     "todo_list": tool_todo_list,
+    "ask_user": tool_ask_user,
+    "agent": tool_agent,
+    "send_message": tool_send_message,
+    "task_stop": tool_task_stop,
 }
 

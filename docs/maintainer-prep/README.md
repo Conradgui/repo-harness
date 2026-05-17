@@ -1,5 +1,17 @@
 # 维护者提交准备
 
+## v3 Parity Closeout
+
+The closeout completes plan mode, slash command parity, unified permissions, ask-user prompts, full skill metadata, worker send/stop notifications, sandbox `required`, TUI runtime flow, `/memory organize`, runtime evidence, and a 50-scenario release gate.
+
+Documentation sync for this closeout covers README, getting-started, architecture overview, review-pack, maintainer README, memory handoff, project study SOP, patch-summary, changelog-draft, and roadmap/status. The memory boundary remains:
+
+```text
+candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+```
+
+`/memory organize` is allowed to prepare candidates, but only `/memory review` can promote durable topics.
+
 ## v3 Compat Phase 2 Workflow And UX
 
 Phase 2 is the workflow and UX release. It completes skills, todo ledger, worker manager, sandbox, runtime control plane layering, optional Textual TUI, and release evidence / scenario gate as one usable release.

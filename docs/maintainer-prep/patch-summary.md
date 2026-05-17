@@ -1,5 +1,21 @@
 # 修复摘要记录
 
+## 2026-05-18: v3 Parity Closeout
+
+This patch closes the remaining v3 parity gaps:
+
+- Added plan mode, `/usage`, `/model [name]`, `/history`, `/context`, `/compact`, and `/working-memory`.
+- Added unified permission decisions, session events, context usage metadata, runtime artifact graph, verifier suggestions, and runtime reminders.
+- Added `ask_user`, full skill frontmatter/substitution, fork skill events, worker send/stop notifications, sandbox `required`, and TUI runtime flow.
+- Added `/memory organize`; it only queues Review Queue candidates.
+- Reworked release evidence into a 50-scenario gate that reads runtime reports, traces, and session events.
+
+Durable memory remains review-controlled:
+
+```text
+candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+```
+
 ## 2026-05-17: v3 Compat Phase 2 Workflow And UX
 
 This patch completes the workflow and UX release on top of Phase 1:

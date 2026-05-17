@@ -115,7 +115,7 @@ class ContextManager:
         if hasattr(self.agent, "render_checkpoint_text"):
             checkpoint_text = str(self.agent.render_checkpoint_text() or "").strip()
         if checkpoint_text:
-            section_texts["prefix"] = section_texts["prefix"] + "\n\n" + checkpoint_text
+            section_texts["prefix"] = checkpoint_text + "\n\n" + section_texts["prefix"]
         selected_notes = []
         selected_explanations = []
         if memory_enabled and relevant_memory_enabled and hasattr(self.agent, "memory"):

@@ -30,6 +30,8 @@ class WorkerManager:
         from .runtime import RepoHarness
 
         subagent_type = "Explore" if str(subagent_type).lower() == "explore" else "worker"
+        if getattr(self.runtime, "runtime_mode", "default") == "plan" and subagent_type != "Explore":
+            raise ValueError("plan mode only allows Explore workers")
         worker_id = f"agent_{int(self.state.get('next_id', 1))}"
         self.state["next_id"] = int(self.state.get("next_id", 1)) + 1
         write_scope = [str(item).strip() for item in (write_scope or []) if str(item).strip()]
@@ -64,25 +66,38 @@ class WorkerManager:
             "result": "",
         }
         self.state.setdefault("items", []).append(item)
+        returned = dict(item)
         try:
             result = child.ask(str(prompt))
-            item["status"] = "completed"
+            item["status"] = "completed" if subagent_type == "Explore" else "running"
             item["result"] = result
+            returned["result"] = result
         except Exception as exc:
             result = f"error: worker failed: {exc}"
             item["status"] = "failed"
             item["result"] = result
+            returned["status"] = "failed"
+            returned["result"] = result
         item["updated_at"] = now()
         self.runtime.session_path = self.runtime.session_store.save(self.runtime.session)
         notification = f"{worker_id} {item['status']}: {item['result']}"
         self._notifications.put(notification)
-        return dict(item)
+        return returned if subagent_type == "worker" and item["status"] == "running" else dict(item)
 
     def send(self, worker_id, message):
         task = self._active.get(str(worker_id))
         if task is None:
             raise ValueError(f"unknown worker: {worker_id}")
-        return task.runtime.ask(str(message))
+        result = task.runtime.ask(str(message))
+        for item in self.state.get("items", []):
+            if item.get("id") == str(worker_id):
+                item["status"] = "completed"
+                item["result"] = result
+                item["updated_at"] = now()
+                self.runtime.session_path = self.runtime.session_store.save(self.runtime.session)
+                self._notifications.put(f"{worker_id} completed: {result}")
+                return dict(item)
+        raise ValueError(f"unknown worker: {worker_id}")
 
     def stop(self, worker_id):
         for item in self.state.get("items", []):
@@ -90,6 +105,7 @@ class WorkerManager:
                 item["status"] = "stopped"
                 item["updated_at"] = now()
                 self.runtime.session_path = self.runtime.session_store.save(self.runtime.session)
+                self._notifications.put(f"{worker_id} stopped")
                 return dict(item)
         raise ValueError(f"unknown worker: {worker_id}")
 
