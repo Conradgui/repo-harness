@@ -2,7 +2,7 @@
 
 ## Summary
 
-RepoHarness v3 compatibility is split into two complete engineering releases. The reference Pico v3 commit is `91a7c17`; the old stable reference tag is `archive-before-repoharness-rename-20260503`.
+RepoHarness v3 compatibility is split into two complete engineering releases. Phase 1 is completed, and Phase 2 is completed as the workflow and UX release. The reference Pico v3 commit is `91a7c17`; the old stable reference tag is `archive-before-repoharness-rename-20260503`.
 
 ## Phase 1: Foundation Release
 
@@ -26,19 +26,17 @@ candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
 
 ## Phase 2: Workflow And UX Release
 
-Phase 2 owns the workflow and UX layer:
+Phase 2 completes the workflow and UX layer:
 
-- Skills.
-- Todo ledger.
-- Worker manager.
-- worker manager.
-- Sandbox.
-- sandbox.
-- Runtime control plane layering.
-- Textual TUI.
-- Release evidence and scenario gate.
+- Skills discovery and `/skills` / `/skill <name> [args]`.
+- Session-scoped todo ledger with prompt and report state.
+- Bounded worker manager with read-only Explore workers and scoped write workers.
+- Sandbox modes `off`, `best_effort`, and `read_only`; sandbox is enforced through the shell runner path.
+- Runtime control plane layering through small internal model/tool execution seams.
+- Textual TUI optional entry that uses the same runtime.
+- Release evidence and scenario gate under RepoHarness-named paths.
 
-These must not appear as Phase 1 skeletons.
+Skills, workers, `/remember`, and release evidence do not write durable topics directly.
 
 ## Boundaries
 

@@ -43,6 +43,21 @@ BASE_TOOL_SPECS = {
         "risky": True,
         "description": "Replace one exact text block in a file.",
     },
+    "todo_add": {
+        "schema": {"text": "str", "status": "str='pending'"},
+        "risky": False,
+        "description": "Add an item to the session todo ledger.",
+    },
+    "todo_update": {
+        "schema": {"id": "str", "text": "str?", "status": "str?"},
+        "risky": False,
+        "description": "Update an item in the session todo ledger.",
+    },
+    "todo_list": {
+        "schema": {},
+        "risky": False,
+        "description": "List the session todo ledger.",
+    },
 }
 
 DELEGATE_TOOL_SPEC = {
@@ -59,6 +74,9 @@ TOOL_EXAMPLES = {
     "write_file": '<tool name="write_file" path="binary_search.py"><content>def binary_search(nums, target):\n    return -1\n</content></tool>',
     "patch_file": '<tool name="patch_file" path="binary_search.py"><old_text>return -1</old_text><new_text>return mid</new_text></tool>',
     "delegate": '<tool>{"name":"delegate","args":{"task":"inspect README.md","max_steps":3}}</tool>',
+    "todo_add": '<tool>{"name":"todo_add","args":{"text":"Run tests","status":"pending"}}</tool>',
+    "todo_update": '<tool>{"name":"todo_update","args":{"id":"todo_1","status":"completed"}}</tool>',
+    "todo_list": '<tool>{"name":"todo_list","args":{}}</tool>',
 }
 
 
@@ -152,6 +170,21 @@ def validate_tool(agent, name, args):
             raise ValueError(f"old_text must occur exactly once, found {count}")
         return
 
+    if name == "todo_add":
+        if not str(args.get("text", "")).strip():
+            raise ValueError("text must not be empty")
+        return
+
+    if name == "todo_update":
+        if not str(args.get("id", "")).strip():
+            raise ValueError("id must not be empty")
+        if "text" not in args and "status" not in args:
+            raise ValueError("text or status is required")
+        return
+
+    if name == "todo_list":
+        return
+
     if name == "delegate":
         task = str(args.get("task", "")).strip()
         if not task:
@@ -225,6 +258,33 @@ def tool_run_shell(agent, args):
     if timeout < 1 or timeout > 120:
         raise ValueError("timeout must be in [1, 120]")
     shell_env = agent.shell_env()
+
+    def platform_runner(command, timeout):
+        result = subprocess.run(
+            command,
+            cwd=agent.root,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=shell_env,
+        )
+        return textwrap.dedent(
+            f"""\
+            exit_code: {result.returncode}
+            stdout:
+            {result.stdout.strip() or "(empty)"}
+            stderr:
+            {result.stderr.strip() or "(empty)"}
+            """
+        ).strip()
+
+    sandbox_runner = getattr(agent, "sandbox_runner", None)
+    if sandbox_runner is not None:
+        sandbox_result = sandbox_runner.run(agent, command, timeout, platform_runner)
+        if sandbox_result is not None:
+            return sandbox_result
+
     bash_path = _preferred_shell_path()
     if bash_path:
         result = subprocess.run(
@@ -321,6 +381,21 @@ def tool_delegate(agent, args):
     return "delegate_result:\n" + child.ask(task)
 
 
+def tool_todo_add(agent, args):
+    item = agent.todo_ledger.add(args.get("text", ""), status=args.get("status", "pending"))
+    return f"added {item['id']}: {item['text']}"
+
+
+def tool_todo_update(agent, args):
+    item = agent.todo_ledger.update(args.get("id", ""), text=args.get("text"), status=args.get("status"))
+    return f"updated {item['id']}: {item['status']} {item['text']}"
+
+
+def tool_todo_list(agent, args):
+    del args
+    return agent.todo_ledger.render()
+
+
 _TOOL_RUNNERS = {
     "list_files": tool_list_files,
     "read_file": tool_read_file,
@@ -328,5 +403,8 @@ _TOOL_RUNNERS = {
     "run_shell": tool_run_shell,
     "write_file": tool_write_file,
     "patch_file": tool_patch_file,
+    "todo_add": tool_todo_add,
+    "todo_update": tool_todo_update,
+    "todo_list": tool_todo_list,
 }
 

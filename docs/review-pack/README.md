@@ -14,6 +14,25 @@ This file is not a permanent one-shot description. When the package name, CLI co
 
 ## Review Snapshots
 
+### 2026-05-17: v3 Compat Phase 2 Workflow And UX
+
+This review snapshot covers the complete Phase 2 workflow layer: skills, todo ledger, bounded workers, sandbox runner, runtime control plane extraction, optional Textual TUI, and release evidence scenario gate.
+
+Review points:
+
+- `/skills` and `/skill <name> [args]` are RepoHarness-named skill entrypoints and do not write durable memory.
+- Todo changes persist in session JSON and appear in prompt/report metadata.
+- Workers inherit Phase 1 provider config, tool policy, secret redaction, and memory governance; write workers are scope-limited.
+- Sandbox failures enter the same tool metadata, trace, and report flow as normal tool failures.
+- The TUI is optional and uses the same runtime, not a separate behavior path.
+- Release evidence uses RepoHarness paths such as `release/v3-compat-phase2/` or `docs/review-pack/phase2/`.
+
+Durable memory governance remains:
+
+```text
+candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+```
+
 ### 2026-05-17: v3 Compat Phase 1 Foundation
 
 This review snapshot covers `.repo-harness.toml`, OpenAI / Anthropic / DeepSeek provider profiles, DeepSeek through the Anthropic-compatible protocol, provider reliability metadata, lightweight tool policy, and `/remember <text>`.

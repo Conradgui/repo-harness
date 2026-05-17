@@ -1,5 +1,24 @@
 # RepoHarness
 
+## v3 Compat Phase 2 Workflow And UX
+
+RepoHarness now includes the workflow layer from the v3 compatibility track while keeping the public `repo-harness` CLI, `repo_harness` package, `.repo-harness/` state directory, Phase 1 provider config, and review-controlled durable memory.
+
+Phase 2 adds:
+
+- Skills discovery from `skills/<name>/SKILL.md` and `.repo-harness/skills/<name>/SKILL.md`, plus `/skills` and `/skill <name> [args]`.
+- A session-scoped todo ledger with `todo_add`, `todo_update`, and `todo_list`; reports include `todos` and `todo_changes`.
+- Bounded workers through `/agents`, `/subagent explore <task>`, and `/subagent worker --scope <path[,path]> <task>`.
+- Sandbox settings through `.repo-harness.toml`, `--sandbox`, and `--sandbox-backend`; supported modes are `off`, `best_effort`, and `read_only`.
+- Optional TUI entry through `--tui`, backed by the same runtime as the REPL.
+- A Phase 2 release evidence runner that writes RepoHarness-named scenario evidence.
+
+Skills, workers, `/remember`, and release scenarios do not write durable topics directly. Durable memory still follows:
+
+```text
+candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+```
+
 ## v3 Compat Phase 1 Foundation
 
 RepoHarness supports `.repo-harness.toml` for project-level defaults. Provider profiles now cover OpenAI, Anthropic, and DeepSeek. DeepSeek is a first-class provider implemented through the Anthropic-compatible protocol.

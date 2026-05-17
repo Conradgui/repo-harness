@@ -4,7 +4,7 @@
 这个对象会被不断写入 task_state.json，供运行中观察和运行后复盘。
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from uuid import uuid4
 
@@ -37,6 +37,7 @@ class TaskState:
     final_answer: str = ""
     checkpoint_id: str = ""
     resume_status: str = ""
+    todo_changes: list = field(default_factory=list)
 
     @classmethod
     def create(cls, task_id, user_request, run_id=""):
@@ -58,6 +59,7 @@ class TaskState:
             final_answer=str(data.get("final_answer", "")),
             checkpoint_id=str(data.get("checkpoint_id", "")),
             resume_status=str(data.get("resume_status", "")),
+            todo_changes=list(data.get("todo_changes", [])),
         )
 
     def record_attempt(self):
@@ -107,5 +109,6 @@ class TaskState:
             "final_answer": self.final_answer,
             "checkpoint_id": self.checkpoint_id,
             "resume_status": self.resume_status,
+            "todo_changes": list(self.todo_changes),
         }
 

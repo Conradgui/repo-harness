@@ -1,5 +1,20 @@
 # 更新日志草案
 
+## 2026-05-17: v3 Compat Phase 2 Workflow And UX
+
+- Added RepoHarness skills discovery with `/skills` and `/skill <name> [args]`.
+- Added session-scoped todo ledger tools and prompt/report state.
+- Added bounded worker manager commands for Explore and scoped write workers.
+- Added sandbox config and CLI controls for `off`, `best_effort`, and `read_only`.
+- Added optional Textual TUI entry and Phase 2 release evidence scenario gate.
+- Durable memory remains governed by:
+
+```text
+candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+```
+
+Skills, workers, `/remember`, and release evidence do not directly write durable topics.
+
 ## 2026-05-17: v3 Compat Phase 1 Foundation
 
 - Added `.repo-harness.toml` configuration with CLI > environment > file > default precedence.

@@ -14,6 +14,25 @@ This file should evolve by dated architecture records. If runtime artifact paths
 
 ## Architecture Records
 
+### 2026-05-17: v3 Compat Phase 2 Workflow And UX
+
+RepoHarness keeps the existing public `RepoHarness` runtime API while extracting small internal seams for model completion and tool execution through `runtime_control.py`. The REPL, optional TUI, worker manager, todo ledger, sandbox runner, and release evidence runner use the same runtime state and report path.
+
+Phase 2 adds:
+
+- Skills discovery from `skills/<name>/SKILL.md` and `.repo-harness/skills/<name>/SKILL.md`; skills only contribute prompt/control text.
+- Session-scoped todos persisted in session JSON and summarized in prompts, trace/report fields, and `todo_changes`.
+- Bounded Explore and scoped write workers that inherit tool policy, provider config, secret redaction, and memory governance.
+- Sandbox modes `off`, `best_effort`, and `read_only` for `run_shell` execution metadata.
+- Optional Textual TUI entry through `--tui`.
+- RepoHarness-named release evidence under caller-selected output paths.
+
+The memory boundary is unchanged:
+
+```text
+candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+```
+
 ### 2026-05-17: v3 Compat Phase 1 Foundation
 
 RepoHarness adds `.repo-harness.toml` configuration, provider profiles for OpenAI, Anthropic, and DeepSeek, and DeepSeek as an Anthropic-compatible provider. Runtime provider metadata records protocol, model, sanitized base URL, attempts, and retry count.

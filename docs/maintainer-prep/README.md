@@ -1,5 +1,17 @@
 # 维护者提交准备
 
+## v3 Compat Phase 2 Workflow And UX
+
+Phase 2 is the workflow and UX release. It completes skills, todo ledger, worker manager, sandbox, runtime control plane layering, optional Textual TUI, and release evidence / scenario gate as one usable release.
+
+Documentation sync covers README, getting-started, architecture overview, review-pack, maintainer README, memory handoff, project study SOP, patch-summary, changelog-draft, and the v3 compat roadmap/status docs. Durable memory governance remains:
+
+```text
+candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+```
+
+Skills, workers, `/remember`, and scenario evidence must never directly write `.repo-harness/memory/topics/*.md`; durable writes remain controlled by `/memory review`.
+
 ## v3 Compat Phase 1 Foundation
 
 Track `repo-harness-v3-compat-roadmap.md` and `repo-harness-v3-compat-status.md` with the same completion gate as README, getting-started, architecture, review-pack, memory handoff, project study SOP, patch-summary, and changelog. Phase 1 documents `.repo-harness.toml`, DeepSeek, `/remember`, and the Review Queue boundary:

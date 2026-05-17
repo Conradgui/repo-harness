@@ -1,5 +1,17 @@
 # RepoHarness Memory System 新窗口交接文档
 
+## v3 Compat Phase 2 Workflow And UX
+
+Phase 2 is complete when skills, todo ledger, bounded workers, sandbox runner, runtime control plane seams, optional Textual TUI, and release evidence scenario gate are implemented, tested, documented, committed, and pushed on `repo-harness/v3-compat-phase2`.
+
+Memory governance is unchanged:
+
+```text
+candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+```
+
+Skills and workers may help produce controlled prompt text or runtime artifacts, but they must not bypass Review Queue promotion or directly write durable topics.
+
 ## v3 Compat Phase 1 Foundation
 
 The current foundation release adds `.repo-harness.toml`, provider profiles for OpenAI / Anthropic / DeepSeek, DeepSeek through the Anthropic-compatible protocol, tool policy, and `/remember <text>`.

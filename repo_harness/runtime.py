@@ -17,10 +17,15 @@ from pathlib import Path
 
 from . import memory as memorylib
 from .context_manager import ContextManager
+from .runtime_control import RuntimeControlPlane
 from .run_store import RunStore
+from .sandbox import SandboxConfig, SandboxRunner
+from . import skills as skillslib
 from .task_state import TaskState
+from .todo_ledger import TodoLedger
 from . import tools as toolkit
 from .tool_policy import ToolPolicy, ToolPolicyRejection
+from .worker_manager import WorkerManager
 from .workspace import IGNORED_PATH_NAMES, MAX_HISTORY, WorkspaceContext, clip, now
 
 SENSITIVE_ENV_NAME_MARKERS = ("API_KEY", "TOKEN", "SECRET", "PASSWORD")
@@ -103,6 +108,8 @@ class RepoHarness:
         shell_env_allowlist=None,
         secret_env_names=None,
         feature_flags=None,
+        sandbox_config=None,
+        write_scope=None,
     ):
         self.model_client = model_client
         self.workspace = workspace
@@ -114,12 +121,15 @@ class RepoHarness:
         self.depth = depth
         self.max_depth = max_depth
         self.read_only = read_only
+        self.write_scope = tuple(str(path).strip() for path in (write_scope or ()) if str(path).strip())
         self.shell_env_allowlist = tuple(shell_env_allowlist or DEFAULT_SHELL_ENV_ALLOWLIST)
         self.secret_env_names = {str(name).upper() for name in (secret_env_names or ())}
         self.feature_flags = dict(DEFAULT_FEATURE_FLAGS)
         if feature_flags:
             self.feature_flags.update({str(key): bool(value) for key, value in feature_flags.items()})
         self.run_store = run_store or RunStore(Path(workspace.repo_root) / ".repo-harness" / "runs")
+        self.sandbox_config = sandbox_config or SandboxConfig()
+        self.sandbox_runner = SandboxRunner(self.sandbox_config)
         self.session = session or {
             "id": datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6],
             "created_at": now(),
@@ -133,8 +143,12 @@ class RepoHarness:
             workspace_root=self.root,
         )
         self.session["memory"] = self.memory.to_dict()
+        self.todo_ledger = TodoLedger(self)
+        self.worker_manager = WorkerManager(self)
+        self.skills = skillslib.discover_skills(self.root, user_home=self._safe_user_home())
         self.tools = self.build_tools()
         self.tool_policy = ToolPolicy(self)
+        self.control_plane = RuntimeControlPlane(self)
         self.prefix_state = self.build_prefix()
         self.prefix = self.prefix_state.text
         self.context_manager = ContextManager(self)
@@ -344,6 +358,7 @@ class RepoHarness:
                 "<final>Done.</final>",
             ]
         )
+        skills_text = skillslib.render_skills_list(self.skills)
         # prefix 可以理解成 agent 的“工作手册”：
         # 它是谁、工具怎么调用、当前仓库是什么状态，都写在这里。
         text = textwrap.dedent(
@@ -370,6 +385,8 @@ class RepoHarness:
 
             Tools:
             {tool_text}
+
+            {skills_text}
 
             Valid response examples:
             {examples}
@@ -413,7 +430,9 @@ class RepoHarness:
         return dict(self._last_prefix_refresh)
 
     def memory_text(self):
-        return self.memory.render_memory_text()
+        base = self.memory.render_memory_text()
+        todo_text = self.todo_ledger.render_prompt()
+        return base if not todo_text else base + "\n\n" + todo_text
 
     def _persist_memory(self):
         self.session["memory"] = self.memory.to_dict()
@@ -476,6 +495,30 @@ class RepoHarness:
     def memory_review_skip(self, record_id):
         record = self.memory.skip_durable_review(record_id)
         return self._memory_review_result("pending", record)
+
+    def render_skills(self):
+        return skillslib.render_skills_list(self.skills)
+
+    def invoke_skill(self, name, arguments=""):
+        return skillslib.invoke_skill(self.skills, name, arguments)
+
+    @staticmethod
+    def _safe_user_home():
+        try:
+            return Path.home()
+        except RuntimeError:
+            return None
+
+    def spawn_worker(self, description, prompt, subagent_type="worker", write_scope=None):
+        return self.worker_manager.spawn(description, prompt, subagent_type=subagent_type, write_scope=write_scope)
+
+    def render_workers(self):
+        items = self.worker_manager.to_dict().get("items", [])
+        if not items:
+            return "Agents:\n- none"
+        return "\n".join(
+            ["Agents:", *[f"- {item['id']} [{item['status']}] {item['description']}" for item in items]]
+        )
 
     def remember_candidate(self, text):
         original_text = str(text or "").strip()
@@ -1121,9 +1164,8 @@ class RepoHarness:
                 prompt_cache_key = prompt_metadata.get("prompt_cache_key")
                 prompt_cache_retention = "in_memory"
             model_started_at = time.monotonic()
-            raw = self.model_client.complete(
+            raw = self.control_plane.complete_model(
                 prompt,
-                self.max_new_tokens,
                 prompt_cache_key=prompt_cache_key,
                 prompt_cache_retention=prompt_cache_retention,
             )
@@ -1151,7 +1193,7 @@ class RepoHarness:
                 args = payload.get("args", {})
                 task_state.record_tool(name)
                 tool_started_at = time.monotonic()
-                result = self.run_tool(name, args)
+                result = self.control_plane.execute_tool(name, args)
                 self.record(
                     {
                         "role": "tool",
@@ -1320,6 +1362,20 @@ class RepoHarness:
             }
             self.record_process_note_for_tool(name, self._last_tool_result_metadata)
             return exc.message
+        write_scope_error = self._write_scope_error(name, args)
+        if write_scope_error:
+            self._last_tool_result_metadata = {
+                "tool_status": "rejected",
+                "tool_error_code": "worker_write_scope",
+                "security_event_type": "worker_write_scope",
+                "risk_level": "high",
+                "read_only": False,
+                "affected_paths": [],
+                "workspace_changed": False,
+                "diff_summary": [],
+            }
+            self.record_process_note_for_tool(name, self._last_tool_result_metadata)
+            return write_scope_error
         if tool["risky"] and not self.approve(name, args):
             self._last_tool_result_metadata = {
                 "tool_status": "rejected",
@@ -1393,6 +1449,23 @@ class RepoHarness:
         recent = tool_events[-2:]
         return all(item["name"] == name and item["args"] == args for item in recent)
 
+    def _write_scope_error(self, name, args):
+        if not self.write_scope or name not in {"write_file", "patch_file"}:
+            return ""
+        target = self.path(args.get("path", ""))
+        allowed = []
+        for item in self.write_scope:
+            scope_path = self.path(item)
+            allowed.append(scope_path)
+            try:
+                target.relative_to(scope_path if scope_path.is_dir() else scope_path.parent)
+            except ValueError:
+                continue
+            if scope_path.is_dir() or target == scope_path or scope_path.name == target.name:
+                return ""
+        allowed_text = ", ".join(str(path.relative_to(self.root)) for path in allowed)
+        return f"error: worker write_scope does not allow {name} on {target.relative_to(self.root)}; allowed: {allowed_text}"
+
     @staticmethod
     def new_task_id():
         return "task_" + datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
@@ -1423,6 +1496,9 @@ class RepoHarness:
             "episodic_compactions": list(self.last_episodic_compactions),
             "self_iteration_review_queued": list(self.last_self_iteration_review_queued),
             "self_iteration_rejections": list(self.last_self_iteration_rejections),
+            "todos": self.todo_ledger.to_dict(),
+            "todo_changes": list(getattr(task_state, "todo_changes", []) or self.session.get("todo_changes", [])),
+            "workers": self.worker_manager.to_dict(),
             "redacted_env": self.detected_secret_env_summary(),
         }
 
@@ -1456,6 +1532,15 @@ class RepoHarness:
 
     def tool_delegate(self, args):
         return toolkit.tool_delegate(self, args)
+
+    def tool_todo_add(self, args):
+        return toolkit.tool_todo_add(self, args)
+
+    def tool_todo_update(self, args):
+        return toolkit.tool_todo_update(self, args)
+
+    def tool_todo_list(self, args):
+        return toolkit.tool_todo_list(self, args)
 
     def approve(self, name, args):
         if self.read_only:

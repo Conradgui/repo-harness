@@ -1,5 +1,22 @@
 # 项目学习 SOP
 
+## v3 Compat Phase 2 Workflow And UX Study Note
+
+When studying current RepoHarness, include these Phase 2 workflow modules after the Phase 1 provider/config/memory pass:
+
+- `repo_harness/runtime_control.py` for model/tool execution seams.
+- `repo_harness/skills.py` and REPL `/skills` / `/skill`.
+- `repo_harness/todo_ledger.py` and todo report fields.
+- `repo_harness/worker_manager.py` and worker write-scope enforcement.
+- `repo_harness/sandbox.py` plus `.repo-harness.toml` sandbox config.
+- `repo_harness/tui.py` and `repo_harness/release_evidence.py`.
+
+The durable memory invariant remains:
+
+```text
+candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+```
+
 ## v3 Compat Phase 1 Foundation Study Note
 
 When studying current RepoHarness, include `.repo-harness.toml`, DeepSeek provider resolution, provider reliability metadata, tool policy, `/remember`, and the v3 compat roadmap/status docs.

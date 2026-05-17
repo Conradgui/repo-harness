@@ -4,6 +4,8 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 
+from .sandbox import SandboxConfig
+
 try:
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover - exercised on Python 3.10
@@ -85,6 +87,7 @@ class RepoHarnessConfig:
     provider_profile: ProviderProfile
     max_steps: int
     max_new_tokens: int
+    sandbox: SandboxConfig = SandboxConfig()
     config_path: str = ""
 
 
@@ -189,6 +192,23 @@ def _resolve_max_new_tokens(args, data, provider):
     return DEFAULT_MAX_NEW_TOKENS.get(provider, 512)
 
 
+def _resolve_sandbox(args, data):
+    sandbox_data = data.get("sandbox", {})
+    if not isinstance(sandbox_data, dict):
+        sandbox_data = {}
+    mode = sandbox_data.get("mode", "off")
+    backend = sandbox_data.get("backend", "native")
+    if os.environ.get("REPO_HARNESS_SANDBOX"):
+        mode = os.environ["REPO_HARNESS_SANDBOX"]
+    if os.environ.get("REPO_HARNESS_SANDBOX_BACKEND"):
+        backend = os.environ["REPO_HARNESS_SANDBOX_BACKEND"]
+    if getattr(args, "sandbox", None):
+        mode = getattr(args, "sandbox")
+    if getattr(args, "sandbox_backend", None):
+        backend = getattr(args, "sandbox_backend")
+    return SandboxConfig(mode=str(mode).strip(), backend=str(backend).strip())
+
+
 def resolve_runtime_config(args, workspace):
     data, config_path = _load_toml(_workspace_config_path(args, workspace))
     provider = _provider_from_sources(args, data)
@@ -198,5 +218,6 @@ def resolve_runtime_config(args, workspace):
         provider_profile=profile,
         max_steps=_resolve_max_steps(args, data),
         max_new_tokens=_resolve_max_new_tokens(args, data, provider),
+        sandbox=_resolve_sandbox(args, data),
         config_path=config_path,
     )

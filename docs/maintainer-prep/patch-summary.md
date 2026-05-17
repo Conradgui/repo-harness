@@ -1,5 +1,25 @@
 # 修复摘要记录
 
+## 2026-05-17: v3 Compat Phase 2 Workflow And UX
+
+This patch completes the workflow and UX release on top of Phase 1:
+
+- Added skills discovery and REPL commands `/skills` and `/skill <name> [args]`.
+- Added session-scoped todo ledger tools and report fields.
+- Added bounded worker manager with read-only Explore workers and scoped write workers.
+- Added sandbox config and `run_shell` sandbox runner modes `off`, `best_effort`, and `read_only`.
+- Added small runtime control plane seams for model completion and tool execution.
+- Added optional Textual TUI smoke entry and release evidence scenario gate.
+- Updated docs and tests to preserve RepoHarness naming, provider config, tool policy, and memory governance.
+
+Durable memory remains review-controlled:
+
+```text
+candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+```
+
+Skills, workers, `/remember`, and release evidence do not directly write durable topics.
+
 ## 2026-05-17: v3 Compat Phase 1 Foundation
 
 This patch adds `.repo-harness.toml`, OpenAI / Anthropic / DeepSeek provider profiles, DeepSeek through the Anthropic-compatible protocol, provider reliability metadata, lightweight tool policy, and `/remember <text>`.

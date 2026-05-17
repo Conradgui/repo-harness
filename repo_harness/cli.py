@@ -61,6 +61,11 @@ HELP_DETAILS = textwrap.dedent(
     /memory self_iteration  Show the latest memory self-iteration status.
     /memory_explain <query>  Explain which memory notes match a query.
     /remember <text>  Queue a durable memory candidate for /memory review.
+    /skills  List available skills.
+    /skill <name> [args] Run a skill.
+    /agents  Show subagent worker status.
+    /subagent explore <task>  Run a read-only worker.
+    /subagent worker --scope <path[,path]> <task>  Run a scoped write worker.
     /memory_pack  Export, import, inspect, or validate memory packs.
     /session Show the path to the saved session file.
     /reset   Clear the current session history and memory.
@@ -430,6 +435,27 @@ def run_remember(agent, text):
     record = result.get("record") if isinstance(result.get("record"), dict) else {}
     print(f"remember: queued durable memory candidate for review: {_review_record_label(record)}")
     print("run /memory review to accept, edit, reject, or skip")
+
+
+def run_subagent(agent, text):
+    parts = text.split()
+    if not parts or parts[0] not in {"explore", "worker"}:
+        print("usage: /subagent explore <task> or /subagent worker --scope <path[,path]> <task>")
+        return
+    mode = parts.pop(0)
+    write_scope = []
+    if mode == "worker":
+        if len(parts) < 3 or parts[0] != "--scope":
+            print("usage: /subagent worker --scope <path[,path]> <task>")
+            return
+        write_scope = [item.strip() for item in parts[1].split(",") if item.strip()]
+        parts = parts[2:]
+    task = " ".join(parts).strip()
+    if not task:
+        print("usage: /subagent explore <task> or /subagent worker --scope <path[,path]> <task>")
+        return
+    result = agent.spawn_worker(task, task, subagent_type="Explore" if mode == "explore" else "worker", write_scope=write_scope)
+    print(f"{result['id']} {result['status']}: {result.get('result', '')}")
 
 
 def _resolve_export_modules(api, preset, requested_modules):
@@ -861,6 +887,7 @@ def build_agent(args):
             max_steps=runtime_config.max_steps,
             max_new_tokens=runtime_config.max_new_tokens,
             secret_env_names=configured_secret_names,
+            sandbox_config=runtime_config.sandbox,
         )
     return RepoHarness(
         model_client=model,
@@ -870,6 +897,7 @@ def build_agent(args):
         max_steps=runtime_config.max_steps,
         max_new_tokens=runtime_config.max_new_tokens,
         secret_env_names=configured_secret_names,
+        sandbox_config=runtime_config.sandbox,
     )
 
 
@@ -911,6 +939,10 @@ def build_arg_parser():
     )
     parser.add_argument("--ollama-timeout", type=int, default=300, help="Ollama request timeout in seconds.")
     parser.add_argument("--openai-timeout", type=int, default=300, help="OpenAI-compatible request timeout in seconds.")
+    parser.add_argument("--sandbox", choices=("off", "best_effort", "read_only"), default=None, help="Sandbox mode for run_shell.")
+    parser.add_argument("--sandbox-backend", default=None, help="Sandbox backend name.")
+    parser.add_argument("--tui", action="store_true", help="Start the RepoHarness terminal UI.")
+    parser.add_argument("--repl", action="store_true", help="Use the plain line-oriented REPL.")
     parser.add_argument("--resume", default=None, help="Session id to resume or 'latest'.")
     parser.add_argument("--approval", choices=("ask", "auto", "never"), default="ask", help="Approval policy for risky tools.")
     parser.add_argument(
@@ -951,6 +983,12 @@ def main(argv=None):
     host = getattr(agent.model_client, "host", getattr(agent.model_client, "base_url", getattr(args, "host", DEFAULT_OLLAMA_HOST)))
     print(build_welcome(agent, model=model, host=host))
 
+    if args.tui and not args.repl and not args.prompt:
+        from .tui import run_tui
+
+        run_tui(agent)
+        return 0
+
     if args.prompt:
         # one-shot 模式：只跑一次 ask，不进入 REPL 循环。
         prompt = " ".join(args.prompt).strip()
@@ -978,6 +1016,23 @@ def main(argv=None):
             return 0
         if user_input == "/help":
             print(HELP_DETAILS)
+            continue
+        if user_input == "/skills":
+            print(agent.render_skills())
+            continue
+        if user_input.startswith("/skill"):
+            body = user_input[len("/skill"):].strip()
+            if not body:
+                print("usage: /skill <name> [args]")
+                continue
+            name, _, arguments = body.partition(" ")
+            print(agent.invoke_skill(name, arguments))
+            continue
+        if user_input == "/agents":
+            print(agent.render_workers())
+            continue
+        if user_input.startswith("/subagent"):
+            run_subagent(agent, user_input[len("/subagent"):].strip())
             continue
         if user_input in {"/memory_pack", "/memory-pack"}:
             run_memory_pack_menu(agent.workspace.cwd)

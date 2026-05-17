@@ -2692,6 +2692,51 @@ def test_v3_compat_phase1_docs_cover_foundation_boundaries():
         assert "sandbox" in docs[name]
 
 
+def test_v3_compat_phase2_docs_cover_workflow_release_boundaries():
+    docs = {
+        "readme": Path("README.md").read_text(encoding="utf-8"),
+        "guide": Path("docs/getting-started.md").read_text(encoding="utf-8"),
+        "architecture": Path("docs/architecture/agent-harness-v1-overview.md").read_text(encoding="utf-8"),
+        "review_pack": Path("docs/review-pack/README.md").read_text(encoding="utf-8"),
+        "maintainer": Path("docs/maintainer-prep/README.md").read_text(encoding="utf-8"),
+        "handoff": Path("docs/maintainer-prep/memory-system-new-window-handoff.md").read_text(encoding="utf-8"),
+        "study_sop": Path("docs/maintainer-prep/project-study-sop.md").read_text(encoding="utf-8"),
+        "patch_summary": Path("docs/maintainer-prep/patch-summary.md").read_text(encoding="utf-8"),
+        "changelog": Path("docs/maintainer-prep/changelog-draft.md").read_text(encoding="utf-8"),
+        "roadmap": Path("docs/maintainer-prep/repo-harness-v3-compat-roadmap.md").read_text(encoding="utf-8"),
+        "status": Path("docs/maintainer-prep/repo-harness-v3-compat-status.md").read_text(encoding="utf-8"),
+    }
+    combined = "\n".join(docs.values())
+
+    for required in [
+        "Phase 2 Workflow And UX",
+        "/skills",
+        "/skill <name> [args]",
+        "todo ledger",
+        "worker manager",
+        "sandbox",
+        "Textual TUI",
+        "release evidence",
+        "candidate fact -> Review Queue -> /memory review accept/edit -> durable topics",
+        "repo-harness/v3-compat-phase2",
+    ]:
+        assert required in combined
+
+    removed_name = "pi" + "co"
+    forbidden_public_markers = [
+        "." + removed_name + "/",
+        "." + removed_name + ".toml",
+        removed_name + " CLI",
+        "old screenshots",
+    ]
+    for name, text in docs.items():
+        if name in {"roadmap", "status"}:
+            continue
+        lowered = text.lower()
+        for marker in forbidden_public_markers:
+            assert marker not in lowered
+
+
 def test_explainable_retrieval_docs_cover_repl_command_and_metadata():
     readme_text = Path("README.md").read_text(encoding="utf-8")
     guide_text = Path("docs/getting-started.md").read_text(encoding="utf-8")

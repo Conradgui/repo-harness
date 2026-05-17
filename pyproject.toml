@@ -15,6 +15,11 @@ dependencies = [
 [project.scripts]
 repo-harness = "repo_harness.cli:main"
 
+[project.optional-dependencies]
+tui = [
+  "textual>=0.80",
+]
+
 [dependency-groups]
 dev = [
   "pytest>=8.3.5",

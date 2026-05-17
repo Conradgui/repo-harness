@@ -1,5 +1,22 @@
 ﻿# RepoHarness 新手指南
 
+## v3 Compat Phase 2 Workflow And UX
+
+Phase 2 adds workflow commands on top of the Phase 1 foundation:
+
+- `/skills` lists discovered project and local RepoHarness skills.
+- `/skill <name> [args]` injects a selected skill into the current interaction as controlled prompt text.
+- `todo_add`, `todo_update`, and `todo_list` keep session-scoped work status in the prompt and report.
+- `/agents`, `/subagent explore <task>`, and `/subagent worker --scope <path[,path]> <task>` run bounded worker tasks.
+- `--sandbox read_only`, `--sandbox best_effort`, and `[sandbox]` in `.repo-harness.toml` control shell execution.
+- `--tui` opens the optional Textual TUI; `--repl` keeps the standard REPL path.
+
+These workflow features inherit provider config, secret redaction, tool policy, and memory governance. They can create candidates or runtime artifacts, but they do not bypass:
+
+```text
+candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+```
+
 ## v3 Compat Phase 1 Foundation
 
 RepoHarness can be configured with `.repo-harness.toml`. The Phase 1 foundation release supports OpenAI, Anthropic, and DeepSeek provider profiles. DeepSeek uses the Anthropic-compatible protocol.
