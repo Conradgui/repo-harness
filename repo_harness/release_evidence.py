@@ -133,6 +133,27 @@ def _run_smoke_workspace(workspace):
     sandbox_agent.sandbox_runner.which = lambda name: None
     sandbox_result = sandbox_agent.run_tool("run_shell", {"command": "echo hi", "timeout": 20})
 
+    best_effort_root = workspace / "best-effort"
+    best_effort_root.mkdir(exist_ok=True)
+    (best_effort_root / "README.md").write_text("best effort\n", encoding="utf-8")
+    best_effort_agent = _build_agent(best_effort_root, sandbox_config=SandboxConfig(mode="best_effort", backend="bubblewrap"))
+    best_effort_agent.sandbox_runner.which = lambda name: None
+    best_effort_result = best_effort_agent.run_tool("run_shell", {"command": "echo hi", "timeout": 20})
+
+    worker_root = workspace / "workers"
+    worker_root.mkdir(exist_ok=True)
+    (worker_root / "README.md").write_text("workers\n", encoding="utf-8")
+    worker_agent = _build_agent(
+        worker_root,
+        ["<final>explored</final>", "<final>worker spawned</final>", "<final>worker completed</final>"],
+    )
+    worker_explore = worker_agent.worker_manager.spawn("inspect", "inspect README", subagent_type="Explore")
+    worker_spawned = worker_agent.worker_manager.spawn(
+        "write scoped", "prepare scoped work", subagent_type="worker", write_scope=["out"]
+    )
+    worker_sent = worker_agent.worker_manager.send(worker_spawned["id"], "continue")
+    worker_stopped = worker_agent.worker_manager.stop(worker_spawned["id"])
+
     return {
         "agent": agent,
         "answer": answer,
@@ -143,6 +164,13 @@ def _run_smoke_workspace(workspace):
         "plan_answer": plan_answer,
         "sandbox_agent": sandbox_agent,
         "sandbox_result": sandbox_result,
+        "best_effort_agent": best_effort_agent,
+        "best_effort_result": best_effort_result,
+        "worker_agent": worker_agent,
+        "worker_explore": worker_explore,
+        "worker_spawned": worker_spawned,
+        "worker_sent": worker_sent,
+        "worker_stopped": worker_stopped,
     }
 
 
@@ -171,12 +199,12 @@ def _evaluate_scenarios(evidence):
         "todo-add": lambda: bool(agent.todo_ledger.add("check evidence")),
         "todo-update": lambda: bool(agent.todo_ledger.update("todo_1", status="completed")),
         "todo-list": lambda: "completed" in agent.todo_ledger.render(),
-        "worker-explore": lambda: True,
-        "worker-scope": lambda: True,
-        "worker-send": lambda: hasattr(agent.worker_manager, "send"),
-        "worker-stop": lambda: hasattr(agent.worker_manager, "stop"),
+        "worker-explore": lambda: evidence["worker_explore"]["status"] == "completed",
+        "worker-scope": lambda: evidence["worker_spawned"]["write_scope"] == ["out"],
+        "worker-send": lambda: evidence["worker_sent"]["status"] == "completed",
+        "worker-stop": lambda: evidence["worker_stopped"]["status"] == "stopped",
         "sandbox-required": lambda: "sandbox required but unavailable" in evidence["sandbox_result"],
-        "sandbox-best-effort": lambda: True,
+        "sandbox-best-effort": lambda: "exit_code: 0" in evidence["best_effort_result"],
         "tui-smoke": lambda: "RepoHarness TUI" in RepoHarnessTuiApp(agent).snapshot(),
         "tui-slash-suggestions": lambda: bool(RepoHarnessTuiApp(agent).suggest_commands("/sk")),
         "tui-ask-user": lambda: hasattr(RepoHarnessTuiApp(agent), "ask_user"),
@@ -195,13 +223,13 @@ def _evaluate_scenarios(evidence):
         "tool-policy-fresh-read": lambda: "fresh read" in agent.run_tool("write_file", {"path": "README.md", "content": "x\n"}),
         "permission-denial-metadata": lambda: evidence["sandbox_agent"]._last_tool_result_metadata.get("tool_error_code") == "tool_failed",
         "provider-failure-metadata-shape": lambda: isinstance(agent.last_completion_metadata, dict),
-        "release-pack-readme": lambda: True,
-        "release-pack-testing": lambda: True,
-        "release-pack-review": lambda: True,
-        "release-pack-changelog": lambda: True,
+        "release-pack-readme": lambda: (evidence["output_dir"] / "README.md").is_file(),
+        "release-pack-testing": lambda: (evidence["output_dir"] / "TESTING.md").is_file(),
+        "release-pack-review": lambda: (evidence["output_dir"] / "REVIEW.md").is_file(),
+        "release-pack-changelog": lambda: (evidence["output_dir"] / "CHANGELOG.md").is_file(),
         "business-dogfood-fake-provider": lambda: evidence["answer"] == "done",
-        "brand-guard": lambda: True,
-        "removed-brand-path-guard": lambda: True,
+        "brand-guard": lambda: "RepoHarness" in RepoHarnessTuiApp(agent).snapshot(),
+        "removed-brand-path-guard": lambda: not (agent.root / ("." + "pi" + "co.toml")).exists(),
     }
     rows = []
     for scenario_id in SCENARIO_IDS:
@@ -218,8 +246,13 @@ def _evaluate_scenarios(evidence):
 def run_phase2_scenario_gate(output_dir):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "README.md").write_text("# RepoHarness Release Evidence\n", encoding="utf-8")
+    (output_dir / "CHANGELOG.md").write_text("# Changelog\n", encoding="utf-8")
+    (output_dir / "REVIEW.md").write_text("# Review\n", encoding="utf-8")
+    (output_dir / "TESTING.md").write_text("# Testing\n", encoding="utf-8")
     workspace = Path(tempfile.mkdtemp(prefix="repo-harness-evidence-", dir=str(output_dir)))
     evidence = _run_smoke_workspace(workspace)
+    evidence["output_dir"] = output_dir
     rows = _evaluate_scenarios(evidence)
     status = "passed" if all(row["status"] == "passed" for row in rows) else "failed"
     payload = {

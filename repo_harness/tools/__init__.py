@@ -10,7 +10,7 @@ import subprocess
 import textwrap
 from functools import partial
 
-from .workspace import IGNORED_PATH_NAMES, clip
+from ..workspace import IGNORED_PATH_NAMES, clip
 
 BASE_TOOL_SPECS = {
     "list_files": {
@@ -407,7 +407,7 @@ def tool_delegate(agent, args):
     if not task:
         raise ValueError("task must not be empty")
 
-    from .runtime import RepoHarness
+    from ..runtime import RepoHarness
 
     child = RepoHarness(
         model_client=agent.model_client,

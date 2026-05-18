@@ -62,5 +62,11 @@ class PlanModeManager:
         relative = str(self.state.get("active_plan_path", "")).strip()
         return f"Plan mode requires a non-empty plan artifact before final answer: {relative}"
 
+    def can_finish(self):
+        return self.artifact_has_content()
+
+    def final_notice(self):
+        return self.final_block_message()
+
     def active_path(self):
         return str(self.state.get("active_plan_path", "")).strip()

@@ -196,6 +196,9 @@ def _resolve_sandbox(args, data):
     sandbox_data = data.get("sandbox", {})
     if not isinstance(sandbox_data, dict):
         sandbox_data = {}
+    filesystem = sandbox_data.get("filesystem", {})
+    if not isinstance(filesystem, dict):
+        filesystem = {}
     mode = sandbox_data.get("mode", "off")
     backend = sandbox_data.get("backend", "native")
     if os.environ.get("REPO_HARNESS_SANDBOX"):
@@ -206,7 +209,15 @@ def _resolve_sandbox(args, data):
         mode = getattr(args, "sandbox")
     if getattr(args, "sandbox_backend", None):
         backend = getattr(args, "sandbox_backend")
-    return SandboxConfig(mode=str(mode).strip(), backend=str(backend).strip())
+    return SandboxConfig(
+        mode=str(mode).strip(),
+        backend=str(backend).strip(),
+        workspace_write=bool(sandbox_data.get("workspace_write", True)),
+        excluded_commands=tuple(str(item) for item in sandbox_data.get("excluded_commands", []) or []),
+        extra_readonly_paths=tuple(str(item) for item in filesystem.get("extra_readonly_paths", []) or []),
+        deny_read=tuple(str(item) for item in filesystem.get("deny_read", []) or []),
+        deny_write=tuple(str(item) for item in filesystem.get("deny_write", []) or []),
+    )
 
 
 def resolve_runtime_config(args, workspace):

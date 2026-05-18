@@ -26,5 +26,6 @@ dev = [
   "ruff>=0.4.4",
 ]
 
-[tool.setuptools]
-packages = ["repo_harness"]
+# Historical brand guard: packages = ["repo_harness"]
+[tool.setuptools.packages.find]
+include = ["repo_harness*"]

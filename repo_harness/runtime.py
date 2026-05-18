@@ -17,14 +17,14 @@ from pathlib import Path
 
 from . import memory as memorylib
 from .context_manager import ContextManager
-from .engine import Engine
+from .core.engine import Engine
+from .core.session_events import SessionEventBus
 from .permissions import PermissionChecker
 from .plan_mode import PlanModeManager
 from . import runtime_evidence
 from .runtime_control import RuntimeControlPlane
 from .run_store import RunStore
 from .sandbox import SandboxConfig, SandboxRunner
-from .session_events import SessionEventBus
 from . import skills as skillslib
 from .task_state import TaskState
 from .todo_ledger import TodoLedger
@@ -145,7 +145,11 @@ class RepoHarness:
             "memory": memorylib.default_memory_state(),
         }
         self._ensure_session_shape()
-        self.session_event_bus = SessionEventBus(self.session_store.root, self.session["id"])
+        self.session_event_bus = SessionEventBus(
+            self.session["id"],
+            self.session_store.root / f"{self.session['id']}.events.jsonl",
+            redact=self.redact_artifact,
+        )
         self.tool_profile = str(self.session.get("runtime_mode", {}).get("mode", "default") or "default")
         self.memory = memorylib.LayeredMemory(
             self.session.setdefault("memory", memorylib.default_memory_state()),
@@ -167,7 +171,10 @@ class RepoHarness:
         self.resume_state = self.evaluate_resume_state()
         self.session_path = self.session_store.save(self.session)
         self.current_task_state = None
+        self.current_run_id = ""
+        self.current_turn_id = ""
         self.current_run_dir = None
+        self.abort_requested = False
         self.last_prompt_metadata = {}
         self.last_completion_metadata = {}
         self.last_durable_promotions = []
@@ -231,7 +238,7 @@ class RepoHarness:
         bus = getattr(self, "session_event_bus", None)
         if bus is None:
             return {}
-        return bus.emit(event, **self.redact_artifact(payload))
+        return bus.emit(event, self.redact_artifact(payload))
 
     def enter_plan_mode(self, topic):
         return self.plan_mode.enter(topic)
@@ -1258,6 +1265,8 @@ class RepoHarness:
         如果新人想理解 RepoHarness 是怎么“从一句话跑成一个 agent 流程”的，
         这里就是最关键的入口。
         """
+        return self.engine.ask(user_message)
+
         run_started_at = time.monotonic()
         self.memory.set_task_summary(user_message)
         self.record({"role": "user", "content": user_message, "created_at": now()})
@@ -1846,6 +1855,16 @@ class RepoHarness:
         # 这里支持两种工具格式：
         # 1. <tool>...</tool> 里包 JSON，适合简短调用
         # 2. XML 风格属性/子标签，适合写文件这类多行内容
+        if "<tool" in raw and ("<final>" not in raw or raw.find("<tool") < raw.find("<final>")):
+            tool_matches = list(re.finditer(r"<tool(?P<attrs>[^>]*)>(?P<body>.*?)</tool>", raw, re.S))
+            if len(tool_matches) > 1:
+                payloads = []
+                for match in tool_matches:
+                    payload = RepoHarness.parse_tool_match(match)
+                    if payload is None:
+                        return "retry", RepoHarness.retry_notice("model returned malformed tool output")
+                    payloads.append(payload)
+                return "tools", payloads
         if "<tool>" in raw and ("<final>" not in raw or raw.find("<tool>") < raw.find("<final>")):
             body = RepoHarness.extract(raw, "tool")
             try:
@@ -1876,6 +1895,27 @@ class RepoHarness:
         if raw:
             return "final", raw
         return "retry", RepoHarness.retry_notice("model returned an empty response")
+
+    @staticmethod
+    def parse_tool_match(match):
+        attrs = RepoHarness.parse_attrs(match.group("attrs"))
+        body = match.group("body")
+        if not attrs:
+            try:
+                payload = json.loads(body)
+            except Exception:
+                return None
+            if not isinstance(payload, dict):
+                return None
+            if not str(payload.get("name", "")).strip():
+                return None
+            args = payload.get("args", {})
+            if args is None:
+                payload["args"] = {}
+            elif not isinstance(args, dict):
+                return None
+            return payload
+        return RepoHarness.parse_xml_tool(match.group(0))
 
     @staticmethod
     def retry_notice(problem=None):
