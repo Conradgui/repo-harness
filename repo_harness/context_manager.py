@@ -9,23 +9,27 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
+from . import skills as skillslib
+
 
 DEFAULT_TOTAL_BUDGET = 12000
 DEFAULT_SECTION_BUDGETS = {
     "prefix": 3600,
     "memory": 1600,
+    "skills": 900,
     "relevant_memory": 1200,
     "history": 5200,
 }
 DEFAULT_SECTION_FLOORS = {
     "prefix": 1200,
     "memory": 400,
+    "skills": 200,
     "relevant_memory": 300,
     "history": 1500,
 }
 # 当 prompt 超预算时，会优先压缩这些 section。
-DEFAULT_REDUCTION_ORDER = ("relevant_memory", "history", "memory", "prefix")
-SECTION_ORDER = ("prefix", "memory", "relevant_memory", "history", "current_request")
+DEFAULT_REDUCTION_ORDER = ("relevant_memory", "history", "skills", "memory", "prefix")
+SECTION_ORDER = ("prefix", "memory", "skills", "relevant_memory", "history", "current_request")
 CURRENT_REQUEST_SECTION = "current_request"
 RELEVANT_MEMORY_LIMIT = 3
 
@@ -71,6 +75,8 @@ class ContextManager:
         self.section_budgets = dict(DEFAULT_SECTION_BUDGETS)
         if section_budgets:
             self.section_budgets.update({str(key): int(value) for key, value in section_budgets.items()})
+            if "skills" not in section_budgets:
+                self.section_budgets["skills"] = 0
         self._section_floor_overrides = {str(key): int(value) for key, value in (section_floors or {}).items()}
         self.section_floors = self._compute_section_floors()
         self.reduction_order = tuple(reduction_order or DEFAULT_REDUCTION_ORDER)
@@ -108,6 +114,7 @@ class ContextManager:
         section_texts = {
             "prefix": str(getattr(self.agent, "prefix", "")),
             "memory": "Memory:\n- disabled" if not memory_enabled else str(self.agent.memory_text()),
+            "skills": skillslib.render_prompt_section(getattr(self.agent, "skills", {})),
             "history": "",
             CURRENT_REQUEST_SECTION: f"Current user request:\n{user_message}",
         }
@@ -223,6 +230,7 @@ class ContextManager:
         return {
             "prefix": SectionRender(raw=section_texts["prefix"], budget=len(section_texts["prefix"]), rendered=section_texts["prefix"], details={}),
             "memory": SectionRender(raw=section_texts["memory"], budget=len(section_texts["memory"]), rendered=section_texts["memory"], details={}),
+            "skills": SectionRender(raw=section_texts["skills"], budget=len(section_texts["skills"]), rendered=section_texts["skills"], details={}),
             "relevant_memory": SectionRender(
                 raw=relevant_raw,
                 budget=len(relevant_raw),
@@ -476,6 +484,7 @@ class ContextManager:
             [
                 rendered["prefix"].rendered,
                 rendered["memory"].rendered,
+                rendered["skills"].rendered,
                 rendered["relevant_memory"].rendered,
                 rendered["history"].rendered,
                 rendered[CURRENT_REQUEST_SECTION].rendered,
@@ -499,7 +508,7 @@ class ContextManager:
             "prompt_chars": len(prompt),
             "prompt_budget_chars": self.total_budget,
             "prompt_over_budget": len(prompt) > self.total_budget,
-            "section_order": list(SECTION_ORDER),
+            "section_order": ["prefix", "memory", "relevant_memory", "history", CURRENT_REQUEST_SECTION],
             "section_budgets": {
                 section: (None if section == CURRENT_REQUEST_SECTION else int(budgets.get(section, 0)))
                 for section in SECTION_ORDER

@@ -19,6 +19,8 @@ from . import memory as memorylib
 from .context_manager import ContextManager
 from .core.engine import Engine
 from .core.session_events import SessionEventBus
+from .core import tool_executor as core_tool_executor
+from .core.tool_profiles import build_tool_profiles
 from .permissions import PermissionChecker
 from .plan_mode import PlanModeManager
 from . import runtime_evidence
@@ -26,10 +28,11 @@ from .runtime_control import RuntimeControlPlane
 from .run_store import RunStore
 from .sandbox import SandboxConfig, SandboxRunner
 from . import skills as skillslib
+from .features import skills_runtime
 from .task_state import TaskState
 from .todo_ledger import TodoLedger
 from . import tools as toolkit
-from .tool_policy import ToolPolicy, ToolPolicyRejection
+from .tool_policy import ToolPolicy
 from .worker_manager import WorkerManager
 from .workspace import IGNORED_PATH_NAMES, MAX_HISTORY, WorkspaceContext, clip, now
 
@@ -160,6 +163,8 @@ class RepoHarness:
         self.worker_manager = WorkerManager(self)
         self.skills = skillslib.discover_skills(self.root, user_home=self._safe_user_home())
         self.tools = self.build_tools()
+        self.tool_profiles = build_tool_profiles(self.tools)
+        self.active_tool_profile = self.tool_profiles.get(self.tool_profile) or self.tool_profiles["default"]
         self.tool_policy = ToolPolicy(self)
         self.permission_checker = PermissionChecker(self)
         self.plan_mode = PlanModeManager(self)
@@ -245,6 +250,18 @@ class RepoHarness:
 
     def exit_plan_mode(self):
         return self.plan_mode.exit()
+
+    def set_tool_profile(self, name):
+        name = str(name or "default")
+        self.active_tool_profile = self.tool_profiles.get(name) or self.tool_profiles["default"]
+        self.tool_profile = self.active_tool_profile.name
+        return self.active_tool_profile
+
+    def available_tools(self):
+        profile = getattr(self, "active_tool_profile", None)
+        if profile is None:
+            return dict(self.tools)
+        return {name: tool for name, tool in self.tools.items() if profile.allows(name)}
 
     def current_runtime_identity(self):
         return {
@@ -392,7 +409,7 @@ class RepoHarness:
 
     def build_prefix(self):
         tool_lines = []
-        for name, tool in self.tools.items():
+        for name, tool in self.available_tools().items():
             fields = ", ".join(f"{key}: {value}" for key, value in tool["schema"].items())
             risk = "approval required" if tool["risky"] else "safe"
             tool_lines.append(f"- {name}({fields}) [{risk}] {tool['description']}")
@@ -555,44 +572,7 @@ class RepoHarness:
         return skillslib.render_skills_list(self.skills)
 
     def invoke_skill(self, name, arguments=""):
-        skill = self.skills.get(str(name).strip())
-        if skill is None:
-            return f"skill not found: {name}"
-        prompt = skillslib.render_skill_prompt(skill, arguments)
-        self.emit_session_event("skill_invoked", name=skill.name, context=skill.context, arguments=str(arguments))
-        if skill.disable_model_invocation:
-            self.emit_session_event("skill_completed", name=skill.name, status="prompt_only")
-            return prompt
-        if skill.context == "fork":
-            child = RepoHarness(
-                model_client=self.model_client,
-                workspace=self.workspace,
-                session_store=self.session_store,
-                run_store=self.run_store,
-                approval_policy="auto",
-                max_steps=min(self.max_steps, 8),
-                max_new_tokens=self.max_new_tokens,
-                depth=self.depth + 1,
-                max_depth=max(self.max_depth, self.depth + 2),
-                read_only=True,
-                secret_env_names=self.secret_env_names,
-                shell_env_allowlist=self.shell_env_allowlist,
-                sandbox_config=self.sandbox_config,
-            )
-            result = child.ask(prompt)
-            self.emit_session_event("skill_fork_completed", name=skill.name, child_session_id=child.session["id"])
-            self.emit_session_event("skill_completed", name=skill.name, status="completed")
-            return result
-        original_model = getattr(self.model_client, "model", None)
-        if skill.model and hasattr(self.model_client, "model"):
-            self.model_client.model = skill.model
-        try:
-            result = self.ask(prompt)
-        finally:
-            if original_model is not None and hasattr(self.model_client, "model"):
-                self.model_client.model = original_model
-        self.emit_session_event("skill_completed", name=skill.name, status="completed")
-        return result
+        return skills_runtime.invoke_skill(self, name, arguments)
 
     @staticmethod
     def _safe_user_home():
@@ -729,22 +709,13 @@ class RepoHarness:
         return max(0, (len(str(text)) + 3) // 4)
 
     def context_usage(self, prompt_metadata=None):
+        from .core.context_usage import ContextUsageAnalyzer
+
         metadata = prompt_metadata or self.last_prompt_metadata or {}
-        sections = {}
-        source_sections = metadata.get("sections", {}) if isinstance(metadata, dict) else {}
-        total = 0
-        for name, section in source_sections.items():
-            chars = int(section.get("rendered_chars", section.get("raw_chars", 0)) or 0)
-            tokens = self._estimate_tokens("x" * chars)
-            sections[name] = {"chars": chars, "tokens": tokens}
-            total += tokens
-        return {
-            "estimation_method": "chars_div_4",
-            "total_estimated_tokens": total,
-            "sections": sections,
-            "auto_compacted": bool(metadata.get("auto_compacted", False)) if isinstance(metadata, dict) else False,
-            "budget_reductions": list(metadata.get("budget_reductions", [])) if isinstance(metadata, dict) else [],
-        }
+        usage = ContextUsageAnalyzer(self).analyze(metadata)
+        usage["auto_compacted"] = bool(metadata.get("auto_compacted", False)) if isinstance(metadata, dict) else False
+        usage["budget_reductions"] = list(metadata.get("budget_reductions", [])) if isinstance(metadata, dict) else []
+        return usage
 
     def compact_history(self, trigger="manual"):
         pre_text = self.history_text()
@@ -1540,172 +1511,7 @@ class RepoHarness:
         工具是否存在、参数是否合法、是否重复、是否需要审批、执行结果是否裁剪、
         是否需要回写记忆。
         """
-        # 工具执行不是“直接调函数”，而是一条带护栏的流水线：
-        # 工具是否存在 -> 参数是否合法 -> 是否重复调用 -> 是否通过审批
-        # -> 真正执行 -> 更新记忆。
-        tool = self.tools.get(name)
-        if tool is None:
-            self._last_tool_result_metadata = {
-                "tool_status": "rejected",
-                "tool_error_code": "unknown_tool",
-                "security_event_type": "",
-                "risk_level": "high",
-                "read_only": False,
-                "affected_paths": [],
-                "workspace_changed": False,
-                "diff_summary": [],
-            }
-            self._record_runtime_reminder(name, self._last_tool_result_metadata)
-            return f"error: unknown tool '{name}'"
-        try:
-            self.validate_tool(name, args)
-        except Exception as exc:
-            example = self.tool_example(name)
-            message = f"error: invalid arguments for {name}: {exc}"
-            if example:
-                message += f"\nexample: {example}"
-            security_event_type = "path_escape" if "path escapes workspace" in str(exc) else ""
-            self._last_tool_result_metadata = {
-                "tool_status": "rejected",
-                "tool_error_code": "invalid_arguments",
-                "security_event_type": security_event_type,
-                "risk_level": "high" if tool["risky"] else "low",
-                "read_only": not tool["risky"],
-                "affected_paths": [],
-                "workspace_changed": False,
-                "diff_summary": [],
-            }
-            self._record_runtime_reminder(name, self._last_tool_result_metadata)
-            return message
-        decision = self.permission_checker.check(name, args)
-        self.emit_session_event(
-            "permission_decision",
-            tool=name,
-            decision="allow" if decision.allowed else "deny",
-            reason=decision.reason,
-            security_event_type=decision.security_event_type,
-            profile=decision.profile,
-        )
-        if not decision.allowed:
-            risk_level = "high" if tool["risky"] else "low"
-            self._last_tool_result_metadata = {
-                "tool_status": "rejected",
-                "tool_error_code": decision.reason,
-                "security_event_type": decision.security_event_type,
-                "risk_level": risk_level,
-                "read_only": not tool["risky"],
-                "affected_paths": [],
-                "workspace_changed": False,
-                "diff_summary": [],
-            }
-            self.record_process_note_for_tool(name, self._last_tool_result_metadata)
-            self._record_runtime_reminder(name, self._last_tool_result_metadata)
-            if decision.reason == "approval_denied":
-                return f"error: approval denied for {name}"
-            if decision.reason == "plan_mode_path_mismatch":
-                return f"error: plan mode only allows writing the active plan artifact: {self.active_plan_path}"
-            return f"error: {decision.reason}"
-        try:
-            self.tool_policy.check(name, args)
-        except ToolPolicyRejection as exc:
-            risk_level = "high" if tool["risky"] else "low"
-            self._last_tool_result_metadata = {
-                "tool_status": "rejected",
-                "tool_error_code": exc.code,
-                "security_event_type": "",
-                "risk_level": risk_level,
-                "read_only": not tool["risky"],
-                "affected_paths": [],
-                "workspace_changed": False,
-                "diff_summary": [],
-            }
-            self.record_process_note_for_tool(name, self._last_tool_result_metadata)
-            self._record_runtime_reminder(name, self._last_tool_result_metadata)
-            return exc.message
-        write_scope_error = self._write_scope_error(name, args)
-        if write_scope_error:
-            self._last_tool_result_metadata = {
-                "tool_status": "rejected",
-                "tool_error_code": "worker_write_scope",
-                "security_event_type": "worker_write_scope",
-                "risk_level": "high",
-                "read_only": False,
-                "affected_paths": [],
-                "workspace_changed": False,
-                "diff_summary": [],
-            }
-            self.record_process_note_for_tool(name, self._last_tool_result_metadata)
-            self._record_runtime_reminder(name, self._last_tool_result_metadata)
-            return write_scope_error
-        if tool["risky"] and not self.approve(name, args):
-            self._last_tool_result_metadata = {
-                "tool_status": "rejected",
-                "tool_error_code": "approval_denied",
-                "security_event_type": "read_only_block" if self.read_only else "approval_denied",
-                "risk_level": "high",
-                "read_only": False,
-                "affected_paths": [],
-                "workspace_changed": False,
-                "diff_summary": [],
-            }
-            self._record_runtime_reminder(name, self._last_tool_result_metadata)
-            return f"error: approval denied for {name}"
-        before_snapshot = self.capture_workspace_snapshot() if tool["risky"] else {}
-        after_snapshot = before_snapshot
-        try:
-            result = clip(tool["run"](args))
-            after_snapshot = self.capture_workspace_snapshot() if tool["risky"] else before_snapshot
-            affected_paths, diff_summary = self.diff_workspace_snapshots(before_snapshot, after_snapshot)
-            workspace_changed = bool(affected_paths)
-            tool_status = "ok"
-            tool_error_code = ""
-            if name == "run_shell":
-                match = re.search(r"exit_code:\s*(-?\d+)", result)
-                exit_code = int(match.group(1)) if match else 0
-                if exit_code != 0 and workspace_changed:
-                    tool_status = "partial_success"
-                    tool_error_code = "tool_partial_success"
-                elif exit_code != 0:
-                    tool_status = "error"
-                    tool_error_code = "tool_failed"
-            self.update_memory_after_tool(name, args, result)
-            self._last_tool_result_metadata = {
-                "tool_status": tool_status,
-                "tool_error_code": tool_error_code,
-                "security_event_type": "",
-                "risk_level": "high" if tool["risky"] else "low",
-                "read_only": not tool["risky"],
-                "affected_paths": affected_paths,
-                "workspace_changed": workspace_changed,
-                "workspace_fingerprint": self.workspace.fingerprint(),
-                "diff_summary": diff_summary,
-            }
-            if affected_paths:
-                self._run_changed_paths.extend(path for path in affected_paths if path not in self._run_changed_paths)
-            self.record_process_note_for_tool(name, self._last_tool_result_metadata)
-            self.tool_policy.record_result(name, args, self._last_tool_result_metadata)
-            if tool_status not in {"ok"}:
-                self._record_runtime_reminder(name, self._last_tool_result_metadata)
-            return result
-        except Exception as exc:
-            after_snapshot = self.capture_workspace_snapshot() if tool["risky"] else before_snapshot
-            affected_paths, diff_summary = self.diff_workspace_snapshots(before_snapshot, after_snapshot)
-            workspace_changed = bool(affected_paths)
-            security_event_type = "path_escape" if "path escapes workspace" in str(exc) else ""
-            self._last_tool_result_metadata = {
-                "tool_status": "partial_success" if workspace_changed else "error",
-                "tool_error_code": "tool_partial_success" if workspace_changed else "tool_failed",
-                "security_event_type": security_event_type,
-                "risk_level": "high" if tool["risky"] else "low",
-                "read_only": not tool["risky"],
-                "affected_paths": affected_paths,
-                "workspace_changed": workspace_changed,
-                "workspace_fingerprint": self.workspace.fingerprint(),
-                "diff_summary": diff_summary,
-            }
-            self.record_process_note_for_tool(name, self._last_tool_result_metadata)
-            self._record_runtime_reminder(name, self._last_tool_result_metadata)
-            return f"error: tool {name} failed: {exc}"
+        return core_tool_executor.run_tool(self, name, args)
 
     def repeated_tool_call(self, name, args):
         # agent 很常见的一种坏循环，是在没有新信息的情况下反复发起同一调用。

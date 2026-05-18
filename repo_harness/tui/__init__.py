@@ -81,6 +81,11 @@ class RepoHarnessTuiApp:
 
 
 def run_tui(agent):
-    app = RepoHarnessTuiApp(agent)
-    app.run()
-    return app
+    try:
+        from .main import run_tui as run_textual_tui
+
+        return run_textual_tui(agent)
+    except Exception:
+        app = RepoHarnessTuiApp(agent)
+        app.run()
+        return app

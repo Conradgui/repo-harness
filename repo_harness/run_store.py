@@ -64,6 +64,16 @@ class RunStore:
         self._write_json_atomic(path, report)
         return path
 
+    def write_text_artifact(self, task_state, name, content):
+        safe_name = "".join(
+            char if char.isalnum() or char in {"-", "_", "."} else "-"
+            for char in str(name or "artifact")
+        )
+        path = self.run_dir(task_state) / "artifacts" / f"{safe_name}.txt"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(str(content), encoding="utf-8")
+        return path
+
     def load_task_state(self, task_id):
         return json.loads(self.task_state_path(task_id).read_text(encoding="utf-8"))
 

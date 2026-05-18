@@ -11,6 +11,7 @@ import textwrap
 from functools import partial
 
 from ..workspace import IGNORED_PATH_NAMES, clip
+from .base import RegisteredTool
 
 BASE_TOOL_SPECS = {
     "list_files": {
@@ -120,13 +121,25 @@ def build_tool_registry(agent):
     # 工具不是动态发现的，而是显式注册的。
     # 这样模型看到的是一个有边界、可审计的动作集合。
     tools = {
-        name: {**spec, "run": partial(_TOOL_RUNNERS[name], agent)}
+        name: RegisteredTool(
+            name=name,
+            schema=spec["schema"],
+            description=spec["description"],
+            risky=bool(spec["risky"]),
+            runner=partial(_TOOL_RUNNERS[name], agent),
+        )
         for name, spec in BASE_TOOL_SPECS.items()
     }
     # 子 agent 是刻意做成受限能力的：一旦深度耗尽，
     # 就连 delegate 这个工具都不再暴露给模型。
     if agent.depth < agent.max_depth:
-        tools["delegate"] = {**DELEGATE_TOOL_SPEC, "run": partial(tool_delegate, agent)}
+        tools["delegate"] = RegisteredTool(
+            name="delegate",
+            schema=DELEGATE_TOOL_SPEC["schema"],
+            description=DELEGATE_TOOL_SPEC["description"],
+            risky=False,
+            runner=partial(tool_delegate, agent),
+        )
     return tools
 
 
@@ -136,6 +149,7 @@ def tool_example(name):
 
 def validate_tool(agent, name, args):
     args = args or {}
+    args = _normalize_tool_args(name, args)
 
     if name == "list_files":
         path = agent.path(args.get("path", "."))
@@ -380,7 +394,7 @@ def tool_write_file(agent, args):
     content = str(args["content"])
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
-    return f"wrote {path.relative_to(agent.root)} ({len(content)} chars)"
+    return f"wrote {path.relative_to(agent.root).as_posix()} ({len(content)} chars)"
 
 
 def tool_patch_file(agent, args):
@@ -397,7 +411,7 @@ def tool_patch_file(agent, args):
     if count != 1:
         raise ValueError(f"old_text must occur exactly once, found {count}")
     path.write_text(text.replace(old_text, str(args["new_text"]), 1), encoding="utf-8")
-    return f"patched {path.relative_to(agent.root)}"
+    return f"patched {path.relative_to(agent.root).as_posix()}"
 
 
 def tool_delegate(agent, args):
@@ -462,6 +476,7 @@ def tool_ask_user(agent, args):
 
 
 def tool_agent(agent, args):
+    args = _normalize_tool_args("agent", args)
     scope = args.get("scope") or args.get("write_scope") or []
     result = agent.spawn_worker(
         args.get("task", ""),
@@ -473,11 +488,13 @@ def tool_agent(agent, args):
 
 
 def tool_send_message(agent, args):
+    args = _normalize_tool_args("send_message", args)
     result = agent.worker_manager.send(args.get("id", ""), args.get("message", ""))
     return f"{result['id']} {result['status']}: {result.get('result', '')}"
 
 
 def tool_task_stop(agent, args):
+    args = _normalize_tool_args("task_stop", args)
     result = agent.worker_manager.stop(args.get("id", ""))
     return f"{result['id']} {result['status']}"
 
@@ -497,4 +514,30 @@ _TOOL_RUNNERS = {
     "send_message": tool_send_message,
     "task_stop": tool_task_stop,
 }
+
+
+def _normalize_tool_args(name, args):
+    args = dict(args or {})
+    if name == "agent":
+        if "description" in args and "task" not in args:
+            args["task"] = args["description"]
+        if "prompt" in args and "task" not in args:
+            args["task"] = args["prompt"]
+        if "subagent_type" in args and "type" not in args:
+            args["type"] = args["subagent_type"]
+        if "write_scope" in args and "scope" not in args:
+            args["scope"] = args["write_scope"]
+    if name == "todo_add" and "content" in args and "text" not in args:
+        args["text"] = args["content"]
+    if name == "todo_update":
+        if "todo_id" in args and "id" not in args:
+            args["id"] = args["todo_id"]
+        if "content" in args and "text" not in args:
+            args["text"] = args["content"]
+    if name in {"send_message", "task_stop"}:
+        if "task_id" in args and "id" not in args:
+            args["id"] = args["task_id"]
+        if "to" in args and "id" not in args:
+            args["id"] = args["to"]
+    return args
 

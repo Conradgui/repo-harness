@@ -1,10 +1,7 @@
-"""Unified tool permission decisions for RepoHarness."""
+"""Unified runtime permission decisions for tool execution."""
 
 from dataclasses import dataclass
-
-
-READ_ONLY_TOOLS = {"list_files", "read_file", "search", "todo_list", "ask_user", "delegate"}
-WRITE_TOOLS = {"write_file", "patch_file"}
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -22,43 +19,89 @@ class PermissionDecision:
     def deny(cls, reason, security_event_type="", profile="default"):
         return cls(False, str(reason), str(security_event_type), str(profile))
 
+    @property
+    def decision(self):
+        return "allow" if self.allowed else "deny"
+
 
 class PermissionChecker:
     def __init__(self, runtime):
         self.runtime = runtime
 
-    def check(self, name, args=None):
+    def check(self, tool_or_name, args=None):
+        tool = self._tool(tool_or_name)
         args = args or {}
-        profile = getattr(self.runtime, "tool_profile", "default")
-        mode = getattr(self.runtime, "runtime_mode", "default")
-        risky = bool(self.runtime.tools.get(name, {}).get("risky", False))
+        profile = getattr(self.runtime, "active_tool_profile", None)
+        profile_name = getattr(profile, "name", getattr(self.runtime, "tool_profile", "default"))
+        if profile is not None and not profile.allows(tool.name):
+            if profile_name == "plan":
+                return PermissionDecision.deny(
+                    "plan_mode_tool_not_allowed",
+                    "plan_mode_write_guard",
+                    profile=profile_name,
+                )
+            return PermissionDecision.deny("tool_not_allowed", profile=profile_name)
 
-        if mode == "plan":
-            plan_denial = self._plan_mode_denial(name, args)
-            if plan_denial:
-                return PermissionDecision.deny(plan_denial, security_event_type=plan_denial, profile="plan")
-            if name in READ_ONLY_TOOLS or name in {"todo_add", "todo_update"}:
-                return PermissionDecision.allow("plan_allowed", profile="plan")
+        if getattr(self.runtime, "runtime_mode", "default") == "plan":
+            return self._check_plan(tool, args, profile_name)
+        if tool.name in {"write_file", "patch_file"} and getattr(self.runtime, "write_scope", ()):
+            return self._check_write_scope(tool, args, profile_name)
+        if tool.read_only:
+            return PermissionDecision.allow("read_only", profile=profile_name)
+        if getattr(self.runtime, "read_only", False):
+            return PermissionDecision.deny("approval_denied", "read_only_block", profile=profile_name)
+        approval_policy = getattr(self.runtime, "approval_policy", "ask")
+        if approval_policy == "auto":
+            return PermissionDecision.allow("approval_auto", profile=profile_name)
+        if approval_policy == "never":
+            return PermissionDecision.deny("approval_denied", "approval_denied", profile=profile_name)
+        if self.runtime.approve(tool.name, args):
+            return PermissionDecision.allow("approval_prompt", profile=profile_name)
+        return PermissionDecision.deny("approval_denied", "approval_denied", profile=profile_name)
 
-        if getattr(self.runtime, "read_only", False) and risky:
-            return PermissionDecision.deny("read_only_block", security_event_type="read_only_block", profile=profile)
+    def _tool(self, tool_or_name):
+        if hasattr(tool_or_name, "name"):
+            return tool_or_name
+        name = str(tool_or_name)
+        raw = self.runtime.tools.get(name)
+        if hasattr(raw, "name"):
+            return raw
 
-        if risky and getattr(self.runtime, "approval_policy", "ask") == "never":
-            return PermissionDecision.deny("approval_denied", security_event_type="approval_denied", profile=profile)
+        class _Tool:
+            def __init__(self, tool_name, spec):
+                self.name = tool_name
+                self.risky = bool((spec or {}).get("risky", False))
+                self.read_only = not self.risky
 
-        if not risky:
-            return PermissionDecision.allow("read_only", profile=profile)
-        return PermissionDecision.allow("approval_available", profile=profile)
+        return _Tool(name, raw or {})
 
-    def _plan_mode_denial(self, name, args):
-        if name == "run_shell":
-            return "plan_mode_tool_denied"
-        if name == "delegate":
-            return ""
-        if name not in WRITE_TOOLS:
-            return ""
-        target = str((args or {}).get("path", "")).strip().replace("\\", "/")
-        active = str(getattr(self.runtime, "active_plan_path", "") or "").strip().replace("\\", "/")
-        if target and active and target == active:
-            return ""
-        return "plan_mode_path_mismatch"
+    def _check_plan(self, tool, args, profile_name):
+        if tool.read_only:
+            return PermissionDecision.allow("plan_read_only", profile=profile_name)
+        if tool.name not in {"write_file", "patch_file"}:
+            return PermissionDecision.deny(
+                "plan_mode_tool_not_allowed",
+                "plan_mode_write_guard",
+                profile=profile_name,
+            )
+        requested = self.runtime.path(args.get("path", ""))
+        active = self.runtime.path(getattr(self.runtime, "active_plan_path", ""))
+        if Path(requested) != Path(active):
+            return PermissionDecision.deny(
+                "plan_mode_path_mismatch",
+                "plan_mode_write_guard",
+                profile=profile_name,
+            )
+        return PermissionDecision.allow("plan_artifact_write", profile=profile_name)
+
+    def _check_write_scope(self, tool, args, profile_name):
+        requested = self.runtime.path(args.get("path", ""))
+        for raw_scope in self.runtime.write_scope:
+            scope = self.runtime.path(raw_scope)
+            try:
+                requested.relative_to(scope if scope.is_dir() else scope.parent)
+            except ValueError:
+                continue
+            if scope.is_dir() or requested == scope or scope.name == requested.name:
+                return PermissionDecision.allow("write_scope", profile=profile_name)
+        return PermissionDecision.deny("write_scope_mismatch", "write_scope_guard", profile=profile_name)

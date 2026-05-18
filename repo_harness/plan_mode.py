@@ -36,14 +36,14 @@ class PlanModeManager:
                 "entered_at": now(),
             }
         )
-        self.runtime.tool_profile = "plan"
+        self.runtime.set_tool_profile("plan")
         self.runtime.session_path = self.runtime.session_store.save(self.runtime.session)
         self.runtime.emit_session_event("runtime_mode_changed", mode="plan", plan_path=relative)
         return relative
 
     def exit(self):
         self.state.update({"mode": "default", "active_plan_path": "", "topic": "", "exited_at": now()})
-        self.runtime.tool_profile = "default"
+        self.runtime.set_tool_profile("default")
         self.runtime.session_path = self.runtime.session_store.save(self.runtime.session)
         self.runtime.emit_session_event("runtime_mode_changed", mode="default")
         return "default"

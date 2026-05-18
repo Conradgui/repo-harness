@@ -1,0 +1,71 @@
+import json
+import shlex
+import sys
+
+from repo_harness import FakeModelClient, RepoHarness, SessionStore, WorkspaceContext
+
+
+def build_agent(tmp_path, outputs=None, **kwargs):
+    (tmp_path / "README.md").write_text("hello world\n", encoding="utf-8")
+    return RepoHarness(
+        model_client=FakeModelClient(outputs or []),
+        workspace=WorkspaceContext.build(tmp_path),
+        session_store=SessionStore(tmp_path / ".repo-harness" / "sessions"),
+        approval_policy="auto",
+        **kwargs,
+    )
+
+
+def read_jsonl(path):
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def test_shell_sequence_read_commands_are_rejected_and_emit_policy_event(tmp_path):
+    agent = build_agent(tmp_path)
+
+    rejected = agent.run_tool("run_shell", {"command": "echo ok; cat README.md", "timeout": 20})
+
+    assert "search" in rejected or "read_file" in rejected
+    assert agent._last_tool_result_metadata["tool_error_code"] == "shell_search_should_use_tool"
+    assert any(
+        event["event"] == "tool_policy_decision"
+        and event["tool_name"] == "run_shell"
+        and event["decision"] == "deny"
+        for event in read_jsonl(agent.session_event_bus.path)
+    )
+
+
+def test_self_authored_new_file_can_be_patched_without_extra_read(tmp_path):
+    agent = build_agent(tmp_path)
+
+    assert agent.run_tool("write_file", {"path": "scripts/check.py", "content": "assert False\n"}) == "wrote scripts/check.py (13 chars)"
+    patched = agent.run_tool(
+        "patch_file",
+        {"path": "scripts/check.py", "old_text": "assert False", "new_text": "assert True"},
+    )
+
+    assert patched == "patched scripts/check.py"
+    assert (tmp_path / "scripts" / "check.py").read_text(encoding="utf-8") == "assert True\n"
+
+
+def test_long_shell_output_is_clipped_and_full_output_is_saved_as_run_artifact(tmp_path):
+    script = "print('x'*6000)"
+    command = f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}"
+    agent = build_agent(
+        tmp_path,
+        [
+            f'<tool>{{"name":"run_shell","args":{{"command":{json.dumps(command)},"timeout":20}}}}</tool>',
+            "<final>captured</final>",
+        ],
+    )
+
+    assert agent.ask("produce long shell output") == "captured"
+
+    tool_item = next(item for item in agent.session["history"] if item["role"] == "tool" and item["name"] == "run_shell")
+    assert len(tool_item["content"]) < 1400
+    assert "full output saved:" in tool_item["content"]
+    artifact_path = agent._last_tool_result_metadata["full_output_artifact"]
+    assert artifact_path
+    assert "x" * 6000 in (tmp_path / artifact_path).read_text(encoding="utf-8")
+    assert any(event.get("full_output_artifact") == artifact_path for event in read_jsonl(agent.current_run_dir / "trace.jsonl"))
+

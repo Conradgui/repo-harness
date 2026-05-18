@@ -1,6 +1,7 @@
 """Run_shell sandbox controls for RepoHarness."""
 
 from dataclasses import dataclass
+import fnmatch
 import shutil
 import subprocess
 import textwrap
@@ -30,7 +31,7 @@ class SandboxRunner:
     def run(self, agent, command, timeout, runner):
         mode = str(self.config.mode or "off").strip()
         backend = str(self.config.backend or "native").strip()
-        if mode == "off" or self._command_is_excluded(command):
+        if mode == "off" or (mode != "required" and self._command_is_excluded(command)):
             return None
         if mode == "read_only":
             raise RuntimeError("sandbox read_only blocks run_shell")
@@ -68,8 +69,8 @@ class SandboxRunner:
 
     def _command_is_excluded(self, command):
         excluded = getattr(self.config, "excluded_commands", ()) or ()
-        head = str(command or "").strip().split(maxsplit=1)[0].lower()
-        return any(head == str(item).lower() for item in excluded)
+        command = str(command or "")
+        return any(fnmatch.fnmatch(command, str(item)) for item in excluded)
 
     def _run_bubblewrap(self, command, timeout, agent, runner):
         backend_path = self.which("bwrap") or self.which("bubblewrap")
@@ -84,16 +85,34 @@ class SandboxRunner:
             "/proc",
             "--dev",
             "/dev",
+            "--ro-bind",
+            "/usr",
+            "/usr",
+            "--ro-bind",
+            "/bin",
+            "/bin",
+            "--ro-bind",
+            "/lib",
+            "/lib",
+            "--ro-bind",
+            "/lib64",
+            "/lib64",
             bind_mode,
             str(root),
             str(root),
+        ]
+        for path in self.config.extra_readonly_paths:
+            argv.extend(["--ro-bind", path, path])
+        for path in (*self.config.deny_read, *self.config.deny_write):
+            argv.extend(["--tmpfs", path])
+        argv.extend([
             "--chdir",
             str(root),
             "--",
             "/bin/sh",
             "-lc",
             str(command),
-        ]
+        ])
         result = subprocess.run(
             argv,
             cwd=root,
