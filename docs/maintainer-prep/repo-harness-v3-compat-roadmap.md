@@ -1,64 +1,43 @@
-# RepoHarness v3 Compat Roadmap
+# RepoHarness v3 功能对标路线
 
 ## Summary
 
-RepoHarness v3 compatibility was delivered as two complete engineering releases plus a parity closeout. Phase 1 is completed, Phase 2 is completed as the workflow and UX release, and the closeout completes the remaining runtime, command, evidence, and governance gaps. The reference Pico v3 commit is `91a7c17`; the old stable reference tag is `archive-before-repoharness-rename-20260503`.
+RepoHarness 已完成最终版 v3 功能对标。对标含义是补齐参考仓库新增能力中 RepoHarness 缺失或过浅的部分，同时保留 RepoHarness 自身优势：Review Queue、Memory Pack、Explainable Retrieval、Fuzzy Lexical Retrieval 和 RepoHarness 命名体系。
 
-## Phase 1: Foundation Release
+参考基线：参考仓库 v3 commit `91a7c17`。
 
-Phase 1 adds the foundation layer:
+历史阶段锚点：Phase 1、Phase 2、Phase 2 Workflow And UX、`repo-harness/v3-compat-phase2`、`archive-before-repoharness-rename-20260503`。这些锚点只用于历史索引；当前用户文档以最终版能力为准。
 
-- `.repo-harness.toml` project configuration.
-- Provider profiles for OpenAI, Anthropic, and DeepSeek.
-- DeepSeek as a first-class provider through the Anthropic-compatible Messages path.
-- Default `max_steps = 50` and provider-inferred `max_new_tokens`.
-- Provider reliability metadata: protocol, model, sanitized base URL, attempts, and retry count.
-- Lightweight tool policy for shell read/search avoidance, fresh reads before existing-file edits, and repeated call guards.
-- `/remember <text>` as a Review Queue-only durable memory candidate entrypoint.
+## 已交付能力
 
-Durable memory governance remains:
+- 配置系统：项目 `.repo-harness.toml`、用户级全局 config、项目 `.env`、CLI/env/config/default 优先级。
+- Provider：OpenAI-compatible、Anthropic-compatible、DeepSeek、Ollama。
+- Runtime：core executor、permission、tool policy、context usage、session events、report/trace。
+- Safety：更严格 shell policy、fresh read before write、重复调用 guard、approval ask once。
+- Sandbox：`off`、`best_effort`、`read_only`、`required`。
+- Skills：frontmatter、YAML list、allowed tools、prompt refresh、fork/model override。
+- Workers：worker manager 支持后台生命周期、continue/stop/shutdown、notifications、artifacts、write scope。
+- TUI：可选 Textual TUI app，和 REPL 共用 runtime。
+- Evidence：public CLI scripted task、RunEvidence structured payload、release evidence scenario contract。
+- Business dogfood：三业务场景，默认 fake/scripted，live opt-in。
 
-```text
-candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
-```
+## 保留边界
 
-`/remember` and memory self-iteration only queue candidates. They do not write durable topics.
+- 不恢复旧状态目录、旧配置文件、旧 CLI 或旧公共命名。
+- 不让 `/remember`、`/memory organize`、skills、workers、evidence 或自动整理直接写 durable topics。
+- 不把参考仓库的自动记忆写入方式移植到 RepoHarness。
+- 不降低 Memory Pack、Review Queue、Explainable Retrieval、Fuzzy Lexical Retrieval 的治理强度。
 
-## Phase 2: Workflow And UX Release
-
-Phase 2 completes the workflow and UX layer:
-
-- Skills discovery and `/skills` / `/skill <name> [args]`.
-- Session-scoped todo ledger with prompt and report state.
-- Bounded worker manager with read-only Explore workers and scoped write workers.
-- Sandbox modes `off`, `best_effort`, and `read_only`; sandbox is enforced through the shell runner path.
-- Runtime control plane layering through small internal model/tool execution seams.
-- Textual TUI optional entry that uses the same runtime.
-- Release evidence and scenario gate under RepoHarness-named paths.
-
-Skills, workers, `/remember`, and release evidence do not write durable topics directly.
-
-## v3 Parity Closeout
-
-The closeout completes the remaining parity surface:
-
-- Plan mode through `/plan <topic>`, `/plan-exit`, `/mode`, and `.repo-harness/plans/<slug>-plan.md`.
-- Slash command parity for `/usage`, `/model [name]`, `/history`, `/context`, `/compact`, and `/working-memory`.
-- Unified permission checker and tool profiles for default, plan, readonly, worker, skill, and memory organize flows.
-- `ask_user` tool, session event bus, context usage metadata, manual compaction, runtime artifact graph, verifier suggestions, and runtime reminders.
-- Full skill frontmatter, `$ARGUMENTS`, `${REPO_HARNESS_SKILL_DIR}`, fork skills, and skill events.
-- Worker send/stop notifications and plan-mode Explore-only enforcement.
-- Sandbox mode `required` and backend availability metadata.
-- TUI runtime flow with slash suggestions and ask-user prompt support.
-- `/memory organize`, which borrows the organization idea but only queues Review Queue candidates.
-- 50-scenario release evidence gate that reads runtime reports, traces, and session events.
-
-Memory organize remains review-gated:
+## 记忆治理
 
 ```text
 candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
 ```
 
-## Boundaries
+Review Queue 是 RepoHarness 的产品边界，不是临时实现差异。
 
-Do not restore `.pico/`, `.pico.toml`, the `pico` CLI, old Pico screenshots, or old public naming. Do not bypass the Review Queue. Do not let auto-dream or `/remember` write durable memory directly.
+## 后续维护重点
+
+- 保持文档、测试、release evidence 与实现同步。
+- 任何 public CLI、provider、sandbox、skills、workers、TUI 或 memory 行为变化，都必须更新 README、getting-started、architecture、review-pack 和本目录维护者文档。
+- 文档更新使用独立 `docs:` 提交。

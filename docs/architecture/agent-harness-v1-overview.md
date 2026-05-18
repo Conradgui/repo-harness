@@ -1,98 +1,87 @@
-﻿# Agent Harness v1 Overview
+# RepoHarness 架构概览
 
-## Document Purpose
+## 文档目的
 
-This document records architecture snapshots for the local Agent Harness. It explains the stable runtime flow, benchmark shape, and artifact semantics at a specific point in the project.
+本文记录 RepoHarness 当前架构边界、运行工件和维护规则。历史记录只保留必要事实；当前实现以 `repo-harness`、`repo_harness` 和 `.repo-harness/` 为准。
 
-This file should evolve by dated architecture records. If runtime artifact paths, CLI entrypoints, package names, or benchmark semantics change, add a new record or explicitly update the current one with the reason.
+Agent Harness v1 的核心概念仍然保留：一次任务会生成 task state、trace 和 report，以便复现和审计。
 
-## Update Rules
+## 当前架构记录：2026-05-19 最终版 v3 功能对标
 
-- Add a dated record when the harness architecture or public entrypoints change.
-- Do not rewrite older records to hide historical names or paths.
-- Keep this overview aligned with maintainer docs and tests that assert review-pack and architecture coverage.
+RepoHarness 的公共 API 仍然是 `RepoHarness.ask()`、`repo-harness` CLI 和 `python -m repo_harness`。REPL、TUI、public CLI scripted evidence、workers 和 release evidence 共用同一套 runtime、permission、tool policy、session events、trace/report 工件。
 
-## Architecture Records
+核心链路：
 
-### 2026-05-18: v3 Parity Closeout
+- CLI 读取显式参数、环境变量、项目 `.env`、项目 `.repo-harness.toml`、全局 `%USERPROFILE%\.repo-harness\config.toml`，并按固定优先级合并。
+- Runtime 构建 prompt prefix、workspace context、memory context、skills section、tool list 和 active tool profile。
+- Model 输出解析为 final answer、tool calls、ask_user 或 control flow。
+- Core tool executor 统一执行 permission gate、tool policy、sandbox、write scope、artifact clipping、trace/report metadata。
+- Session event bus 记录 runtime mode、tool decisions、context usage、worker notifications、skill activity、compaction 和 evidence 相关事件。
 
-RepoHarness now routes runtime mode changes, permission decisions, context usage, model requests, parsed model results, tool execution, worker notifications, compaction, and skill activity through session events and enriched trace metadata. `RepoHarness.ask()` remains the public API, while the TUI and REPL use the same runtime state and command handlers.
+## Provider 和配置
 
-Closeout additions:
+支持 provider：
 
-- Plan mode stores active plans under `.repo-harness/plans/` and restricts tools until a non-empty plan artifact exists.
-- `/usage`, `/model [name]`, `/history`, `/context`, `/compact`, and `/working-memory` expose runtime state without mutating project configuration.
-- Tool permissions, tool policy, worker scope, plan mode, and sandbox denials share one metadata path.
-- Runtime reports include `prompt_metadata.context_usage`, `artifact_graph`, `verifier_suggestions`, and `runtime_reminders`.
-- `/memory organize` queues Review Queue candidates only.
+- `openai`
+- `anthropic`
+- `deepseek`
+- `ollama`
 
-Durable memory governance remains:
+配置优先级：
+
+```text
+CLI 显式参数 > process env / 项目 .env > 项目 .repo-harness.toml > 全局 config > 默认值
+```
+
+DeepSeek 是一等 provider，底层走 Anthropic-compatible client。默认 `max_steps=50`，`max_new_tokens` 按 provider 推断。
+
+## Tool / Permission / Sandbox
+
+工具执行统一进入 core executor：
+
+- `approval_policy="ask"` 对同一 risky tool 只触发一次审批。
+- shell read/search 被 policy 拦截，鼓励结构化 `read_file` / `search`。
+- 既有文件写入要求 fresh read。
+- 重复工具调用有 guard。
+- 多 tool-call 按顺序执行，partial failure 写入 trace。
+- 长 shell 输出会裁剪展示，并把完整输出写入 run artifact。
+
+Sandbox 支持 `off`、`best_effort`、`read_only`、`required`。`required` 在后端不可用时 fail closed；Windows fallback 写入明确 metadata。
+
+## Skills、Workers 和 TUI
+
+Skills 从 `skills/<name>/SKILL.md` 与 `.repo-harness/skills/<name>/SKILL.md` 发现。frontmatter 支持常见 YAML list；`allowed_tools` 会同步刷新 prompt 工具列表和实际 permission gate。
+
+Workers 是 session-scoped 子任务。Explore worker 只读；write worker 必须声明 `write_scope`。Worker 支持后台生命周期、continue、stop、shutdown、running send guard、notifications、artifacts 和 parent report 汇总。
+
+TUI 是可选 Textual 入口，和 REPL 共用 runtime。Slash completion、normal turn、ask_user prompt 和 worker notification 不走独立行为路径。
+
+## Evidence 和 Release Gate
+
+`RunEvidence` 提供结构化结果对象和 public CLI/scripted provider 验收。public CLI scripted task 会验证：
+
+- changed file
+- runtime report
+- trace
+- session events
+- state dir
+
+Business dogfood 默认 fake/scripted provider，场景合同为：
+
+- `order_pricing_bugfix`
+- `release_readiness_review`
+- `incident_resume_fix`
+
+Live provider 必须显式 opt-in。
+
+## 记忆治理边界
+
+RepoHarness 的 durable memory 必须经人工审核：
 
 ```text
 candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
 ```
 
-### 2026-05-17: v3 Compat Phase 2 Workflow And UX
+`/remember`、`/memory organize`、skills、workers、evidence 和 memory self-iteration 只能写 Review Queue candidates，不能直接写 `.repo-harness/memory/topics/*.md`。
 
-RepoHarness keeps the existing public `RepoHarness` runtime API while extracting small internal seams for model completion and tool execution through `runtime_control.py`. The REPL, optional TUI, worker manager, todo ledger, sandbox runner, and release evidence runner use the same runtime state and report path.
-
-Phase 2 adds:
-
-- Skills discovery from `skills/<name>/SKILL.md` and `.repo-harness/skills/<name>/SKILL.md`; skills only contribute prompt/control text.
-- Session-scoped todos persisted in session JSON and summarized in prompts, trace/report fields, and `todo_changes`.
-- Bounded Explore and scoped write workers that inherit tool policy, provider config, secret redaction, and memory governance.
-- Sandbox modes `off`, `best_effort`, and `read_only` for `run_shell` execution metadata.
-- Optional Textual TUI entry through `--tui`.
-- RepoHarness-named release evidence under caller-selected output paths.
-
-The memory boundary is unchanged:
-
-```text
-candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
-```
-
-### 2026-05-17: v3 Compat Phase 1 Foundation
-
-RepoHarness adds `.repo-harness.toml` configuration, provider profiles for OpenAI, Anthropic, and DeepSeek, and DeepSeek as an Anthropic-compatible provider. Runtime provider metadata records protocol, model, sanitized base URL, attempts, and retry count.
-
-The memory boundary is unchanged:
-
-```text
-candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
-```
-
-`/remember <text>` only queues candidates. Phase 1 excludes skills, todo ledger, worker manager, sandbox, runtime control plane layering, Textual TUI, and release evidence; those remain Phase 2. Reference v3 commit: `91a7c17`; old stable reference tag: `archive-before-repoharness-rename-20260503`.
-
-### 2026-05-03: RepoHarness Rename Snapshot
-
-#### Summary
-
-RepoHarness is the current public name for the local Agent Harness. Public entrypoints are `repo-harness`, `python -m repo_harness`, the `repo_harness` package, and `.repo-harness/` local state.
-
-#### State directory semantics
-
-RepoHarness stores local sessions, runs, checkpoints, memory, and review queues under `.repo-harness/`. Startup no longer copies state from old brand directories.
-
-#### Agent instruction files
-
-`AGENTS.md` is an optional workspace document. If it is absent, RepoHarness still runs using the built-in runtime rules plus README and project metadata.
-
-### 2026-05-03: Agent Harness v1 Snapshot
-
-#### Summary
-
-Agent Harness v1 evaluates the local agent against deterministic fixture tasks and records reproducible benchmark artifacts.
-
-#### Flow
-
-1. Copy a fixture into a fresh workspace.
-2. Build an agent with a scripted model client.
-3. Run the task and capture task state, trace, and report artifacts.
-4. Verify the expected artifact and summarize the result row.
-
-#### Key artifacts
-
-- task state snapshots describe progress and stop reasons
-- trace events capture prompt, tool, and checkpoint activity
-- reports summarize the final runtime outcome
-
+Memory Pack、Explainable Retrieval、Fuzzy Lexical Retrieval 是 RepoHarness 的保留优势。

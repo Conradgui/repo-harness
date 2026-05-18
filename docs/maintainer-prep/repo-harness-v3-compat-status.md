@@ -1,81 +1,51 @@
-# RepoHarness v3 Compat Status
+# RepoHarness v3 功能对标状态
 
 ## Current Status
 
 status: completed
 
-Phase 1 Foundation Release is completed on branch `repo-harness/v3-compat-phase1`.
-Phase 2 Workflow And UX Release is completed on branch `repo-harness/v3-compat-phase2`.
-v3 Parity Closeout is completed on branch `repo-harness/v3-compat-parity-closeout`.
+最终版功能对标已经完成并合入 `main`。本文件记录当前事实，不再按早期阶段拆分待办。
 
-Reference Pico v3 commit: `91a7c17`.
-Old stable reference tag: `archive-before-repoharness-rename-20260503`.
+参考基线：参考仓库 v3 commit `91a7c17`。RepoHarness 只参考功能能力，不复制品牌、路径、文案或记忆治理方式。
 
-Allowed status values: `planned`, `in_progress`, `completed`, `blocked`.
+历史锚点：Phase 1、Phase 2、Phase 2 Workflow And UX、`repo-harness/v3-compat-phase2`、`archive-before-repoharness-rename-20260503`。
 
-## Phase 1 Completed
+## 已完成能力
 
-- `.repo-harness.toml` configuration with CLI > environment > file > default precedence.
-- OpenAI, Anthropic, and DeepSeek provider profiles.
-- DeepSeek through the Anthropic-compatible protocol.
-- Provider reliability metadata with sanitized base URL, attempts, and retry count.
-- Lightweight tool policy for run_shell read/search rejection, fresh reads before existing-file edits, and repeated call protection.
-- `/remember <text>` queueing durable memory candidates for `/memory review`.
+- Provider 配置系统：CLI、process env、项目 `.env`、项目 `.repo-harness.toml`、全局 `%USERPROFILE%\.repo-harness\config.toml`、默认值按固定优先级合并。
+- Provider：OpenAI-compatible、Anthropic-compatible、DeepSeek、Ollama；DeepSeek 是一等 provider，走 Anthropic-compatible client。
+- 默认参数：`max_steps=50`，`max_new_tokens` 按 provider 推断。
+- Runtime：core executor、permission、tool policy、context usage、session events、runtime reports、trace metadata。
+- Tool policy：shell read/search 拦截、fresh read before write、重复工具调用 guard、多 tool-call 顺序和 partial failure trace。
+- Permission/profile：plan、readonly、worker、skill、memory organize 等路径统一走 profile gate。
+- Skills：bundled/project/local skills、frontmatter、YAML list、allowed tools gate、prompt section、fork/model override、skill events。
+- Workers：worker manager 支持后台生命周期、continue/stop/shutdown、running send guard、notifications、artifacts、write scope、Explore readonly。
+- Sandbox：`off`、`best_effort`、`read_only`、`required`；sandbox 支持 backend metadata、glob excluded commands 和 fail closed。
+- TUI：可选 Textual TUI app，覆盖 slash completion、normal turn、ask_user 和 worker notification；无依赖时只提供 fallback。
+- Evidence：`RunEvidence` public CLI scripted task、隔离 workspace、report、trace、session events、state dir、structured payload。
+- Business dogfood：默认 fake/scripted provider，场景为 `order_pricing_bugfix`、`release_readiness_review`、`incident_resume_fix`；live provider 必须显式 opt-in。
+- Release smoke：scenario id contract、all passed、artifact path exists。
 
-## Phase 2 Completed
+## RepoHarness 保留优势
 
-- Skills discovery from `skills/<name>/SKILL.md` and `.repo-harness/skills/<name>/SKILL.md`.
-- REPL commands `/skills` and `/skill <name> [args]`.
-- Session-scoped todo ledger with `todo_add`, `todo_update`, `todo_list`, prompt state, and report state.
-- Bounded worker manager with `/agents`, `/subagent explore <task>`, and `/subagent worker --scope <path[,path]> <task>`.
-- Sandbox config through `.repo-harness.toml`, `--sandbox`, and `--sandbox-backend`; modes are `off`, `best_effort`, and `read_only`.
-- Runtime control plane layering for model completion and tool execution.
-- Optional Textual TUI entry through `--tui`.
-- Release evidence scenario gate under RepoHarness-named output paths.
+- Memory Pack：safe-transfer、continue-work、full-recovery。
+- Review Queue：durable memory 必须人工 review。
+- Explainable Retrieval：`/memory_explain`、score breakdown、selected explanations。
+- Fuzzy Lexical Retrieval：克制的词面归一化。
+- RepoHarness 品牌与路径：`.repo-harness/`、`repo-harness`、`repo_harness`。
 
-## v3 Parity Closeout Completed
-
-- Plan mode commands `/plan <topic>`, `/plan-exit`, and `/mode`, with active artifacts in `.repo-harness/plans/`.
-- Slash command parity for `/usage`, `/model [name]`, `/history`, `/context`, `/compact`, and `/working-memory`.
-- Unified permission checker, session event bus, context usage metadata, compaction events, and enriched trace fields.
-- `ask_user` tool and TUI ask-user prompt path.
-- Full skill frontmatter, argument substitution, fork skills, and skill events.
-- Worker send/stop notifications and plan-mode Explore-only enforcement.
-- Sandbox `required` mode and backend fallback/unavailable metadata.
-- `/memory organize` queues Review Queue candidates only.
-- Runtime artifact graph, verifier suggestions, runtime reminders, and 50-scenario release evidence gate.
-
-Durable memory governance remains:
+## 记忆治理
 
 ```text
 candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
 ```
 
-Skills, workers, `/remember`, `/memory organize`, and release evidence do not directly write `.repo-harness/memory/topics/*.md`.
+`/remember`、`/memory organize`、skills、workers、evidence 和自动整理只能写候选，不能直接写 durable topics。
 
-## Release Fields
+## 最新验证
 
-- Phase 1 baseline commit: `e1842d6`
-- Phase 1 commit: `2487dd5`
-- Phase 1 push branch: `repo-harness/v3-compat-phase1`
-- Phase 2 commit: final pushed `feat: add v3 compat workflow ux` commit on `repo-harness/v3-compat-phase2`
-- Phase 2 push branch: `repo-harness/v3-compat-phase2`
-- Parity closeout branch: `repo-harness/v3-compat-parity-closeout`
-- Parity closeout commit: final pushed `feat: add v3 parity closeout` commit on `repo-harness/v3-compat-parity-closeout`
-
-## Verification
-
-- `uv run pytest tests/test_repo_harness.py tests/test_memory.py tests/test_memory_pack.py tests/test_safety_invariants.py -q -k "provider or deepseek or config or tool_policy or repeated or remember or review or memory_pack or docs"`: Phase 1 targeted suite passed.
-- `uv run pytest tests/test_repo_harness.py tests/test_safety_invariants.py tests/test_memory.py -q -k "skills or skill or todo or worker or sandbox or tui or scenario or evidence or review"`: 11 passed, 128 deselected.
-- `uv run pytest tests/test_tui.py tests/test_skills_acceptance.py tests/test_todo_ledger_acceptance.py tests/test_agent_workers_acceptance.py tests/test_sandbox_runner.py tests/test_run_evidence.py -q`: 10 passed.
-- `uv run ruff check .`: passed.
-- `git diff --check`: passed with Windows LF/CRLF warnings only.
-- `uv run pytest tests -q --basetemp C:\tmp\rh-test`: 194 passed.
-- `uv run pytest tests/test_plan_mode.py tests/test_usage.py tests/test_ask_user.py tests/test_permissions_acceptance.py -q`: 8 passed.
-- `uv run pytest tests/test_context_governance_acceptance.py tests/test_runtime_evidence_acceptance.py -q`: 4 passed.
-- `uv run pytest tests/test_skills_acceptance.py tests/test_agent_workers_acceptance.py tests/test_sandbox_runner.py -q`: 13 passed.
-- `uv run pytest tests/test_tui.py tests/test_run_evidence.py -q`: 4 passed.
-- `uv run pytest tests/test_repo_harness.py tests/test_memory.py tests/test_safety_invariants.py -q -k "plan or usage or context or compact or skill or worker or sandbox or tui or evidence or review or organize"`: 17 passed, 123 deselected.
-- `uv run ruff check .`: passed.
-- `git diff --check`: passed with Windows LF/CRLF warnings only.
-- `uv run pytest tests -q --basetemp C:\tmp\rh-test`: 215 passed.
+- `uv run pytest tests -q --basetemp C:\tmp\rh-test`：240 passed, 1 skipped。
+- `uv run ruff check .`：passed。
+- `git diff --check`：passed，仅有 Windows LF/CRLF 提示。
+- `uv run --extra tui pytest tests/test_tui.py -q`：4 passed。
+- `uv run pytest tests/test_memory.py tests/test_safety_invariants.py -q -k "review or organize or durable"`：3 passed, 30 deselected。

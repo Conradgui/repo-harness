@@ -1,84 +1,62 @@
 # 版本管理记录
 
-## 文档说明
+## 当前基线
 
-这份文档用于记录维护者资料和关键仓库状态的版本管理规则。它帮助维护者知道哪些记录可以追加、哪些基线不能改写、哪些 tag 或提交可用于回滚。
+- 当前目标分支：`main`
+- 最终版功能提交：`feat: complete RepoHarness v3 parity closeout`
+- 文档同步提交建议：`docs: sync RepoHarness v3 final documentation`
+- 参考基线：参考仓库 v3 commit `91a7c17`
 
-本文不是 Git 教程，也不是完整提交历史。具体代码变更仍以 Git log 为准；这里记录的是维护者需要主动记住的版本边界和文档维护规则。
+## 公开入口
 
-## 更新规则
-
-- 每个关键基线、归档点或文档管理规则变化都新增一个日期小节。
-- 不改写已经发布或已经归档的 tag 指向。
-- 如果后续切换主分支、重命名项目或改变远程仓库，应新增记录说明新基线。
-- 文档调整使用独立 `docs:` 提交，避免和代码修复混在一起。
-
-## 版本记录
-
-### 2026-05-03：RepoHarness 全量重命名基线
-
-#### 当前公开接口
-
-- Python 包名：`repo_harness`
-- CLI 命令：`repo-harness`
+- Python 包：`repo_harness`
+- CLI：`repo-harness`
 - 模块入口：`python -m repo_harness`
 - 本地状态目录：`.repo-harness/`
 
-#### 当前状态目录规则
+旧品牌入口、旧状态目录和旧配置文件不再作为当前支持面维护。
 
-- `.repo-harness/` 是唯一受支持的本地状态目录。
-- 启动时不再从旧状态目录复制会话、memory 或运行工件。
-- 旧品牌 CLI 和旧模块入口不再作为支持入口维护。
+## 提交分组
 
-#### Agent 指令文件规则
+- 功能代码：`feat: ...`
+- 修复：`fix: ...`
+- 测试：`test: ...`
+- 文档：`docs: ...`
+- CI：`ci: ...`
+- 重构：`refactor: ...`
 
-- `AGENTS.md` 是可选仓库级指令文件，不是运行必需文件。
-- 本次重命名不新增 `AGENTS.md` 或 `AGENT.md`。
-- 如果未来需要添加仓库级 agent 规则，优先使用现有代码约定的复数文件名 `AGENTS.md`。
+文档同步必须使用独立 `docs:` 提交，避免和功能代码混在一起。
 
-### 2026-05-03：重命名前 GitHub 存档基线
+## 合并规则
 
-#### 基线信息
+- 功能分支进入 `main` 优先使用 `git merge --ff-only`。
+- 如果不能 fast-forward，先停下来检查分支差异，不强行合并。
+- 文档更新基于已合入 `main` 的功能状态。
 
-- 工作分支：`<archive-work-branch>`
-- GitHub 存档 remote：`<archive-remote>`
-- GitHub 存档仓库：`https://github.com/<owner>/<repo-archive>.git`
-- 重命名前基线 tag：`archive-before-repoharness-rename-20260503`
-- tag 指向提交：`9d78e0f49cf147cb671531e05251d4d0b43220d3`
+## 验证规则
 
-#### 管理规则
+功能提交前：
 
-- 后续如果推进 `RepoHarness` 全量重命名，应基于该 tag 或当前分支创建新提交，不要改写已有存档 tag。
-- 如果需要回滚到重命名前状态，优先使用该 tag。
+```powershell
+uv run pytest tests -q --basetemp C:\tmp\rh-test
+uv run ruff check .
+git diff --check
+```
 
-### 2026-05-03：维护者文档管理规则
+文档提交前：
 
-#### 文档分层
+```powershell
+git diff --check
+```
 
-- `changelog-draft.md`：发布说明草案，按日期维护待发布变更；发版时再整理到正式 changelog。
-- `issue-triage.md`：问题归因记录，按日期追加排查结论。
-- `patch-summary.md`：修复摘要记录，按日期追加修复批次。
-- `windows-compatibility.md`：Windows 兼容性记录，按日期追加平台相关适配。
-- `project-study-sop.md`：项目学习 SOP，按日期记录入口、路径或阅读方法的变化。
-- `README.md`：本目录索引；新增维护者文档时必须同步更新。
+并检查 README/docs 中是否出现旧品牌、旧路径、未完成措辞或乱码。
 
-#### 提交分组建议
+## 记忆治理规则
 
-1. 兼容性修复：`fix: ...`
-2. 测试和验证：`test: ...`
-3. 文档和维护者资料：`docs: ...`
-4. CI 或工程配置：`ci: ...`
-5. 品牌或包名重命名：`refactor: ...`
+任何版本都必须保留：
 
-#### 评审清单
+```text
+candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+```
 
-- 执行 `uv run ruff check .`。
-- 执行 `uv run pytest -q`。
-- 如果只改文档，可以说明未跑全量测试的原因；涉及命令示例、包名、路径或测试保护文档时仍建议跑相关测试。
-- 如果条件允许，分别在 Windows CMD、Windows PowerShell 和类 Unix shell 中确认入口命令。
-
-#### 对外表述口径
-
-- Windows 是复现环境，不是根因本身。
-- 这批工作应描述为跨平台兼容性加固、benchmark 可移植性修复、可复现性稳定化和维护者文档补强。
-- 如果进入 `RepoHarness` 重命名阶段，应单独描述为破坏性品牌和接口重命名，不要和 Windows 兼容性修复混在一个 changelog 条目里。
+不得通过版本升级把候选事实直接写入 durable topics。

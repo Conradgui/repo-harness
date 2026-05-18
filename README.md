@@ -1,50 +1,85 @@
 # RepoHarness
 
-## v3 Parity Closeout
+RepoHarness 是一个运行在本地仓库里的轻量 coding agent。它通过受约束工具读取文件、修改文件、运行命令，并把会话、运行工件、记忆和审计信息保存在 `.repo-harness/` 下。
 
-RepoHarness now includes the final v3 parity closeout on top of Phase 1 and Phase 2. The closeout adds plan mode, richer slash command parity, a unified permission gate, session event logging, context compaction, full skill metadata, worker send/stop notifications, required sandbox mode, a TUI runtime flow, `/memory organize`, runtime evidence, and a 50-scenario release gate.
+当前版本已经完成 v3 功能对标收尾，但保留 RepoHarness 自己的产品边界：
 
-New REPL commands:
+- CLI 入口是 `repo-harness`，模块入口是 `python -m repo_harness`，Python 包名是 `repo_harness`。
+- 本地状态目录只使用 `.repo-harness/`。
+- 长期记忆必须经过 Review Queue；`/remember`、`/memory organize`、skills、workers、evidence 和自动整理都不能直接写 durable topics。
+- Memory Pack、Explainable Retrieval、Fuzzy Lexical Retrieval 和 Review Queue 是 RepoHarness 的核心优势，不为对标而降级。
 
-- `/plan <topic>`, `/plan-exit`, and `/mode` manage read-oriented planning and write the active plan to `.repo-harness/plans/<slug>-plan.md`.
-- `/usage`, `/model [name]`, `/history`, `/context`, `/compact`, and `/working-memory` expose runtime state without changing project config.
-- `/memory organize` organizes candidate facts into the Review Queue only.
-
-Sandbox modes are now `off`, `best_effort`, `read_only`, and `required`. Anthropic-compatible defaults use a larger provider-aware output budget unless explicitly configured.
-
-`/remember`, `/memory organize`, skills, workers, release evidence, and automatic memory self-iteration never write durable topics directly. Durable memory still follows:
+长期记忆治理路径固定为：
 
 ```text
 candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
 ```
 
-## v3 Compat Phase 2 Workflow And UX
+完整新手流程见 [docs/getting-started.md](docs/getting-started.md)。
 
-RepoHarness now includes the workflow layer from the v3 compatibility track while keeping the public `repo-harness` CLI, `repo_harness` package, `.repo-harness/` state directory, Phase 1 provider config, and review-controlled durable memory.
+## 安装
 
-Phase 2 adds:
+需要 Python 3.10+。推荐使用 `uv`：
 
-- Skills discovery from `skills/<name>/SKILL.md` and `.repo-harness/skills/<name>/SKILL.md`, plus `/skills` and `/skill <name> [args]`.
-- A session-scoped todo ledger with `todo_add`, `todo_update`, and `todo_list`; reports include `todos` and `todo_changes`.
-- Bounded workers through `/agents`, `/subagent explore <task>`, and `/subagent worker --scope <path[,path]> <task>`.
-- Sandbox settings through `.repo-harness.toml`, `--sandbox`, and `--sandbox-backend`; supported modes are `off`, `best_effort`, `read_only`, and `required`.
-- Optional TUI entry through `--tui`, backed by the same runtime as the REPL.
-- A Phase 2 release evidence runner that writes RepoHarness-named scenario evidence.
-
-Skills, workers, `/remember`, and release scenarios do not write durable topics directly. Durable memory still follows:
-
-```text
-candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+```bash
+uv sync
+uv run python -m repo_harness --help
 ```
 
-## v3 Compat Phase 1 Foundation
+也可以安装为可编辑包：
 
-RepoHarness supports `.repo-harness.toml` for project-level defaults. Provider profiles now cover OpenAI, Anthropic, and DeepSeek. DeepSeek is a first-class provider implemented through the Anthropic-compatible protocol.
+```bash
+pip install -e .
+repo-harness --help
+```
+
+## 快速启动
+
+在当前仓库里进入交互模式：
+
+```bash
+uv run repo-harness
+```
+
+指定工作区：
+
+```bash
+uv run repo-harness --cwd /path/to/repo
+```
+
+执行一次性任务：
+
+```bash
+uv run repo-harness "inspect the failing tests and propose a fix"
+```
+
+Windows PowerShell 示例：
+
+```powershell
+uv run repo-harness --cwd C:\path\to\repo
+uv run repo-harness "summarize this repository"
+```
+
+## Provider 配置
+
+RepoHarness 支持四类 provider：
+
+- `openai`：OpenAI-compatible Responses API，默认 provider。
+- `anthropic`：Anthropic-compatible Messages API。
+- `deepseek`：一等 provider，走 Anthropic-compatible client。
+- `ollama`：本地 Ollama。
+
+配置优先级固定为：
+
+```text
+CLI 显式参数 > process env / 项目 .env > 项目 .repo-harness.toml > 全局 config > 默认值
+```
+
+项目级配置文件是 `.repo-harness.toml`：
 
 ```toml
 provider = "deepseek"
 max_steps = 50
-max_tokens = 8192
 
 [providers.deepseek]
 client = "anthropic"
@@ -53,323 +88,183 @@ base_url = "https://api.deepseek.com/anthropic"
 api_key_env = "DEEPSEEK_API_KEY"
 ```
 
-Configuration precedence is CLI > environment > `.repo-harness.toml` > defaults. `/remember <text>` queues a durable memory candidate only; durable memory still follows:
+用户级全局配置文件是：
 
 ```text
-candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+%USERPROFILE%\.repo-harness\config.toml
 ```
 
-Phase 1 is the foundation release. Phase 2 owns skills, todo ledger, worker manager, sandbox, runtime control plane layering, Textual TUI, and release evidence. Reference v3 commit: `91a7c17`; old stable reference tag: `archive-before-repoharness-rename-20260503`.
+Linux/macOS 对应：
 
-`repo-harness` 是一个面向代码仓库的轻量本地 coding agent。它直接跑在终端里，先看当前工作区，再用一组受约束的工具去读文件、改文件、跑命令，并把会话状态保存在本地 `.repo-harness/` 目录里。
+```text
+~/.repo-harness/config.toml
+```
 
-它更像一个能在仓库里持续工作的命令行助手，不是纯聊天窗口。你可以拿它做代码排查、测试修复、仓库分析，或者让它在当前项目里执行一次性的工程任务。
+项目 `.env` 可放常用覆盖项：
 
-如果你是第一次使用 RepoHarness，请先阅读 [RepoHarness 新手指南](docs/getting-started.md)。README 是快速入口；完整安装、API Key、Windows CMD / PowerShell、REPL 指令和产品 Q&A 都在新手指南里。
+```dotenv
+REPO_HARNESS_PROVIDER=openai
+REPO_HARNESS_MODEL=gpt-5.4
+REPO_HARNESS_MAX_NEW_TOKENS=8192
+```
 
-## 适合做什么
-
-- 在本地仓库里排查测试失败
-- 读取当前代码结构并给出修改建议
-- 基于现有文件做小步迭代，而不是脱离仓库空想
-- 在会话中保留上下文，支持继续上一次工作
-- 通过 memory pack 迁移或备份可追踪的本地记忆
-
-## 主要特性
-
-- 包名是 `repo_harness`
-- CLI 命令是 `repo-harness`
-- 模块入口是 `python -m repo_harness`
-- 会话保存在 `.repo-harness/sessions/`
-- 每次运行的工件保存在 `.repo-harness/runs/<run_id>/`
-- 长期记忆保存在 `.repo-harness/memory/`
-- 支持 memory pack 的导出、导入、检查和验证
-- 支持三类模型后端：
-  - Ollama
-  - OpenAI 兼容 Responses API
-  - Anthropic 兼容 Messages API
-
-## 安装
-
-需要 Python 3.10+。
-
-如果你用 `uv`，直接安装依赖：
+常用启动示例：
 
 ```bash
-uv sync
-```
-
-如果你已经在自己的 Python 环境里工作，也可以直接装成可编辑模式：
-
-```bash
-pip install -e .
-```
-
-## 快速开始
-
-下面的 `uv run ...` 命令需要在 `repo-harness` 项目根目录执行，也就是当前目录下能看到 `pyproject.toml` 和 `repo_harness/` 包目录。先进入项目根目录，再运行命令。
-
-更完整的首次配置流程见 [RepoHarness 新手指南](docs/getting-started.md)。
-
-### macOS / Linux
-
-在当前仓库里启动交互模式：
-
-```bash
-cd /path/to/repo-harness
-uv run repo-harness
-```
-
-指定另一个工作目录：
-
-```bash
-uv run repo-harness --cwd /path/to/repo
-```
-
-直接跑一次性任务：
-
-```bash
-uv run repo-harness "inspect the test failures and propose a fix"
-```
-
-如果当前环境已经安装过包，也可以直接这样启动：
-
-```bash
-python -m repo_harness
-```
-
-### Windows PowerShell
-
-PowerShell 使用 `$env:` 设置当前终端会话的环境变量：
-
-```powershell
-cd C:\path\to\repo-harness
-$env:OPENAI_API_KEY="your-api-key"
-$env:OPENAI_API_BASE="https://your-api.example/v1"
-$env:OPENAI_MODEL="gpt-5.4"
-uv run python -m repo_harness --help
-uv run repo-harness
-```
-
-也可以指定工作目录：
-
-```powershell
-uv run repo-harness --cwd C:\path\to\repo
-```
-
-### Windows CMD
-
-CMD 使用 `set` 设置当前终端会话的环境变量：
-
-```bat
-cd /d C:\path\to\repo-harness
-set OPENAI_API_KEY=your-api-key
-set OPENAI_API_BASE=https://your-api.example/v1
-set OPENAI_MODEL=gpt-5.4
-uv run python -m repo_harness --help
-uv run repo-harness
-```
-
-也可以指定工作目录：
-
-```bat
-uv run repo-harness --cwd C:\path\to\repo
-```
-
-Windows 用户可以从 CMD 或 PowerShell 启动 `repo-harness`。如果机器上安装了 Git Bash，`repo-harness` 内部执行 shell 工具时会优先使用兼容 shell 来处理模型常见的 POSIX 风格命令；Git Bash 不是启动 `repo-harness` 的硬依赖。
-
-## 模型后端
-
-### Ollama
-
-```bash
-ollama serve
-ollama pull qwen3.5:4b
+uv run repo-harness --provider openai
+uv run repo-harness --provider anthropic
+uv run repo-harness --provider deepseek
 uv run repo-harness --provider ollama --model qwen3.5:4b
 ```
 
-### OpenAI 兼容接口
+默认 `max_steps` 为 50。`max_new_tokens` 会按 provider 推断，除非通过 CLI、环境变量或配置文件显式指定。
 
-macOS / Linux：
+## 工具、安全和运行模式
 
-```bash
-export OPENAI_API_BASE="https://your-api.example/v1"
-export OPENAI_API_KEY="your-api-key"
-export OPENAI_MODEL="gpt-5.4"
-uv run repo-harness --provider openai
+RepoHarness 的工具执行统一经过 core executor、permission gate、tool policy 和 sandbox：
+
+- `approval_policy="ask"` 对同一 risky tool 只触发一次审批。
+- shell 普通搜索/读取会被拦截，鼓励使用结构化 `read_file` / `search`。
+- 修改既有文件前需要 fresh read；重复工具调用会进入 guard。
+- 多 tool-call 按模型输出顺序执行，partial failure 会进入 trace。
+
+Sandbox 支持：
+
+```text
+off | best_effort | read_only | required
 ```
 
-Windows PowerShell：
+示例：
+
+```bash
+uv run repo-harness --sandbox read_only
+uv run repo-harness --sandbox required --sandbox-backend bubblewrap
+```
+
+## REPL 和工作流能力
+
+常用 REPL 命令：
+
+- `/help`：查看命令。
+- `/plan <topic>`、`/plan-exit`、`/mode`：进入/退出 plan mode。
+- `/usage`、`/model [name]`、`/history`、`/context`、`/compact`、`/working-memory`：查看运行状态。
+- `/skills`、`/skill <name> [args]`：发现并调用 skills。
+- `/agents`、`/subagent explore <task>`、`/subagent worker --scope <path> <task>`：启动受限 worker。
+- `/memory review`：审核长期记忆候选。
+- `/memory organize`：整理候选事实，只进入 Review Queue。
+- `/memory_explain <query>`：查看记忆检索解释链路。
+- `/memory_pack` 或 `/memory-pack`：打开 memory pack 菜单。
+
+## Skills
+
+RepoHarness 会发现：
+
+```text
+skills/<name>/SKILL.md
+.repo-harness/skills/<name>/SKILL.md
+```
+
+Skill frontmatter 支持常见 YAML list，例如：
+
+```yaml
+---
+name: inspect
+allowed_tools:
+  - read_file
+  - search
+paths:
+  - src/
+---
+```
+
+`allowed_tools` 会同时影响 prompt 中展示的工具列表和实际 permission gate。skill 可提供 prompt、参数替换、fork/model override 和事件记录，但不能绕过 Review Queue 写 durable memory。
+
+## Workers
+
+Worker 是 session-scoped 子任务：
+
+- Explore worker 默认只读。
+- Write worker 必须指定 `write_scope`。
+- 支持后台生命周期、continue、stop、shutdown、running send guard、notifications 和 worker artifacts。
+- Worker 继承 provider config、tool policy、sandbox 和 memory governance。
+
+示例：
+
+```text
+/subagent explore inspect the routing layer
+/subagent worker --scope src,tests add targeted tests for config precedence
+/agents
+```
+
+## TUI
+
+安装 Textual extra 后可启动 TUI：
+
+```bash
+uv run --extra tui repo-harness --tui
+```
+
+TUI 使用同一套 runtime，不是独立行为路径；slash completion、normal turn、ask_user prompt 和 worker notification 都走公共 runtime。
+
+## Evidence 和发布验收
+
+RepoHarness 提供两类默认不需要 live API key 的验收：
+
+- `RunEvidence`：通过 public CLI、scripted provider 和隔离 workspace 验证 changed file、report、trace、session events 和 state dir。
+- business dogfood：默认 fake/scripted provider，覆盖 `order_pricing_bugfix`、`release_readiness_review`、`incident_resume_fix`。
+
+Live business dogfood 必须显式 opt-in：
 
 ```powershell
-$env:OPENAI_API_BASE="https://your-api.example/v1"
-$env:OPENAI_API_KEY="your-api-key"
-$env:OPENAI_MODEL="gpt-5.4"
-uv run repo-harness --provider openai
+$env:REPO_HARNESS_RUN_LIVE_BUSINESS_DOGFOOD="1"
 ```
 
-Windows CMD：
-
-```bat
-set OPENAI_API_BASE=https://your-api.example/v1
-set OPENAI_API_KEY=your-api-key
-set OPENAI_MODEL=gpt-5.4
-uv run repo-harness --provider openai
-```
-
-### Anthropic 兼容接口
-
-macOS / Linux：
-
-```bash
-export ANTHROPIC_API_BASE="https://your-anthropic-compatible.example/v1"
-export ANTHROPIC_API_KEY="your-api-key"
-export ANTHROPIC_MODEL="claude-sonnet-4-6"
-uv run repo-harness --provider anthropic
-```
-
-Windows PowerShell：
+常用维护验证：
 
 ```powershell
-$env:ANTHROPIC_API_BASE="https://your-anthropic-compatible.example/v1"
-$env:ANTHROPIC_API_KEY="your-api-key"
-$env:ANTHROPIC_MODEL="claude-sonnet-4-6"
-uv run repo-harness --provider anthropic
+uv run pytest tests -q --basetemp C:\tmp\rh-test
+uv run ruff check .
+git diff --check
 ```
 
-Windows CMD：
+## Memory Pack 和可解释记忆
 
-```bat
-set ANTHROPIC_API_BASE=https://your-anthropic-compatible.example/v1
-set ANTHROPIC_API_KEY=your-api-key
-set ANTHROPIC_MODEL=claude-sonnet-4-6
-uv run repo-harness --provider anthropic
-```
-
-如果你的服务端对多个兼容接口复用了同一套密钥，`repo-harness` 也支持按当前 provider 的 API Key 环境变量读取密钥。
-
-## 常用交互命令
-
-- `/help`：查看内置命令
-- `/memory`：查看提炼后的工作记忆
-- `/memory review`：审核 pending durable memory 候选，确认后才写入长期记忆
-- `/memory self_iteration`：只读查看最近一次 Memory Self-Iteration 状态
-- `/memory_explain <query>`：查看 Explainable Retrieval v1 如何为查询选择 memory
-- `/memory_pack` 或 `/memory-pack`：打开 memory pack 菜单
-- `/session`：查看当前会话文件路径
-- `/reset`：清空当前会话状态
-- `/exit` 或 `/quit`：退出 REPL
-
-## Explainable Retrieval v1
-
-`/memory_explain <query>` 用来调试记忆召回：它不会修改 memory，只展示 Explainable Retrieval v1 对候选记忆的选择结果。输出重点包括 `score_breakdown` 和 `selected_explanations`，说明每条 memory 因为 tag match、keyword overlap、recency、kind 或 source 等确定性信号被选中。
-
-这项能力延续 RepoHarness 记忆系统原则：默认 lexical retrieval，轻量、可复现、文件可追踪；解释应指向本地 `.repo-harness/memory/` 中的来源，而不是依赖不可解释的外部索引。检索会对大小写、`_` / `-` 等分隔符和 camelCase / PascalCase 做确定性归一化，但不做 edit distance、同义词表或 semantic retrieval。
-
-## Code-Aware File Summaries v1
-
-RepoHarness 的 `file_summaries` 仍然是短工作记忆，不是代码索引或知识库。读取完整 Python 文件时，摘要会用标准库 AST 提取少量结构信号，例如 imports、classes、functions 和 constants；摘要继续受固定长度上限控制，并且仍然绑定 freshness hash。
-
-读取完整 Markdown 文件时，摘要会提取 ATX headings，并忽略 fenced code block 内的伪标题。读取完整 JSON / TOML / INI / CFG / YAML 文件时，摘要只提取浅层 keys / sections。读取 Python 测试文件时，摘要优先提取 `test_*` functions、`Test*` classes 和 class 内 `test_*` methods。
-
-如果读取的是片段、解析失败或没有可提取结构，系统会回退到原有的前三行短摘要。这个能力不调用模型、不引入 embedding / database / background service，也不改变 memory section 预算。
-
-## Durable Memory Review Queue
-
-RepoHarness 不会再把模型最终回答里解析出的长期事实直接写入 durable topics。用户明确要求保存长期记忆时，候选会先进入：
-
-```text
-.repo-harness/memory/review-queue.jsonl
-```
-
-在 REPL 里输入 `/memory review` 可以逐条审核：
-
-- `accept`：把候选写入固定四类 durable topics。
-- `edit`：先编辑 topic 或 text，再写入 durable topics。
-- `reject`：拒绝候选，不写入 durable memory。
-- `skip`：保留 pending，稍后再处理。
-
-secret-shaped、临时任务状态和噪声输出不会进入 queue；人工 edit 后也会再次执行同一类安全过滤。Pending queue 不进入 prompt memory、不参与 `/memory_explain`，也不会被 `safe-transfer` memory pack 导出。
-
-## Memory Self-Iteration v1
-
-Memory Self-Iteration v1 是透明、可控的轻量自整理。每轮 run 收尾时，RepoHarness 可以把过长的 episodic notes 压缩成 bounded summary，并把看起来可复用的长期事实候选送入 Review Queue；它不会直接写 `.repo-harness/memory/topics/*.md`。
-
-如果本轮产生了候选，REPL 会在最终回答后提示你运行 `/memory review`。你也可以输入：
-
-```text
-/memory self_iteration
-```
-
-这个入口只读展示最近一次 self-iteration 的 compaction、queued candidates、rejections 和 pending review 数量；它不会触发 compaction，不会生成新候选，也不会写 durable memory。
-
-`report.json` 会记录 `episodic_compactions`、`self_iteration_review_queued` 和 `self_iteration_rejections`。这些字段用于解释系统做了什么；长期记忆最终控制点仍然只有 `/memory review`。
-
-## Memory v1 当前边界
-
-当前记忆系统 v1 的稳定目标是“可迁移、可审核、可解释”，不是扩大语义检索复杂度：
-
-- 可迁移：Memory Pack 支持 `safe-transfer`、`continue-work` 和 `full-recovery` 三种 preset。
-- 可审核：所有 durable memory 候选先进入 `review-queue.jsonl`；只有 `/memory review` 的 accept/edit 会写入 durable topics。
-- 可解释：`/memory_explain` 和 `selected_explanations` 解释被选中 memory 的确定性 lexical / fuzzy lexical 信号。
-
-相关运行报告字段也保持固定语义：`durable_review_queued` 和 `self_iteration_review_queued` 表示本轮入队候选，`durable_promotions` 只表示真正写入 durable topics 的内容，`durable_rejections` 和 `self_iteration_rejections` 表示被安全过滤拒绝的候选。
-
-## Memory Pack
-
-Memory pack 用来迁移、备份或检查 RepoHarness 的本地记忆系统。它保持当前记忆系统的设计原则：确定性、轻量、文件可追踪、分层清晰。
-
-普通用户可以在 REPL 里输入：
-
-```text
-repo-harness> /memory_pack
-```
-
-`/memory-pack` 是同一个入口的别名。菜单按最终效果组织：
-
-- `safe-transfer`：只导出 durable knowledge，适合把长期项目记忆迁移到另一台电脑。
-- `continue-work`：导出 durable knowledge 和 working context；导入时 working context 会保存为独立 snapshot，不覆盖当前 session。
-- `full-recovery`：导出 durable knowledge、working context、sessions / checkpoints 和 run artifacts。
-
-高级用户可以直接使用 CLI：
+Memory Pack 支持导出、导入、检查和验证：
 
 ```bash
-repo-harness memory export --preset safe-transfer
-repo-harness memory export --preset continue-work
-repo-harness memory export --preset full-recovery
+repo-harness memory export --preset safe-transfer --output memory-pack.zip
 repo-harness memory inspect memory-pack.zip
 repo-harness memory validate memory-pack.zip
 repo-harness memory import memory-pack.zip
 ```
 
-导入默认使用 conservative merge：只复制缺失内容，不覆盖已有 memory、session 或 run 文件。`full-recovery` 可能包含 prompts、tool outputs、local paths、reports 和 traces；分享或导入之前，先用 `repo-harness memory inspect` 和 `repo-harness memory validate` 检查。
+三种常用 preset：
 
-## 安全与持久化
+- `safe-transfer`：只导出 accepted durable memory。
+- `continue-work`：保留继续工作需要的上下文快照。
+- `full-recovery`：包含更完整恢复材料，使用前应确认隐私边界。
 
-`repo-harness` 不会默认把所有动作都放开。像 shell 执行、文件写入这类高风险操作，会受审批模式控制：
+Pending review queue 不进入 prompt memory、不参与 `/memory_explain`，也不会被 `safe-transfer` 导出。
 
-- `--approval ask`
-- `--approval auto`
-- `--approval never`
+运行工件会保留 prompts、tool outputs、local paths、reports 和 traces，方便审计 memory pack 内容来源。
 
-每次运行结束后，都会在 `.repo-harness/runs/<run_id>/` 下写出这些文件：
+记忆系统的审计字段和只读入口：
 
-- `task_state.json`
-- `trace.jsonl`
-- `report.json`
+- `/memory self_iteration`：只读查看最近一次自整理，不会触发 compaction，也不会自动写 durable topics。
+- `episodic_compactions`：记录 episodic notes 压缩。
+- `durable_review_queued`：记录本轮进入 Review Queue 的长期事实候选。
+- `self_iteration_review_queued`：记录自动整理送审候选。
+- `self_iteration_rejections`：记录自动整理拒绝项。
+- `.repo-harness/memory/review-queue.jsonl`：Review Queue 文件。
+- `durable-review-queue-v1`：Review Queue schema。
+- Pending queue：待审队列，不进入 prompt memory、`/memory_explain` 或 `safe-transfer`。
+- `score_breakdown` 与 `selected_explanations`：Explainable Retrieval 的解释字段。
 
-这些内容默认只保存在本地。
+RepoHarness 记忆系统继续以“可迁移、可审核、可解释”为核心。
 
-## Agent 指令文件
+## 项目文档
 
-RepoHarness 会在构建工作区快照时读取可选的 `AGENTS.md`（复数）作为仓库级 agent 指令。这个文件不是运行必需文件；当前仓库没有提交 `AGENTS.md` 或 `AGENT.md` 时，RepoHarness 会继续使用内置 runtime 规则、README 和 `pyproject.toml`。
-
-## 开发
-
-如果装了 Ruff，可以这样检查：
-
-```bash
-uv run ruff check .
-```
-
-新维护者可以从 [维护者项目学习 SOP](docs/maintainer-prep/project-study-sop.md) 开始，按 CLI、runtime、tools、state、tests 的顺序建立项目地图。
+- [新手指南](docs/getting-started.md)
+- [架构概览](docs/architecture/agent-harness-v1-overview.md)
+- [维护者文档入口](docs/maintainer-prep/README.md)
+- [Review Pack](docs/review-pack/README.md)

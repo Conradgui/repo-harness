@@ -1,88 +1,80 @@
-﻿# Review Pack
+# RepoHarness Review Pack
 
-## Document Purpose
+## 文档目的
 
-This document collects review-ready snapshots for maintainers. Each snapshot should explain the project pitch, architecture map, benchmark evidence, and sample run artifacts for a specific review point.
+本文件为维护者和评审者提供可审查快照。它不替代 README；它说明当前版本应该如何被验证、哪些工件可作为证据、哪些治理边界不能被绕过。
 
-This file is not a permanent one-shot description. When the package name, CLI command, local state directory, or review scope changes, add or update the relevant snapshot instead of silently rewriting historical context.
+## 2026-05-19：最终版 v3 功能对标快照
 
-## Update Rules
+本快照覆盖最终版能力：
 
-- Add a dated snapshot for each major review point.
-- Keep historical names and paths inside older snapshots when they describe the state at that time.
-- Update this file together with README and maintainer notes when public entrypoints change.
+- provider config：全局 config、项目 config、项目 `.env`、CLI/env/config/default 优先级。
+- DeepSeek 一等 provider，走 Anthropic-compatible client。
+- core executor、permission、tool policy、sandbox、active tool profile。
+- skills frontmatter、prompt section、allowed tools gate。
+- worker 后台生命周期、notifications、artifacts、write scope。
+- optional Textual TUI，和 REPL 共用 runtime。
+- RunEvidence public CLI scripted task。
+- business dogfood 三业务场景。
+- release evidence scenario contract。
 
-## Review Snapshots
+## Review Skeleton
 
-### 2026-05-18: v3 Parity Closeout
+### Project pitch
 
-This snapshot covers the closeout layer: plan mode, slash command parity, unified permission decisions, ask-user prompts, full skill metadata, worker lifecycle notifications, required sandbox mode, TUI runtime flow, review-gated memory organization, runtime evidence, and a 50-scenario release gate.
+RepoHarness 是一个本地仓库 coding agent，强调受约束工具、可审计运行工件和 review-gated memory。
 
-Review points:
+### Architecture map
 
-- `/memory organize` and automatic organization only write Review Queue candidates.
-- Plan mode can write only the active `.repo-harness/plans/` artifact.
-- `/model <name>` changes only the current runtime and does not write `.repo-harness.toml`.
-- The release gate reads runtime reports, traces, and session events instead of marking scenarios passed statically.
+CLI 构建 runtime；runtime 组织 prompt、model output、tool execution、session events、task state、trace 和 report；workers、skills、TUI 和 evidence 共用这条路径。
 
-Durable memory governance remains:
+### Benchmark evidence
+
+核心证据来自 pytest、mock provider CLI acceptance、RunEvidence public CLI scripted task、business dogfood 三场景和 release evidence scenario rows。
+
+### Sample run artifact list
+
+- `.repo-harness/runs/<run_id>/task_state.json`
+- `.repo-harness/runs/<run_id>/trace.jsonl`
+- `.repo-harness/runs/<run_id>/report.json`
+- `.repo-harness/sessions/<session_id>.events.jsonl`
+
+## 审查重点
+
+- README 和 getting-started 能独立指导用户从安装到运行。
+- `.repo-harness/` 是唯一当前状态目录；公开入口是 `repo-harness` 和 `python -m repo_harness`。
+- release evidence rows 必须全部通过，并且 artifact path 存在。
+- `RunEvidence` 不只跑 help，还要执行 scripted task 并产出 changed file、report、trace、session events。
+- business dogfood row 必须调用真实 `run_dogfood()`，并包含以下场景：
+  - `order_pricing_bugfix`
+  - `release_readiness_review`
+  - `incident_resume_fix`
+- TUI optional extra 下应有真实 app/pilot smoke；无 Textual 时 fallback 不伪装完整 TUI。
+- Skill `allowed_tools` 同时限制 prompt 和实际执行。
+- Worker write task 必须有 `write_scope`，Explore worker 只读。
+
+## 记忆治理
+
+所有审查都必须保留：
 
 ```text
 candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
 ```
 
-### 2026-05-17: v3 Compat Phase 2 Workflow And UX
+`/remember`、`/memory organize`、skills、workers、evidence 和自动整理不得直接写 durable topics。
 
-This review snapshot covers the complete Phase 2 workflow layer: skills, todo ledger, bounded workers, sandbox runner, runtime control plane extraction, optional Textual TUI, and release evidence scenario gate.
+## 验证命令
 
-Review points:
-
-- `/skills` and `/skill <name> [args]` are RepoHarness-named skill entrypoints and do not write durable memory.
-- Todo changes persist in session JSON and appear in prompt/report metadata.
-- Workers inherit Phase 1 provider config, tool policy, secret redaction, and memory governance; write workers are scope-limited.
-- Sandbox failures enter the same tool metadata, trace, and report flow as normal tool failures.
-- The TUI is optional and uses the same runtime, not a separate behavior path.
-- Release evidence uses RepoHarness paths such as `release/v3-compat-phase2/` or `docs/review-pack/phase2/`.
-
-Durable memory governance remains:
-
-```text
-candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+```powershell
+uv run pytest tests -q --basetemp C:\tmp\rh-test
+uv run ruff check .
+git diff --check
+uv run --extra tui pytest tests/test_tui.py -q
 ```
 
-### 2026-05-17: v3 Compat Phase 1 Foundation
+文档同步后额外检查：
 
-This review snapshot covers `.repo-harness.toml`, OpenAI / Anthropic / DeepSeek provider profiles, DeepSeek through the Anthropic-compatible protocol, provider reliability metadata, lightweight tool policy, and `/remember <text>`.
-
-Durable memory governance remains:
-
-```text
-candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
+```powershell
+rg -n "<旧品牌或旧路径关键字>" README.md docs
+rg -n "<未完成或过期阶段措辞>" README.md docs
 ```
-
-Phase 1 is complete foundation work. Phase 2 owns skills, todo ledger, worker manager, sandbox, runtime control plane layering, Textual TUI, and release evidence. Reference v3 commit: `91a7c17`; old stable reference tag: `archive-before-repoharness-rename-20260503`.
-
-### 2026-05-03: RepoHarness Rename Snapshot
-
-#### Project pitch
-
-`RepoHarness` is a local repository harness that works inside a repository with constrained tools, resumable sessions, and local audit artifacts.
-
-#### Architecture map
-
-- CLI entrypoints build a configured agent instance.
-- The runtime loops through prompt building, model decisions, tool execution, and persistence.
-- Runs write task state, traces, and reports under `.repo-harness/runs/`.
-
-#### Benchmark evidence
-
-- Fixed benchmark tasks use deterministic scripted model outputs.
-- Each task runs in a fresh fixture copy.
-- Verifiers confirm the expected artifact after the agent finishes.
-
-#### Sample run artifact list
-
-- `task_state.json`
-- `trace.jsonl`
-- `report.json`
-

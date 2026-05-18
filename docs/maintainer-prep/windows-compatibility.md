@@ -14,6 +14,22 @@
 
 ## 兼容性记录
 
+### 2026-05-19：最终版 shell 与 sandbox 合同
+
+#### 当前策略
+
+- Windows 用户可以从 CMD 或 PowerShell 启动 `repo-harness`。
+- `run_shell` 优先使用可用的 POSIX-compatible shell，以稳定执行模型常见命令；不可用时回退平台默认 shell。
+- shell 环境使用 allowlist，保留 Windows 启动所需变量，同时避免把无关敏感变量带入工具执行。
+- Sandbox `required` 在后端不可用时 fail closed；Windows fallback 会写入明确 metadata。
+
+#### 验证命令
+
+```powershell
+uv run pytest tests/test_sandbox_runner.py tests/test_sandbox_config.py tests/test_tool_policy_acceptance.py -q
+uv run pytest tests/test_repo_harness.py -q -k "run_shell"
+```
+
 ### 2026-05-03：Windows CMD / PowerShell 适配基线
 
 #### 适配原则
