@@ -159,6 +159,11 @@ class WorkerManager:
         return getattr(self.runtime, "model_client_factory", None) is not None
 
     def _start_background(self, task, prompt, action):
+        item = self._get_item(task.id)
+        with self._lock:
+            item["status"] = "running"
+            item["updated_at"] = now()
+            self._save()
         thread = threading.Thread(
             target=run_worker,
             args=(self, task, prompt, action),

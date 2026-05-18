@@ -40,6 +40,7 @@ def execute_tool_payload(engine, task_state, user_message, payload):
         "tool_executed",
         {
             "name": name,
+            "tool_name": name,
             "args": args,
             "result": clip(tool_result, 500),
             "duration_ms": tool_duration_ms,

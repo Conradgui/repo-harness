@@ -141,12 +141,22 @@ def parse_frontmatter(text):
     if not match:
         return {}, str(text)
     metadata = {}
+    current_key = ""
     for line in match.group(1).splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or ":" not in line:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
             continue
-        key, value = line.split(":", 1)
-        metadata[key.strip().lower().replace("-", "_")] = _parse_value(value.strip())
+        if stripped.startswith("-") and current_key:
+            metadata.setdefault(current_key, [])
+            if isinstance(metadata[current_key], list):
+                metadata[current_key].append(_parse_value(stripped[1:].strip()))
+            continue
+        if ":" not in stripped:
+            continue
+        key, value = stripped.split(":", 1)
+        current_key = key.strip().lower().replace("-", "_")
+        value = value.strip()
+        metadata[current_key] = [] if not value else _parse_value(value)
     return metadata, str(text)[match.end() :]
 
 

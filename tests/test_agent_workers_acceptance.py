@@ -86,3 +86,60 @@ def test_plan_mode_allows_only_explore_workers(tmp_path):
         assert "plan mode only allows Explore" in str(exc)
     else:
         raise AssertionError("write worker should be rejected in plan mode")
+
+
+def test_background_worker_uses_model_client_factory_and_reports_artifacts(tmp_path):
+    calls = []
+
+    def factory(**kwargs):
+        calls.append(kwargs)
+        return FakeModelClient(["<final>background done</final>"])
+
+    agent = RepoHarness(
+        model_client=FakeModelClient([]),
+        model_client_factory=factory,
+        workspace=WorkspaceContext.build(tmp_path),
+        session_store=SessionStore(tmp_path / ".repo-harness" / "sessions"),
+        approval_policy="auto",
+    )
+
+    started = agent.worker_manager.spawn("background", "work in background", subagent_type="worker", write_scope=["out"])
+    task = agent.worker_manager._tasks[started["id"]]
+    task.thread.join(10)
+    item = agent.worker_manager.to_dict()["items"][0]
+
+    assert started["status"] == "started"
+    assert calls and calls[0]["subagent_type"] == "worker"
+    assert item["status"] == "completed"
+    assert item["result"] == "background done"
+    assert item["report_path"]
+    assert item["trace_path"]
+    assert agent.worker_manager.drain_notifications() == ["agent_1 completed: background done"]
+
+
+def test_running_background_worker_rejects_continue_until_finished(tmp_path):
+    class BlockingClient(FakeModelClient):
+        def complete(self, prompt, max_new_tokens, **kwargs):
+            import time
+
+            time.sleep(0.2)
+            return "<final>blocked done</final>"
+
+    agent = RepoHarness(
+        model_client=FakeModelClient([]),
+        model_client_factory=lambda **kwargs: BlockingClient([]),
+        workspace=WorkspaceContext.build(tmp_path),
+        session_store=SessionStore(tmp_path / ".repo-harness" / "sessions"),
+        approval_policy="auto",
+    )
+    started = agent.worker_manager.spawn("background", "slow", subagent_type="worker", write_scope=["out"])
+
+    try:
+        try:
+            agent.worker_manager.continue_task(started["id"], "again")
+        except ValueError as exc:
+            assert "worker is running" in str(exc)
+        else:
+            raise AssertionError("continue_task should reject running worker")
+    finally:
+        agent.worker_manager._tasks[started["id"]].thread.join(10)

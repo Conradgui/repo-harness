@@ -69,3 +69,25 @@ def test_long_shell_output_is_clipped_and_full_output_is_saved_as_run_artifact(t
     assert "x" * 6000 in (tmp_path / artifact_path).read_text(encoding="utf-8")
     assert any(event.get("full_output_artifact") == artifact_path for event in read_jsonl(agent.current_run_dir / "trace.jsonl"))
 
+
+def test_multiple_tool_calls_execute_in_order_and_record_partial_failure(tmp_path):
+    agent = build_agent(
+        tmp_path,
+        [
+            '<tool>{"name":"write_file","args":{"path":"first.txt","content":"one\\n"}}</tool>'
+            '<tool>{"name":"run_shell","args":{"command":"python -c \\"import sys; sys.exit(3)\\"","timeout":20}}</tool>'
+            '<tool>{"name":"write_file","args":{"path":"second.txt","content":"two\\n"}}</tool>',
+            "<final>multi done</final>",
+        ],
+    )
+
+    assert agent.ask("run multiple tools") == "multi done"
+
+    tool_history = [item for item in agent.session["history"] if item["role"] == "tool"]
+    assert [item["name"] for item in tool_history] == ["write_file", "run_shell", "write_file"]
+    assert (tmp_path / "first.txt").read_text(encoding="utf-8") == "one\n"
+    assert (tmp_path / "second.txt").read_text(encoding="utf-8") == "two\n"
+    trace = read_jsonl(agent.current_run_dir / "trace.jsonl")
+    failed_shell = next(event for event in trace if event.get("event") == "tool_executed" and event.get("tool_name") == "run_shell")
+    assert failed_shell["tool_status"] == "error"
+    assert failed_shell["tool_error_code"] == "tool_failed"

@@ -1,4 +1,5 @@
 import json
+from unittest.mock import patch
 
 from repo_harness import FakeModelClient, RepoHarness, SessionStore, WorkspaceContext
 from repo_harness.permissions import PermissionDecision
@@ -43,3 +44,13 @@ def test_required_sandbox_fails_closed_after_permission(tmp_path):
     assert "sandbox required but unavailable" in result
     assert agent._last_tool_result_metadata["tool_error_code"] == "tool_failed"
     assert any(event["event"] == "sandbox_unavailable" for event in read_events(agent))
+
+
+def test_ask_approval_prompts_once_for_risky_tool(tmp_path):
+    agent = build_agent(tmp_path, approval_policy="ask")
+
+    with patch("builtins.input", return_value="y") as mock_input:
+        result = agent.run_tool("write_file", {"path": "approved.txt", "content": "ok\n"})
+
+    assert result == "wrote approved.txt (3 chars)"
+    assert mock_input.call_count == 1

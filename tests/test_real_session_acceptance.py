@@ -25,3 +25,15 @@ def test_run_evidence_run_writes_structured_payload(tmp_path):
     assert (tmp_path / "evidence" / "run-evidence.json").exists()
     stored = json.loads((tmp_path / "evidence" / "run-evidence.json").read_text(encoding="utf-8"))
     assert stored["status"] == payload["status"]
+
+
+def test_run_evidence_public_cli_task_creates_artifacts(tmp_path):
+    result = RunEvidence(tmp_path / "evidence").run_public_cli_task_smoke()
+
+    artifacts = result["artifacts"]
+    assert result["status"] == "passed"
+    assert result["driver"] == "public_cli"
+    assert artifacts["changed_file"].endswith("cli-task.txt")
+    assert artifacts["report"].endswith("report.json")
+    assert artifacts["trace"].endswith("trace.jsonl")
+    assert artifacts["session_events"].endswith(".jsonl")

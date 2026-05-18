@@ -88,6 +88,7 @@ class SessionStore:
 
     def save(self, session):
         path = self.path(session["id"])
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(session, indent=2), encoding="utf-8")
         return path
 
@@ -119,8 +120,10 @@ class RepoHarness:
         sandbox_config=None,
         write_scope=None,
         ask_user_callback=None,
+        model_client_factory=None,
     ):
         self.model_client = model_client
+        self.model_client_factory = model_client_factory
         self.workspace = workspace
         self.root = Path(workspace.repo_root)
         self.session_store = session_store
@@ -255,6 +258,8 @@ class RepoHarness:
         name = str(name or "default")
         self.active_tool_profile = self.tool_profiles.get(name) or self.tool_profiles["default"]
         self.tool_profile = self.active_tool_profile.name
+        if hasattr(self, "prefix_state"):
+            self.refresh_prefix(force=True)
         return self.active_tool_profile
 
     def available_tools(self):
@@ -412,7 +417,7 @@ class RepoHarness:
         for name, tool in self.available_tools().items():
             fields = ", ".join(f"{key}: {value}" for key, value in tool["schema"].items())
             risk = "approval required" if tool["risky"] else "safe"
-            tool_lines.append(f"- {name}({fields}) [{risk}] {tool['description']}")
+            tool_lines.append(f"- {name}: ({fields}) [{risk}] {tool['description']}")
         tool_text = "\n".join(tool_lines)
         examples = "\n".join(
             [

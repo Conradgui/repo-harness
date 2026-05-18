@@ -55,9 +55,7 @@ class PermissionChecker:
             return PermissionDecision.allow("approval_auto", profile=profile_name)
         if approval_policy == "never":
             return PermissionDecision.deny("approval_denied", "approval_denied", profile=profile_name)
-        if self.runtime.approve(tool.name, args):
-            return PermissionDecision.allow("approval_prompt", profile=profile_name)
-        return PermissionDecision.deny("approval_denied", "approval_denied", profile=profile_name)
+        return PermissionDecision.allow("approval_required", profile=profile_name)
 
     def _tool(self, tool_or_name):
         if hasattr(tool_or_name, "name"):

@@ -126,3 +126,43 @@ def test_fork_skill_runs_isolated_session_and_records_events(tmp_path):
     assert "skill_invoked" in events
     assert "skill_completed" in events
     assert "skill_fork_completed" in events
+
+
+def test_skill_tool_profile_refreshes_prompt_tool_list(tmp_path):
+    (tmp_path / "skills" / "readonly").mkdir(parents=True)
+    (tmp_path / "skills" / "readonly" / "SKILL.md").write_text(
+        "---\nname: readonly\ncontext: inline\nallowed_tools: read_file\n---\nRead only $ARGUMENTS.",
+        encoding="utf-8",
+    )
+    agent = build_agent(tmp_path, ["<final>profile checked</final>"])
+
+    assert agent.invoke_skill("readonly", "README.md") == "profile checked"
+
+    prompt = agent.model_client.prompts[0]
+    tools_section = prompt.split("Tools:", 1)[1].split("Workspace:", 1)[0]
+    assert "- read_file:" in tools_section
+    assert "- write_file:" not in tools_section
+    assert "- run_shell:" not in tools_section
+
+
+def test_skill_frontmatter_supports_yaml_lists(tmp_path):
+    (tmp_path / "skills" / "yaml").mkdir(parents=True)
+    (tmp_path / "skills" / "yaml" / "SKILL.md").write_text(
+        "---\n"
+        "name: yaml\n"
+        "allowed_tools:\n"
+        "  - read_file\n"
+        "  - search\n"
+        "paths:\n"
+        "  - src/*.py\n"
+        "  - tests/*.py\n"
+        "---\n"
+        "Inspect $ARGUMENTS.",
+        encoding="utf-8",
+    )
+
+    agent = build_agent(tmp_path)
+    skill = agent.skills["yaml"]
+
+    assert skill.allowed_tools == ("read_file", "search")
+    assert skill.paths == ("src/*.py", "tests/*.py")

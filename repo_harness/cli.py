@@ -129,6 +129,15 @@ def _first_env(*names):
     return ""
 
 
+def _first_env_from(environment, *names):
+    environment = environment or os.environ
+    for name in names:
+        value = environment.get(name)
+        if value:
+            return value
+    return ""
+
+
 def _configured_secret_names(args):
     configured_secret_names = set(DEFAULT_SECRET_ENV_NAMES)
     configured_secret_names.update(str(name).upper() for name in args.secret_env_names)
@@ -882,6 +891,7 @@ def run_memory_pack_menu(cwd):
 def _build_model_client(args, runtime_config=None):
     provider = runtime_config.provider if runtime_config is not None else getattr(args, "provider", "openai")
     profile = runtime_config.provider_profile if runtime_config is not None else None
+    environment = getattr(runtime_config, "environment", os.environ) if runtime_config is not None else os.environ
     # CLI 只负责把 provider 选择翻译成具体 client。
     # 真正的提示词格式、缓存支持、HTTP 协议差异，都封装在 models.py 里。
     if provider == "openai":
@@ -890,7 +900,8 @@ def _build_model_client(args, runtime_config=None):
             getattr(args, "base_url", None) or os.environ.get("OPENAI_API_BASE") or DEFAULT_OPENAI_BASE_URL
         )
         api_key_env = profile.api_key_env if profile is not None else "OPENAI_API_KEY"
-        api_key = _first_env(
+        api_key = _first_env_from(
+            environment,
             api_key_env,
             "REPO_HARNESS_OPENAI_API_KEY",
             "REPO_HARNESS_API_KEY",
@@ -917,7 +928,7 @@ def _build_model_client(args, runtime_config=None):
             "RIGHT_CODES_API_KEY",
             "OPENAI_API_KEY",
         )
-        api_key = _first_env(*fallback_names)
+        api_key = _first_env_from(environment, *fallback_names)
         return AnthropicCompatibleModelClient(
             model=model,
             base_url=base_url,
@@ -1036,7 +1047,7 @@ def build_agent(args):
 def build_arg_parser():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-        description="Minimal coding agent for Ollama, OpenAI-compatible, or Anthropic-compatible models.",
+        description="Minimal coding agent for Ollama, OpenAI-compatible, Anthropic-compatible, or DeepSeek models.",
         epilog="Advanced memory packs: repo-harness memory export/import/inspect/validate",
     )
     parser.set_defaults(
@@ -1059,7 +1070,7 @@ def build_arg_parser():
         "--model",
         default=None,
         action=_ExplicitStoreAction,
-        help="Model name override. Defaults to qwen3.5:4b for Ollama, OPENAI_MODEL for openai, and ANTHROPIC_MODEL for anthropic when set.",
+        help="Model name override. Defaults to qwen3.5:4b for Ollama, OPENAI_MODEL for openai, ANTHROPIC_MODEL for anthropic, and DEEPSEEK_MODEL for deepseek when set.",
     )
     parser.add_argument("--config", default=None, help="Path to .repo-harness.toml.")
     parser.add_argument("--host", default=DEFAULT_OLLAMA_HOST, help="Ollama server URL.")

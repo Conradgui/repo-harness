@@ -1,6 +1,7 @@
 """RepoHarness v3 parity release evidence runner."""
 
 import json
+import importlib.util
 import tempfile
 from pathlib import Path
 
@@ -153,6 +154,7 @@ def _run_smoke_workspace(workspace):
     )
     worker_sent = worker_agent.worker_manager.send(worker_spawned["id"], "continue")
     worker_stopped = worker_agent.worker_manager.stop(worker_spawned["id"])
+    business_dogfood = _run_business_dogfood(Path(tempfile.mkdtemp(prefix="rh-dogfood-")))
 
     return {
         "agent": agent,
@@ -171,7 +173,16 @@ def _run_smoke_workspace(workspace):
         "worker_spawned": worker_spawned,
         "worker_sent": worker_sent,
         "worker_stopped": worker_stopped,
+        "business_dogfood": business_dogfood,
     }
+
+
+def _run_business_dogfood(output_dir):
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_business_scenario_dogfood.py"
+    spec = importlib.util.spec_from_file_location("run_business_scenario_dogfood", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.run_dogfood(output_dir, live=False)
 
 
 def _evaluate_scenarios(evidence):
@@ -227,15 +238,23 @@ def _evaluate_scenarios(evidence):
         "release-pack-testing": lambda: (evidence["output_dir"] / "TESTING.md").is_file(),
         "release-pack-review": lambda: (evidence["output_dir"] / "REVIEW.md").is_file(),
         "release-pack-changelog": lambda: (evidence["output_dir"] / "CHANGELOG.md").is_file(),
-        "business-dogfood-fake-provider": lambda: evidence["answer"] == "done",
+        "business-dogfood-fake-provider": lambda: (
+            evidence["business_dogfood"].get("status") == "passed",
+            ",".join(scenario["id"] for scenario in evidence["business_dogfood"].get("scenarios", [])),
+        ),
         "brand-guard": lambda: "RepoHarness" in RepoHarnessTuiApp(agent).snapshot(),
         "removed-brand-path-guard": lambda: not (agent.root / ("." + "pi" + "co.toml")).exists(),
     }
     rows = []
     for scenario_id in SCENARIO_IDS:
         try:
-            passed = bool(checks.get(scenario_id, lambda: False)())
-            detail = "checked runtime artifacts"
+            value = checks.get(scenario_id, lambda: False)()
+            if isinstance(value, tuple):
+                passed = bool(value[0])
+                detail = str(value[1])
+            else:
+                passed = bool(value)
+                detail = "checked runtime artifacts"
         except Exception as exc:
             passed = False
             detail = str(exc)

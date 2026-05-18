@@ -7,6 +7,8 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from ..models import FakeModelClient
 from ..runtime import RepoHarness, SessionStore
@@ -46,6 +48,7 @@ class RunEvidence:
     def run(self):
         scenarios = [
             self.run_public_cli_smoke(),
+            self.run_public_cli_task_smoke(),
             self.run_scripted_runtime_smoke(),
         ]
         status = "passed" if all(item["status"] == "passed" for item in scenarios) else "failed"
@@ -101,6 +104,78 @@ class RunEvidence:
                 "stderr": str(stderr_path),
                 "command": " ".join(command),
                 "state_dir": str(workspace / ".repo-harness"),
+            },
+            checked_at=now(),
+            exit_code=completed.returncode,
+            stdout=completed.stdout,
+            stderr=completed.stderr,
+        ).to_dict()
+
+    def run_public_cli_task_smoke(self):
+        workspace = self._prepare_workspace("public-cli-task-smoke")
+        outputs = [
+            '<tool>{"name":"write_file","args":{"path":"cli-task.txt","content":"RepoHarness CLI evidence\\n"}}</tool>',
+            "<final>public cli task complete</final>",
+        ]
+        server = _MockOpenAIResponsesServer(outputs)
+        server.start()
+        try:
+            command = [
+                sys.executable,
+                "-m",
+                "repo_harness",
+                "--cwd",
+                str(workspace),
+                "--provider",
+                "openai",
+                "--base-url",
+                server.base_url,
+                "--model",
+                "evidence-model",
+                "--approval",
+                "auto",
+                "create public CLI evidence",
+            ]
+            completed = subprocess.run(
+                command,
+                text=True,
+                cwd=str(self.repo_root),
+                env=self._subprocess_env(),
+                capture_output=True,
+                timeout=self.timeout,
+                check=False,
+            )
+        finally:
+            server.stop()
+        stdout_path = self._write_log("public-cli-task-smoke.stdout.txt", completed.stdout)
+        stderr_path = self._write_log("public-cli-task-smoke.stderr.txt", completed.stderr)
+        changed_file = workspace / "cli-task.txt"
+        report = _latest_file(workspace / ".repo-harness" / "runs", "report.json")
+        trace = _latest_file(workspace / ".repo-harness" / "runs", "trace.jsonl")
+        session_events = _latest_file(workspace / ".repo-harness" / "sessions", "*.events.jsonl")
+        passed = (
+            completed.returncode == 0
+            and "public cli task complete" in completed.stdout
+            and changed_file.is_file()
+            and report.is_file()
+            and trace.is_file()
+            and session_events.is_file()
+        )
+        return ScenarioEvidence(
+            id="public_cli_task_smoke",
+            status="passed" if passed else "failed",
+            driver="public_cli",
+            workspace=str(workspace),
+            detail="drove public CLI through a mocked provider tool-edit turn",
+            artifacts={
+                "stdout": str(stdout_path),
+                "stderr": str(stderr_path),
+                "changed_file": str(changed_file),
+                "report": str(report),
+                "trace": str(trace),
+                "session_events": str(session_events),
+                "state_dir": str(workspace / ".repo-harness"),
+                "command": " ".join(command),
             },
             checked_at=now(),
             exit_code=completed.returncode,
@@ -189,3 +264,50 @@ def run(output_dir):
 def run_isolated(output_dir=None):
     root = Path(output_dir) if output_dir is not None else Path(tempfile.mkdtemp(prefix="repo-harness-run-evidence-"))
     return RunEvidence(root).run()
+
+
+def _latest_file(root, pattern):
+    root = Path(root)
+    if not root.exists():
+        return Path("")
+    files = sorted(root.rglob(pattern), key=lambda path: path.stat().st_mtime)
+    return files[-1] if files else Path("")
+
+
+class _MockOpenAIResponsesServer:
+    def __init__(self, outputs):
+        self.outputs = list(outputs)
+        parent = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                self.rfile.read(int(self.headers.get("Content-Length", "0")))
+                text = parent.outputs.pop(0) if parent.outputs else "<final>mock exhausted</final>"
+                body = json.dumps(
+                    {
+                        "output_text": text,
+                        "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+                    }
+                ).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *_args):
+                return
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+
+    @property
+    def base_url(self):
+        return f"http://127.0.0.1:{self.server.server_port}"
+
+    def start(self):
+        self.thread.start()
+
+    def stop(self):
+        self.server.shutdown()
+        self.server.server_close()

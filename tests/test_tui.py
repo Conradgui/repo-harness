@@ -53,3 +53,34 @@ def test_tui_ask_user_prompt_records_choice(tmp_path):
 
     assert list(app.run_turn("ask"))[-1]["content"] == "done"
     assert "yes" in agent.session["history"][-2]["content"]
+
+
+def test_textual_app_uses_facade_run_turn_for_normal_messages(tmp_path):
+    from repo_harness.tui.app import RepoHarnessTextualApp
+
+    (tmp_path / "README.md").write_text("demo\n", encoding="utf-8")
+    agent = RepoHarness(
+        model_client=FakeModelClient(["<final>Hello Textual.</final>"]),
+        workspace=WorkspaceContext.build(tmp_path),
+        session_store=SessionStore(tmp_path / ".repo-harness" / "sessions"),
+        approval_policy="auto",
+    )
+    app = RepoHarnessTextualApp(agent)
+    captured = {}
+
+    class FakeInput:
+        value = "hello"
+
+    class FakeEvent:
+        value = "hello"
+        input = FakeInput()
+
+    class FakeStatic:
+        def update(self, value):
+            captured["snapshot"] = value
+
+    app.query_one = lambda *_args, **_kwargs: FakeStatic()
+    app.on_input_submitted(FakeEvent())
+
+    assert "Hello Textual." in captured["snapshot"]
+    assert app.facade.messages[-1]["content"] == "Hello Textual."
