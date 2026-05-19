@@ -2,7 +2,7 @@
 
 RepoHarness 是一个运行在本地仓库里的轻量 coding agent。它通过受约束工具读取文件、修改文件、运行命令，并把会话、运行工件、记忆和审计信息保存在 `.repo-harness/` 下。
 
-当前版本已经完成 v3 功能对标收尾，但保留 RepoHarness 自己的产品边界：
+当前版本已经完成 v3 功能迭代收尾，同时保留 RepoHarness 的产品边界：
 
 - CLI 入口是 `repo-harness`，模块入口是 `python -m repo_harness`，Python 包名是 `repo_harness`。
 - 本地状态目录只使用 `.repo-harness/`。
