@@ -6,7 +6,7 @@
 
 Agent Harness v1 的核心概念仍然保留：一次任务会生成 task state、trace 和 report，以便复现和审计。
 
-## 当前架构记录：2026-05-19 最终版 v3 功能对标
+## 当前架构记录：2026-05-19 最终版 v3 功能迭代
 
 RepoHarness 的公共 API 仍然是 `RepoHarness.ask()`、`repo-harness` CLI 和 `python -m repo_harness`。REPL、TUI、public CLI scripted evidence、workers 和 release evidence 共用同一套 runtime、permission、tool policy、session events、trace/report 工件。
 
