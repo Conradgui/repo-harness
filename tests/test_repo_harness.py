@@ -11,6 +11,7 @@ import repo_harness as harness_pkg
 from repo_harness import cli as mini_cli
 from repo_harness import (
     AnthropicCompatibleModelClient,
+    ChatCompletionsCompatibleModelClient,
     FakeModelClient,
     RepoHarness,
     OllamaModelClient,
@@ -571,6 +572,108 @@ def test_openai_compatible_client_posts_expected_responses_payload():
     }
 
 
+def test_chat_completions_client_posts_expected_payload_and_records_usage():
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return json.dumps(
+                {
+                    "choices": [{"message": {"content": "<final>chat ok</final>"}}],
+                    "usage": {
+                        "prompt_tokens": 10,
+                        "completion_tokens": 5,
+                        "total_tokens": 15,
+                    },
+                }
+            ).encode("utf-8")
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["timeout"] = timeout
+        captured["headers"] = dict(request.headers)
+        captured["body"] = json.loads(request.data.decode("utf-8"))
+        return FakeResponse()
+
+    client = ChatCompletionsCompatibleModelClient(
+        model="mimo-v2.5-pro",
+        base_url="https://token-plan-cn.xiaomimimo.com/v1",
+        api_key="mimo-key",
+        temperature=0.2,
+        timeout=30,
+    )
+
+    with patch("urllib.request.urlopen", fake_urlopen):
+        result = client.complete("hello", 42)
+
+    assert result == "<final>chat ok</final>"
+    assert captured["url"] == "https://token-plan-cn.xiaomimimo.com/v1/chat/completions"
+    assert captured["timeout"] == 30
+    assert captured["headers"]["Authorization"] == "Bearer mimo-key"
+    assert captured["body"] == {
+        "model": "mimo-v2.5-pro",
+        "messages": [{"role": "user", "content": "hello"}],
+        "max_tokens": 42,
+        "stream": False,
+        "temperature": 0.2,
+    }
+    assert client.last_completion_metadata["provider_protocol"] == "chat-completions-compatible"
+    assert client.last_completion_metadata["provider_model"] == "mimo-v2.5-pro"
+    assert client.last_completion_metadata["provider_base_url"] == "https://token-plan-cn.xiaomimimo.com/v1"
+    assert client.last_completion_metadata["input_tokens"] == 10
+    assert client.last_completion_metadata["output_tokens"] == 5
+    assert client.last_completion_metadata["total_tokens"] == 15
+
+
+def test_chat_completions_provider_retry_metadata_records_retry_count():
+    calls = {"count": 0}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return json.dumps({"choices": [{"message": {"content": "<final>ok</final>"}}]}).encode("utf-8")
+
+    def fake_urlopen(request, timeout):
+        del timeout
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise urllib.error.HTTPError(
+                url=request.full_url,
+                code=429,
+                msg="too many requests",
+                hdrs={},
+                fp=None,
+            )
+        return FakeResponse()
+
+    client = ChatCompletionsCompatibleModelClient(
+        model="chat-test",
+        base_url="https://token@example.test/v1?api_key=secret#fragment",
+        api_key="chat-key",
+        temperature=0.2,
+        timeout=30,
+    )
+
+    with patch("time.sleep"), patch("urllib.request.urlopen", fake_urlopen):
+        result = client.complete("hello", 42)
+
+    assert result == "<final>ok</final>"
+    assert client.last_completion_metadata["provider_base_url"] == "https://example.test/v1"
+    assert client.last_completion_metadata["provider_attempts"] == 2
+    assert client.last_completion_metadata["provider_retry_count"] == 1
+
+
 def test_openai_compatible_client_sends_prompt_cache_fields_and_records_usage():
     captured = {}
 
@@ -940,6 +1043,60 @@ def test_build_arg_parser_accepts_deepseek_provider(tmp_path):
     args = harness_pkg.build_arg_parser().parse_args(["--cwd", str(tmp_path), "--provider", "deepseek"])
 
     assert args.provider == "deepseek"
+
+
+def test_build_arg_parser_accepts_chat_completions_provider(tmp_path):
+    args = harness_pkg.build_arg_parser().parse_args(["--cwd", str(tmp_path), "--provider", "chat-completions"])
+
+    assert args.provider == "chat-completions"
+
+
+def test_build_agent_uses_chat_completions_provider_from_repo_harness_toml(tmp_path):
+    (tmp_path / ".repo-harness.toml").write_text(
+        "\n".join(
+            [
+                'provider = "chat-completions"',
+                "",
+                "[providers.chat-completions]",
+                'model = "mimo-v2.5-pro"',
+                'base_url = "https://token-plan-cn.xiaomimimo.com/v1"',
+                'api_key_env = "MIMO_API_KEY"',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    args = harness_pkg.build_arg_parser().parse_args(["--cwd", str(tmp_path)])
+
+    with patch.dict(os.environ, {"MIMO_API_KEY": "mimo-key"}, clear=True), patch(
+        "repo_harness.cli.ChatCompletionsCompatibleModelClient"
+    ) as mock_chat:
+        agent = harness_pkg.build_agent(args)
+
+    mock_chat.assert_called_once()
+    assert mock_chat.call_args.kwargs["model"] == "mimo-v2.5-pro"
+    assert mock_chat.call_args.kwargs["base_url"] == "https://token-plan-cn.xiaomimimo.com/v1"
+    assert mock_chat.call_args.kwargs["api_key"] == "mimo-key"
+    assert agent.model_client is mock_chat.return_value
+
+
+def test_build_agent_uses_chat_completions_environment_overrides(tmp_path):
+    args = harness_pkg.build_arg_parser().parse_args(["--cwd", str(tmp_path), "--provider", "chat-completions"])
+
+    with patch.dict(
+        os.environ,
+        {
+            "CHAT_COMPLETIONS_API_KEY": "chat-key",
+            "CHAT_COMPLETIONS_API_BASE": "https://chat.example/v1",
+            "CHAT_COMPLETIONS_MODEL": "chat-model",
+        },
+        clear=True,
+    ), patch("repo_harness.cli.ChatCompletionsCompatibleModelClient") as mock_chat:
+        harness_pkg.build_agent(args)
+
+    assert mock_chat.call_args.kwargs["model"] == "chat-model"
+    assert mock_chat.call_args.kwargs["base_url"] == "https://chat.example/v1"
+    assert mock_chat.call_args.kwargs["api_key"] == "chat-key"
 
 
 def test_build_agent_uses_deepseek_provider_from_repo_harness_toml(tmp_path):

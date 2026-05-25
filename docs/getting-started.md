@@ -42,12 +42,23 @@ uv run python -m repo_harness --help
 
 ## 2. 配置 provider
 
-默认 provider 是 `openai`。支持：
+如果你手上已经有模型厂商给的 API key、模型名和 base URL，按这个顺序配置：
 
-- `openai`
-- `anthropic`
-- `deepseek`
-- `ollama`
+1. 看厂商文档里的 endpoint 路径。
+2. 选择对应 provider。
+3. 把 API key 放进环境变量。
+4. 在 `.repo-harness.toml` 中写 `provider`、`model`、`base_url`、`api_key_env`。
+5. 启动 `uv run repo-harness --repl`。
+
+RepoHarness 支持五类 provider：
+
+- `openai`：OpenAI-compatible Responses API；厂商文档路径是 `/v1/responses` 时使用。
+- `chat-completions`：Chat Completions-compatible API；厂商文档路径是 `/v1/chat/completions` 时使用。
+- `anthropic`：Anthropic-compatible Messages API；厂商文档路径是 Anthropic `/messages` 时使用。
+- `deepseek`：DeepSeek 一等 provider，默认走 Anthropic-compatible client。
+- `ollama`：本地 Ollama。
+
+`base_url` 只填到厂商给出的版本根路径，例如 `https://example.com/v1`。不要手动把 `/responses`、`/chat/completions` 或 `/messages` 追加进去；RepoHarness 会根据 provider 自动选择具体请求路径。
 
 配置优先级：
 
@@ -55,62 +66,153 @@ uv run python -m repo_harness --help
 CLI 显式参数 > process env / 项目 .env > 项目 .repo-harness.toml > 全局 config > 默认值
 ```
 
-### OpenAI-compatible
+### 2.1 OpenAI Responses-compatible
+
+如果厂商文档写的是 `/v1/responses`，使用 `openai` provider：
+
+```toml
+provider = "openai"
+
+[providers.openai]
+model = "gpt-5.4"
+base_url = "https://api.openai.com/v1"
+api_key_env = "OPENAI_API_KEY"
+```
 
 macOS / Linux：
 
 ```bash
 export OPENAI_API_KEY="your-api-key"
-export OPENAI_API_BASE="https://your-api.example/v1"
-export OPENAI_MODEL="gpt-5.4"
-uv run repo-harness --provider openai
+uv run repo-harness --repl
 ```
 
 PowerShell：
 
 ```powershell
 $env:OPENAI_API_KEY="your-api-key"
-$env:OPENAI_API_BASE="https://your-api.example/v1"
-$env:OPENAI_MODEL="gpt-5.4"
-uv run repo-harness --provider openai
+uv run repo-harness --repl
 ```
 
-### Anthropic-compatible
+### 2.2 Chat Completions-compatible
+
+如果厂商文档写的是 `/v1/chat/completions`，使用 `chat-completions` provider。很多国产模型虽然写着 OpenAI-compatible，实际兼容的是 Chat Completions 路径，不要复用 `openai` Responses provider。
+
+MiMo 只是一个示例：
+
+```toml
+provider = "chat-completions"
+
+[providers.chat-completions]
+model = "mimo-v2.5-pro"
+base_url = "https://token-plan-cn.xiaomimimo.com/v1"
+api_key_env = "MIMO_API_KEY"
+```
+
+PowerShell：
+
+```powershell
+$env:MIMO_API_KEY="your-api-key"
+uv run repo-harness --repl
+```
+
+国产或第三方 Chat Completions-compatible 模型的通用模板如下，把 `model`、`base_url` 和 `api_key_env` 替换成厂商文档里的值：
+
+```toml
+provider = "chat-completions"
+
+[providers.chat-completions]
+model = "<vendor-model-name>"
+base_url = "https://<vendor-host>/v1"
+api_key_env = "<VENDOR_API_KEY_ENV>"
+```
+
+`chat-completions` 默认按以下顺序读取 API key：
+
+```text
+api_key_env from config, if set
+REPO_HARNESS_CHAT_COMPLETIONS_API_KEY
+REPO_HARNESS_API_KEY
+CHAT_COMPLETIONS_API_KEY
+OPENAI_API_KEY
+```
+
+如果厂商使用自己的环境变量名，推荐在 `.repo-harness.toml` 中用 `api_key_env` 明确指定。临时测试时，也可以把厂商 key 映射成通用变量：
+
+```powershell
+$env:CHAT_COMPLETIONS_API_KEY=$env:MIMO_API_KEY
+uv run repo-harness --repl --provider chat-completions --base-url https://token-plan-cn.xiaomimimo.com/v1 --model mimo-v2.5-pro
+```
+
+P2 实测能跑通，是因为当时使用了临时脚本：脚本直接读取 `MIMO_API_KEY`，并自己调用 `base_url + "/chat/completions"`。正式 REPL/TUI 走 RepoHarness provider 配置链路，所以必须通过 `api_key_env` 或通用环境变量告诉 RepoHarness 读哪个 key。
+
+### 2.3 Anthropic-compatible
+
+如果厂商文档写的是 Anthropic `/messages`，使用 `anthropic` provider：
+
+```toml
+provider = "anthropic"
+
+[providers.anthropic]
+model = "claude-sonnet-4-6"
+base_url = "https://api.anthropic.com/v1"
+api_key_env = "ANTHROPIC_API_KEY"
+```
+
+macOS / Linux：
 
 ```bash
 export ANTHROPIC_API_KEY="your-api-key"
-export ANTHROPIC_API_BASE="https://your-anthropic-compatible.example/v1"
-export ANTHROPIC_MODEL="claude-sonnet-4-6"
-uv run repo-harness --provider anthropic
+uv run repo-harness --repl
 ```
 
-### DeepSeek
+PowerShell：
+
+```powershell
+$env:ANTHROPIC_API_KEY="your-api-key"
+uv run repo-harness --repl
+```
+
+### 2.4 DeepSeek
 
 DeepSeek 是一等 provider，底层使用 Anthropic-compatible client：
 
-```bash
-export DEEPSEEK_API_KEY="your-api-key"
-export DEEPSEEK_MODEL="deepseek-v4-pro"
-uv run repo-harness --provider deepseek
+```toml
+provider = "deepseek"
+
+[providers.deepseek]
+client = "anthropic"
+model = "deepseek-v4-pro"
+base_url = "https://api.deepseek.com/anthropic"
+api_key_env = "DEEPSEEK_API_KEY"
 ```
 
-RepoHarness 每次运行会把 report、trace、task state 等工件写入 `.repo-harness/runs/<run_id>/`。
+```bash
+export DEEPSEEK_API_KEY="your-api-key"
+uv run repo-harness --repl
+```
 
 PowerShell：
 
 ```powershell
 $env:DEEPSEEK_API_KEY="your-api-key"
-$env:DEEPSEEK_MODEL="deepseek-v4-pro"
-uv run repo-harness --provider deepseek
+uv run repo-harness --repl
 ```
 
-### Ollama
+### 2.5 Ollama
 
 ```bash
 ollama serve
 ollama pull qwen3.5:4b
 uv run repo-harness --provider ollama --model qwen3.5:4b
 ```
+
+### 2.6 常见错误
+
+- HTTP 404：通常是 provider 和 endpoint 不匹配。例如把只支持 `/chat/completions` 的模型配置成 `openai` provider，RepoHarness 会请求 `/responses`，就可能返回 404。
+- HTTP 401：通常是 API key 没读到、读到了旧 key，或者 key 本身无效。优先检查 `.repo-harness.toml` 的 `api_key_env` 是否等于你实际设置的环境变量名。
+- 不确定该选哪个 provider：看厂商文档里的完整路径，而不是只看 “OpenAI-compatible” 这个营销描述。
+
+RepoHarness 每次运行会把 report、trace、task state 等工件写入 `.repo-harness/runs/<run_id>/`。
 
 ## 3. 配置文件
 
@@ -125,6 +227,11 @@ client = "anthropic"
 model = "deepseek-v4-pro"
 base_url = "https://api.deepseek.com/anthropic"
 api_key_env = "DEEPSEEK_API_KEY"
+
+[providers.chat-completions]
+model = "mimo-v2.5-pro"
+base_url = "https://token-plan-cn.xiaomimimo.com/v1"
+api_key_env = "MIMO_API_KEY"
 
 [sandbox]
 mode = "best_effort"
@@ -340,29 +447,31 @@ git diff --check
 uv run --extra tui pytest tests/test_tui.py -q
 ```
 
-## Auto PR 框架与安全预演
+## Auto Issue Fix 真实执行与 dry-run 预演
 
-Auto PR 是本版本的重要能力更新。当前阶段提供框架与安全预演模式，用来生成 PR 自动化证据包、自动审查门、decision log 和 checkpoint；不会执行真实 clone、push 或 PR 创建。
+Auto Issue Fix 是本版本的重要能力更新。默认不传 `--dry-run` 时，它会读取 GitHub issue、隔离 clone、创建分支、调用 RepoHarness 修复、运行测试、执行自动审查门，并在通过后创建 draft PR。传入 `--dry-run` 时只生成预演证据，不执行 GitHub 副作用。
 
 ```bash
-uv run repo-harness auto-pr --repo owner/name --issue 123 --dry-run
+uv run repo-harness auto-issue-fix --repo owner/name --issue 123 --mode draft-auto --test-command "python -m pytest -q"
+uv run repo-harness auto-issue-fix --repo owner/name --issue 123 --dry-run
 ```
 
 如需指定证据目录：
 
 ```bash
-uv run repo-harness auto-pr --repo owner/name --issue 123 --dry-run --evidence-dir <evidence_dir>
+uv run repo-harness auto-issue-fix --repo owner/name --issue 123 --dry-run --evidence-dir <evidence_dir>
 ```
 
 REPL 中也可以使用：
 
 ```text
-/auto-pr
-/auto-pr --repo owner/name --issue 123
-/auto-pr --repo owner/name --issue 123 --mode draft-auto
+/auto-issue-fix
+/auto-issue-fix --repo owner/name --issue 123
+/auto-issue-fix --repo owner/name --issue 123 --mode draft-auto
+/auto-issue-fix --repo owner/name --issue 123 --dry-run
 ```
 
-未提供仓库和 issue 时，`/auto-pr` 会进入自动发现的安全预演流程，只生成规划证据，不执行真实网络筛选或代码修改。
+在普通 REPL 中只输入 `/auto-issue-fix` 会进入引导式流程，依次询问模式、仓库、issue 编号和可选测试命令。默认是 `review-gated` 真实执行；输入 `dry-run` 才只生成预演证据，输入 `draft-auto` 才进入草稿 PR 自动化模式。仓库留空会进入全局 discovery，从候选仓库中筛选 issue；输入仓库但 issue 留空，会在该仓库内筛选候选 issue。
 
 标准证据文件：
 
@@ -371,6 +480,12 @@ REPL 中也可以使用：
 - `formal-report-summary.md`：面试/作品集讲述版。
 - `run-record.json`：机器可读运行摘要。
 - `pr-ready-fallback.md`：失败或阻断时生成的 PR-ready fallback。
+- `issue.json`：GitHub issue 快照。
+- `baseline-repro.log`：修复前验证命令输出。
+- `fix-run.log`：RepoHarness 修复 turn 输出。
+- `test-after-fix.log`：修复后验证命令输出。
+- `git-diff.patch`：提交前 diff。
+- `pr-url.txt`：成功创建 draft PR 后记录 URL。
 - `reviews/review-<stage>.json` / `reviews/review-<stage>.md`：自动审查门结果。
 - `decision-log.jsonl`：阶段性决策流水。
 - `checkpoint.json`：恢复和排障入口。
@@ -378,11 +493,13 @@ REPL 中也可以使用：
 默认模式是 `review-gated`。`draft-auto` 必须显式选择，并会输出风险提示：
 
 ```bash
-uv run repo-harness auto-pr --repo owner/name --issue 123 --mode draft-auto --dry-run
+uv run repo-harness auto-issue-fix --repo owner/name --issue 123 --mode draft-auto --dry-run
 ```
 
-两种模式都必须经过自动审查门。`review-gated` 是“自动审查 + 人工确认”；`draft-auto` 是“自动审查 + 无人工暂停”。如果任何审查门给出 `block`，运行会停止并写入 fallback 证据。
+两种模式都必须经过自动审查门。`review-gated` 是“自动审查 + 人工确认”，也是推荐的日常使用方式；`draft-auto` 是“自动审查 + 无人工暂停”。如果任何审查门给出 `block`，运行会停止并写入 fallback 证据。无论选择哪种模式，最终 patch、测试日志和 PR 描述都需要人工严格 review 和验证，确认质量、范围和语气都适合提交给上游维护者。
+
+默认 `pr-body.md` 使用维护者友好的五段式模板：`Summary`、`Related Issue`、`Validation`、`Scope`、`Notes for Maintainers`。本地工具链、模型、实验记录、trace 和 evidence 细节只保留在本地证据目录，不默认写入公开 PR 描述。维护者信任审查门会检查公开 PR title、body、commit message 和 branch；如果发现工具实验说明、敏感路径、secret 或容易被误解的自动化措辞，会阻断发布并生成 fallback 证据。
 
 报告默认使用 `<workspace>`、`<repo>`、`<evidence_dir>` 等占位符，并脱敏 token、cookie、API key 和 secret-shaped 内容。只有明确需要本机排障时才使用 `--include-local-paths`；该选项会把本地绝对路径写进证据，分享前需要复核。
 
-真实 issue discovery、clone/fix/test/push/PR live runner 仍在下一阶段，当前不要把安全预演描述为完整全自动 PR。
+真实执行默认创建 draft PR，不会自动标记 ready-for-review。默认 GitHub 接入使用本机 `gh` CLI 认证；普通测试使用 mocked backend，不访问真实 GitHub。

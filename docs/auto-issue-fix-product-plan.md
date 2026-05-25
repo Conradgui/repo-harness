@@ -1,12 +1,14 @@
-# RepoHarness Auto PR 产品方案
+# RepoHarness Auto Issue Fix 产品方案
 
 ## 产品定位
 
-RepoHarness Auto PR 是和 v3 能力完善同等级的重要版本更新。它把 RepoHarness 从本地 coding-agent runtime 扩展为受治理的 GitHub PR 工作流：从 issue 输入、执行计划、证据生成、自动审查、失败阻断，到后续真实执行模式中的修复、验证、push 和 draft PR。
+RepoHarness Auto Issue Fix 是和 v3 能力完善同等级的重要版本更新。它把 RepoHarness 从本地 coding-agent runtime 扩展为受治理的 GitHub PR 工作流：从 issue 输入、执行计划、证据生成、自动审查、失败阻断，到修复、验证、push 和 draft PR。
 
-当前阶段是**框架与安全预演模式**：`repo-harness auto-pr` 已经能生成标准证据包、执行脱敏、保留路径占位符、输出自动审查门记录，并在非 dry-run live 行为前安全阻断。它不会把尚未执行的 clone、fix、test、push 或 PR 创建伪装成已完成。
+当前阶段是 **真实执行 + dry-run 预演**：`repo-harness auto-issue-fix` 默认进入真实执行，支持 GitHub issue 获取、隔离 clone、分支创建、RepoHarness 修复 turn、测试验证、自动审查、commit、push 和 draft PR 创建；`--dry-run` 保留为无副作用预演。
 
-P2 dogfood 应描述为 **Auto-PR assisted run**：RepoHarness 完成了真实仓库里的读取、补丁、测试和证据记录；外层选题、diff 审查、遗漏识别、follow-up prompt 和 PR 发布决策仍由人工监督完成。产品化目标是把这些外围编排沉淀为 RepoHarness 自己的可审计能力。
+Auto Issue Fix 的产品目标是负责任地帮助开源社区高效解决清晰、可验证的 issue。它不是批量发 PR 的工具，也不把模型输出直接等同于可合并补丁；它输出的是带证据、可审查、可验证的候选修复。默认推荐使用 `review-gated`，所有模式下的 patch、测试结果和 PR 描述都必须经过人工严格 review 和验证后再提交给上游维护者。
+
+P2 dogfood 应描述为 **Auto Issue Fix assisted run**：RepoHarness 完成了真实仓库里的读取、补丁、测试和证据记录；外层选题、diff 审查、遗漏识别、follow-up prompt 和 PR 发布决策仍由人工监督完成。产品化目标是把这些外围编排沉淀为 RepoHarness 自己的可审计能力。
 
 ## 目标用户与模式
 
@@ -27,15 +29,17 @@ P2 dogfood 应描述为 **Auto-PR assisted run**：RepoHarness 完成了真实�
 
 - 用户指定 issue：`--repo <url|owner/name> --issue <number>`。
 - 自动筛选 issue：`--discover --source trending|repo --criteria bug,test`。
-- REPL 引导：`/auto-pr` 默认进入 `review-gated` 安全预演；用户可显式输入 `/auto-pr --mode draft-auto`。
+- REPL 引导：普通 REPL 中输入 `/auto-issue-fix` 会依次询问模式、仓库、issue 编号和可选测试命令；默认进入 `review-gated` 真实执行，用户可选择 `dry-run` 只生成预演证据。仓库留空进入全局 discovery，输入仓库但 issue 留空进入 repo-scoped discovery。
 
 ## 当前已落地能力
 
 当前已经实现：
 
-- `repo-harness auto-pr` 子命令。
-- REPL `/auto-pr` 安全预演入口。
+- `repo-harness auto-issue-fix` 子命令。
+- REPL `/auto-issue-fix` 入口。
 - `--dry-run` 证据生成，不执行真实 clone、push 或 PR 创建。
+- 非 dry-run 真实执行：issue 获取、隔离 clone、branch、RepoHarness 修复 turn、测试、diff gate、commit、fork push 和 draft PR。
+- 自动 discovery：通过 GitHub 候选仓库和 issue 评分选择可执行目标。
 - `review-gated` / `draft-auto` 模式参数与风险提示。
 - `--auto-review required` 自动审查门策略。
 - `--max-review-repairs` 修复回合上限参数。
@@ -46,11 +50,7 @@ P2 dogfood 应描述为 **Auto-PR assisted run**：RepoHarness 完成了真实�
 - 默认脱敏：API key、GitHub token、cookie、secret-shaped 环境变量等写入报告前会被替换为 `<redacted>`。
 - 失败 fallback 语义：安全门失败时生成 fallback 描述，而不是强行创建 PR。
 
-当前尚未实现：
-
-- 真实 issue discovery。
-- live clone / fix / test / push / PR runner。
-- 插件分发层。
+当前尚未实现：插件分发层，以及复杂 merge conflict 的自动处理。
 
 ## 自动审查门
 
@@ -62,6 +62,7 @@ P2 dogfood 应描述为 **Auto-PR assisted run**：RepoHarness 完成了真实�
 - Diff 审查：检查是否只改必要文件，是否存在无关格式化、大范围重写或意外生成物。
 - 测试审查：检查 baseline、修复后测试、失败日志和测试覆盖是否匹配 issue。
 - 安全审查：检查 secret、token、本机路径、危险命令、越权写入和供应链风险。
+- 维护者信任审查：检查公开 PR title、body、commit message 和 branch，避免把本地工具链、模型、实验记录、trace 或 evidence 说明发布给上游维护者。
 - PR 准备审查：检查 PR body、证据包、变更摘要、测试命令和风险说明。
 
 自动审查 verdict 固定为：
@@ -72,31 +73,39 @@ P2 dogfood 应描述为 **Auto-PR assisted run**：RepoHarness 完成了真实�
 
 ## 产品价值
 
-Auto PR 的价值不是“让模型直接发 PR”，而是把 PR 自动化放进可治理生产线：
+Auto Issue Fix 的价值不是“让模型直接发 PR”，而是把 PR 自动化放进可治理生产线：
 
 - 受控执行：模型动作继续经过 permission gate、tool policy、write scope 和 sandbox。
-- 可审计：每次运行输出 `.repo-harness/auto-pr/<run_id>/` 证据目录。
+- 可审计：每次运行输出 `.repo-harness/auto-issue-fix/<run_id>/` 证据目录。
 - 可恢复：checkpoint 记录当前状态和下一步动作，后续真实执行模式可从 run id 恢复。
 - 可追溯：decision log 和 review 文件记录每个关键判断。
 - 可迁移：默认报告不含本机绝对路径，适合分享给维护者、面试官或团队成员。
-- 模型无关：工作流应支持 OpenAI-compatible、Anthropic-compatible、DeepSeek、Ollama，以及后续 Chat Completions-compatible provider。
+- 模型无关：工作流支持 OpenAI-compatible Responses API、Chat Completions-compatible、Anthropic-compatible、DeepSeek 和 Ollama；MiMo 等 `/chat/completions` 后端应使用 `chat-completions` provider。
 - 诚实自动化：不完整或不安全的运行输出 patch / fallback / 报告，而不是伪装成成功 PR。
 
 ## 证据模板
 
-每次 Auto PR 运行写入 `.repo-harness/auto-pr/<run_id>/`：
+每次 Auto Issue Fix 运行写入 `.repo-harness/auto-issue-fix/<run_id>/`：
 
 - `run-record.md`：完整的人类可读审计记录。
 - `run-record.json`：机器可读状态，包括模式、门禁、测试、变更路径和 PR 元数据。
 - `pr-body.md`：提交给上游维护者的 PR 描述，默认不包含本地路径。
 - `formal-report-summary.md`：面试和作品集讲述版总结。
 - `pr-ready-fallback.md`：仅在失败或阻断时生成。
+- `issue.json`：GitHub issue 快照。
+- `baseline-repro.log`：修复前验证命令输出。
+- `fix-run.log`：RepoHarness 修复 turn 输出。
+- `test-after-fix.log`：修复后验证命令输出。
+- `git-diff.patch`：提交前 diff。
+- `pr-url.txt`：成功创建 draft PR 后记录 URL。
 - `reviews/review-<stage>.json`：每个自动审查门的结构化结果。
 - `reviews/review-<stage>.md`：每个自动审查门的人类可读摘要。
 - `decision-log.jsonl`：阶段性决策流水。
 - `checkpoint.json`：恢复与排障入口。
 
 默认报告会脱敏 API key、GitHub token、cookie、secret-shaped 环境变量、本地用户名和绝对路径。只有用户显式传入 `--include-local-paths` 时，才允许在证据中保留本地绝对路径。
+
+`pr-body.md` 默认使用维护者友好的五段式模板：`Summary`、`Related Issue`、`Validation`、`Scope`、`Notes for Maintainers`。工具链、模型、实验、trace、benchmark、dogfood 和本地 evidence 说明只保留在本地审计材料中，不默认进入公开 PR 描述。
 
 ## 指标
 
@@ -114,8 +123,6 @@ Auto PR 的价值不是“让模型直接发 PR”，而是把 PR 自动化放�
 
 ## 路线图
 
-当前阶段：完成框架与安全预演模式，包括 CLI、REPL、证据模板、自动审查门、脱敏、路径普适化、mocked `gh` 测试。
+当前阶段：完成真实执行模式和 dry-run 预演，包括 CLI、REPL、GitHub backend、隔离 clone、RepoHarness 修复 turn、测试门、自动审查门、draft PR、脱敏、路径普适化和 mocked `gh` 测试。
 
-下一阶段：实现 user-specified issue 的真实执行模式，包括 clone、branch、RepoHarness 修复 turn、测试、diff gate、commit、push 和 draft PR。
-
-后续阶段：实现 discovery-driven issue 选择、评分、fallback，以及官方 workflow plugin 分发。
+后续阶段：增强 live GitHub dogfood 覆盖、复杂冲突处理、reviewer 模型化，以及官方 workflow plugin 分发。

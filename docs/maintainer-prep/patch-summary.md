@@ -1,28 +1,34 @@
 # 修改摘要记录
 
-## 2026-05-25：Auto PR 框架与安全预演更新
+## 2026-05-25：Auto Issue Fix v2 真实执行更新
+
+本次补充新增 `chat-completions` provider，让 MiMo 等 `/chat/completions` 兼容后端可以正式驱动 RepoHarness；`openai` provider 继续代表 Responses API，避免协议混用。
 
 ### 背景
 
-Auto PR 已提升为和 v3 能力完善同等级的重要版本更新。当前阶段新增 `repo-harness auto-pr` 和 REPL `/auto-pr` 的框架与安全预演能力，用于生成 PR 自动化证据包、自动审查门、decision log、checkpoint、脱敏报告和路径占位符，不执行真实 GitHub 副作用。
+Auto Issue Fix 已提升为和 v3 能力完善同等级的重要版本更新。当前阶段新增 `repo-harness auto-issue-fix` 和 REPL `/auto-issue-fix` 的真实执行能力：issue 获取、隔离 clone、RepoHarness 修复 turn、测试、自动审查、commit、push 和 draft PR。`--dry-run` 继续保留为无副作用预演。
+
+Auto Issue Fix 的产品目标收窄为“负责任地帮助开源社区高效解决清晰、可验证的 issue”。默认推荐 `review-gated`；`draft-auto` 不能关闭自动审查，也不替代人的最终 review。所有模式的 patch、测试日志和 PR 描述都必须由人严格复核后再交给上游维护者。
+
+公开 PR 描述与本地证据分离：`pr-body.md` 使用 `Summary`、`Related Issue`、`Validation`、`Scope`、`Notes for Maintainers` 五段式模板；工具链、模型、实验记录、trace、benchmark、dogfood 和 evidence 说明默认只进入本地 run record / formal report。新增 `maintainer-trust` 审查门和 GitHub blocked / forbidden 错误分类，命中后停止发布并生成 fallback。
 
 ### 修改内容
 
-- Auto PR 专题文档补齐中文产品方案和实现计划。
-- README 增加 Auto PR 框架与安全预演小节，并链接 Auto PR 产品方案和实现计划。
-- getting-started 增加 Auto PR 操作示例、证据目录、模板文件名和 `--include-local-paths` 风险说明。
-- architecture 增加 Auto PR 编排层说明，明确它复用 CLI/config/runtime/evidence，不绕过 permission gate、tool policy、sandbox 或 RunStore。
-- review-pack 增加 Auto PR 审查重点：自动审查门、模板、脱敏、安全预演 CLI acceptance、默认 mocked `gh`。
-- maintainer-prep 增加 Auto PR 文档同步规则。
+- Auto Issue Fix 专题文档补齐中文产品方案和实现计划。
+- README 增加 Auto Issue Fix 真实执行与 dry-run 预演小节，并链接 Auto Issue Fix 产品方案和实现计划。
+- getting-started 增加 Auto Issue Fix 操作示例、证据目录、模板文件名和 `--include-local-paths` 风险说明。
+- architecture 增加 Auto Issue Fix 编排层说明，明确它复用 CLI/config/runtime/evidence，不绕过 permission gate、tool policy、sandbox 或 RunStore。
+- review-pack 增加 Auto Issue Fix 审查重点：自动审查门、维护者信任门、模板、脱敏、真实执行与 dry-run CLI acceptance、默认 mocked `gh`。
+- maintainer-prep 增加 Auto Issue Fix 文档同步规则和 GitHub 权限阻断行为准则。
 
 ### 当前能力边界
 
-- 已实现：`auto-pr` 子命令、REPL `/auto-pr`、dry-run、安全预演、模板生成、自动审查门、decision log、checkpoint、脱敏、路径普适化、risk notice、失败 fallback 语义。
-- 未实现：真实 issue discovery、clone/fix/test/push/PR live runner、插件分发层。
+- 已实现：`auto-issue-fix` 子命令、REPL `/auto-issue-fix`、dry-run 预演、真实 issue 获取、discovery、clone/fix/test/push/PR runner、模板生成、自动审查门、维护者信任门、decision log、checkpoint、脱敏、路径普适化、risk notice、失败 fallback 语义。
+- 未实现：插件分发层、复杂 merge conflict 自动处理、统一命名调整。
 
 ### 记忆治理兼容标记
 
-- Memory Pack v1 与文档同步门禁继续保留；`safe-transfer` 只导出 accepted durable memory。
+- Memory Pack v1 与文档同步门继续保留；`safe-transfer` 只导出 accepted durable memory。
 - `/memory review`、`/memory_explain`、`durable_review_queued` 和 `.repo-harness/memory/review-queue.jsonl` 是当前文档必须覆盖的可审核入口。
 - `/memory self_iteration` 是只读透明入口，不触发 compaction，不会自动写 durable topics；相关审计字段包括 `episodic_compactions`、`self_iteration_review_queued`、`self_iteration_rejections`。
 - 当前记忆路线明确为 Memory Self-Iteration v1，不做 Topic Configuration；Semantic Retrieval、embedding 和 vector DB 不作为默认路线。

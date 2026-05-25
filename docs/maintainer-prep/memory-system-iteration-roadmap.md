@@ -36,7 +36,7 @@ candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
 - Skills 可以影响 prompt 和工具权限，但不能写 durable topics。
 - Workers 可以产生 artifacts 和 parent report 汇总，但不能绕过 Review Queue。
 - Evidence 可以记录 scenario 结果，但不能写 durable topics。
-- Auto PR 可以生成证据包、自动审查门和 fallback 工件，但不能直接写 durable topics。
+- Auto Issue Fix 可以生成证据包、自动审查门和 fallback 工件，但不能直接写 durable topics。
 - Runtime report 应记录 queued、promoted、rejected 等可审计字段。
 - 关键字段包括 `durable_review_queued`、`episodic_compactions`、`self_iteration_review_queued` 和 `self_iteration_rejections`。
 

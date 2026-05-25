@@ -23,6 +23,7 @@ RepoHarness 的公共 API 仍然是 `RepoHarness.ask()`、`repo-harness` CLI 和
 支持 provider：
 
 - `openai`
+- `chat-completions`
 - `anthropic`
 - `deepseek`
 - `ollama`
@@ -33,7 +34,7 @@ RepoHarness 的公共 API 仍然是 `RepoHarness.ask()`、`repo-harness` CLI 和
 CLI 显式参数 > process env / 项目 .env > 项目 .repo-harness.toml > 全局 config > 默认值
 ```
 
-DeepSeek 是一等 provider，底层走 Anthropic-compatible client。默认 `max_steps=50`，`max_new_tokens` 按 provider 推断。
+`openai` 代表 Responses API；`chat-completions` 代表 `/chat/completions` 兼容后端，MiMo 等服务应走这一独立 provider。DeepSeek 是一等 provider，底层走 Anthropic-compatible client。默认 `max_steps=50`，`max_new_tokens` 按 provider 推断。
 
 ## Tool / Permission / Sandbox
 
@@ -56,15 +57,19 @@ Workers 是 session-scoped 子任务。Explore worker 只读；write worker 必�
 
 TUI 是可选 Textual 入口，和 REPL 共用 runtime。Slash completion、normal turn、ask_user prompt 和 worker notification 不走独立行为路径。
 
-## Auto PR 编排层
+## Auto Issue Fix 编排层
 
-Auto PR 是当前版本和 v3 能力完善同等级的重要更新。`repo-harness auto-pr` 和 REPL `/auto-pr` 复用现有 CLI 分发、配置解析、证据目录和脱敏策略，不绕过 permission gate、tool policy、sandbox 或 RunStore。
+Auto Issue Fix 是当前版本和 v3 能力完善同等级的重要更新。`repo-harness auto-issue-fix` 和 REPL `/auto-issue-fix` 复用现有 CLI 分发、provider 配置、RepoHarness runtime、证据目录和脱敏策略，不绕过 permission gate、tool policy、sandbox 或 RunStore。普通 REPL 中不带参数的 `/auto-issue-fix` 会进入引导式流程；非交互环境仍要求显式传入 `--repo` / `--issue` 或 discovery 参数。
 
-当前已实现的是框架与安全预演模式：`AutoPrConfig` 归一化用户意图，`AutoPrReviewGate` 记录自动审查门，`AutoPrRunRecord` 记录可移植状态，模板渲染生成 `run-record.md`、`pr-body.md`、`formal-report-summary.md`、`run-record.json` 和失败时的 `pr-ready-fallback.md`。默认报告使用 `<workspace>`、`<repo>`、`<evidence_dir>` 等占位符，并对 token、cookie、API key 和 secret-shaped 内容做 `<redacted>` 脱敏。
+当前已实现的是真实执行 + dry-run 预演：`AutoIssueFixConfig` 归一化用户意图，`GhCliBackend` 负责 GitHub CLI 接入，`AutoIssueFixReviewGate` 记录自动审查门，`AutoIssueFixRunRecord` 记录可移植状态，模板渲染生成 `run-record.md`、`pr-body.md`、`formal-report-summary.md`、`run-record.json` 和失败时的 `pr-ready-fallback.md`。默认报告使用 `<workspace>`、`<repo>`、`<evidence_dir>` 等占位符，并对 token、cookie、API key 和 secret-shaped 内容做 `<redacted>` 脱敏。
 
 自动审查门是两种模式共享的治理层。`review-gated` 是自动审查通过后继续等待人确认；`draft-auto` 是自动审查通过后减少人工暂停。任一阶段出现 `block` verdict 都必须停止运行并生成 fallback 证据。
 
-每次安全预演会生成 `reviews/review-<stage>.json`、`reviews/review-<stage>.md`、`decision-log.jsonl` 和 `checkpoint.json`。后续 live runner 可以在同一边界内补齐 issue discovery、clone、fix、test、push 和 PR 创建，但这些能力当前不应被写成已完成行为。
+`review-gated` 是推荐的默认使用方式；`draft-auto` 仍只创建 draft PR，不能绕过自动审查或人的最终 review。Auto Issue Fix 输出的是候选修复和证据包，patch、测试日志和 PR 描述都需要人工严格验证后再提交给上游维护者。
+
+每次运行会生成 `reviews/review-<stage>.json`、`reviews/review-<stage>.md`、`decision-log.jsonl` 和 `checkpoint.json`。真实执行还会生成 `issue.json`、`baseline-repro.log`、`fix-run.log`、`test-after-fix.log`、`git-diff.patch` 和成功时的 `pr-url.txt`。
+
+公开 `pr-body.md` 与本地证据分离：PR 描述只保留维护者需要看到的 summary、issue、validation、scope 和 notes；工具链、模型、实验记录、trace 和 evidence 细节留在本地 run record / formal report。`maintainer-trust` 审查门负责阻断不适合公开提交的 PR title、body、commit message 或 branch。
 
 ## Evidence 和 Release Gate
 

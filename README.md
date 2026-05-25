@@ -2,13 +2,13 @@
 
 RepoHarness 是一个运行在本地仓库里的轻量 coding agent。它通过受约束工具读取文件、修改文件、运行命令，并把会话、运行工件、记忆和审计信息保存在 `.repo-harness/` 下。
 
-当前版本已经完成 v3 能力完善收尾，并把 Auto PR 升级为同等级的重要版本能力。RepoHarness 继续保留自己的产品边界：
+当前版本已经完成 v3 能力完善收尾，并把 Auto Issue Fix 升级为同等级的重要版本能力。RepoHarness 继续保留自己的产品边界：
 
 - CLI 入口是 `repo-harness`，模块入口是 `python -m repo_harness`，Python 包名是 `repo_harness`。
 - 本地状态目录只使用 `.repo-harness/`。
 - 长期记忆必须经过 Review Queue；`/remember`、`/memory organize`、skills、workers、evidence 和自动整理都不能直接写 durable topics。
 - Memory Pack、Explainable Retrieval、Fuzzy Lexical Retrieval 和 Review Queue 是 RepoHarness 的核心优势，不因外部兼容诉求而降级。
-- Auto PR 当前提供框架与安全预演模式：CLI/REPL 入口、标准证据包、自动审查门、脱敏和路径普适化已落地；真实 clone/fix/test/push/PR 属于下一阶段。
+- Auto Issue Fix v2 提供真实执行模式和 dry-run 预演：CLI/REPL 入口、issue 获取、隔离 clone、RepoHarness 修复、测试、自动审查门、draft PR、脱敏和路径普适化已落地。
 
 长期记忆治理路径固定为：
 
@@ -63,12 +63,41 @@ uv run repo-harness "summarize this repository"
 
 ## Provider 配置
 
-RepoHarness 支持四类 provider：
+如果你手上已经有一个模型 API key，先看厂商文档里的 endpoint，再选择 provider。`base_url` 只填到厂商给出的版本根路径，例如 `https://example.com/v1`；RepoHarness 会按 provider 自动追加 `/responses`、`/chat/completions` 或对应路径。
 
-- `openai`：OpenAI-compatible Responses API，默认 provider。
-- `anthropic`：Anthropic-compatible Messages API。
-- `deepseek`：一等 provider，走 Anthropic-compatible client。
+RepoHarness 支持五类 provider：
+
+- `openai`：OpenAI-compatible Responses API；厂商文档路径是 `/v1/responses` 时使用。
+- `chat-completions`：Chat Completions-compatible API；厂商文档路径是 `/v1/chat/completions` 时使用，很多国产模型属于这一类。
+- `anthropic`：Anthropic-compatible Messages API；厂商文档路径是 Anthropic `/messages` 时使用。
+- `deepseek`：DeepSeek 一等 provider，默认走 Anthropic-compatible client。
 - `ollama`：本地 Ollama。
+
+推荐的配置步骤：
+
+1. 把 API key 放进环境变量，例如 `MY_MODEL_API_KEY`。
+2. 在项目根目录写 `.repo-harness.toml`。
+3. 启动 `uv run repo-harness --repl`。
+
+Chat Completions-compatible 示例，MiMo 只作为其中一个例子：
+
+```toml
+provider = "chat-completions"
+
+[providers.chat-completions]
+model = "mimo-v2.5-pro"
+base_url = "https://token-plan-cn.xiaomimimo.com/v1"
+api_key_env = "MIMO_API_KEY"
+```
+
+PowerShell：
+
+```powershell
+$env:MIMO_API_KEY="your-api-key"
+uv run repo-harness --repl
+```
+
+`api_key_env` 的含义是“RepoHarness 应该读取哪个环境变量”。如果你的厂商使用 `ACME_API_KEY`，就把 `api_key_env` 改成 `"ACME_API_KEY"`，同时替换 `model` 和 `base_url`。
 
 配置优先级固定为：
 
@@ -76,7 +105,7 @@ RepoHarness 支持四类 provider：
 CLI 显式参数 > process env / 项目 .env > 项目 .repo-harness.toml > 全局 config > 默认值
 ```
 
-项目级配置文件是 `.repo-harness.toml`：
+其他 provider 示例：
 
 ```toml
 provider = "deepseek"
@@ -87,6 +116,30 @@ client = "anthropic"
 model = "deepseek-v4-pro"
 base_url = "https://api.deepseek.com/anthropic"
 api_key_env = "DEEPSEEK_API_KEY"
+```
+
+```toml
+provider = "openai"
+
+[providers.openai]
+model = "gpt-5.4"
+base_url = "https://api.openai.com/v1"
+api_key_env = "OPENAI_API_KEY"
+```
+
+```toml
+provider = "anthropic"
+
+[providers.anthropic]
+model = "claude-sonnet-4-6"
+base_url = "https://api.anthropic.com/v1"
+api_key_env = "ANTHROPIC_API_KEY"
+```
+
+本地 Ollama 不需要远程 API key：
+
+```bash
+uv run repo-harness --provider ollama --model qwen3.5:4b
 ```
 
 用户级全局配置文件是：
@@ -109,13 +162,21 @@ REPO_HARNESS_MODEL=gpt-5.4
 REPO_HARNESS_MAX_NEW_TOKENS=8192
 ```
 
-常用启动示例：
+临时测试也可以用 CLI 参数覆盖配置，例如：
 
 ```bash
 uv run repo-harness --provider openai
+uv run repo-harness --provider chat-completions --base-url https://token-plan-cn.xiaomimimo.com/v1 --model mimo-v2.5-pro
 uv run repo-harness --provider anthropic
 uv run repo-harness --provider deepseek
 uv run repo-harness --provider ollama --model qwen3.5:4b
+```
+
+如果需要临时把厂商自己的 key 变量映射成通用变量，也可以这样做；正式项目配置仍推荐使用 `.repo-harness.toml` 的 `api_key_env`：
+
+```powershell
+$env:CHAT_COMPLETIONS_API_KEY=$env:MIMO_API_KEY
+uv run repo-harness --repl --provider chat-completions --base-url https://token-plan-cn.xiaomimimo.com/v1 --model mimo-v2.5-pro
 ```
 
 默认 `max_steps` 为 50。`max_new_tokens` 会按 provider 推断，除非通过 CLI、环境变量或配置文件显式指定。
@@ -150,7 +211,7 @@ uv run repo-harness --sandbox required --sandbox-backend bubblewrap
 - `/plan <topic>`、`/plan-exit`、`/mode`：进入/退出 plan mode。
 - `/usage`、`/model [name]`、`/history`、`/context`、`/compact`、`/working-memory`：查看运行状态。
 - `/skills`、`/skill <name> [args]`：发现并调用 skills。
-- `/auto-pr [args]`：进入 Auto PR 安全预演；未提供仓库和 issue 时会生成自动发现规划证据。
+- `/auto-issue-fix [args]`：进入 Auto Issue Fix；在普通 REPL 中不带参数会启动引导式输入，显式加 `--dry-run` 才只生成预演证据。
 - `/agents`、`/subagent explore <task>`、`/subagent worker --scope <path> <task>`：启动受限 worker。
 - `/memory review`：审核长期记忆候选。
 - `/memory organize`：整理候选事实，只进入 Review Queue。
@@ -206,36 +267,60 @@ Worker 是 session-scoped 子任务：
 uv run --extra tui repo-harness --tui
 ```
 
-TUI 使用同一套 runtime，不是独立行为路径；slash completion、normal turn、ask_user prompt 和 worker notification 都走公共 runtime。
+TUI 是可选体验入口。在 Windows PowerShell / CMD 中，Textual TUI 可能出现粘贴、复制、选择文本或终端重绘不稳定的问题；Windows 用户建议优先使用普通 REPL：
 
-## Auto PR 框架与安全预演
-
-`repo-harness auto-pr` 是本版本的重要能力更新。当前公开能力是框架与安全预演模式：生成标准证据工件、自动审查门、decision log、checkpoint、脱敏报告和路径占位符，不执行真实 clone、push 或 PR 创建。
-
-```bash
-repo-harness auto-pr --repo owner/name --issue 123 --dry-run
-repo-harness auto-pr --repo owner/name --issue 123 --mode draft-auto --dry-run
+```powershell
+uv run repo-harness --repl
 ```
 
-REPL 也可以直接进入安全预演：
+在 REPL 中可以直接使用 Auto Issue Fix：
 
 ```text
-/auto-pr
-/auto-pr --repo owner/name --issue 123
-/auto-pr --repo owner/name --issue 123 --mode draft-auto
+/auto-issue-fix --repo owner/name --issue 123 --dry-run
 ```
 
-默认模式是 `review-gated`；`draft-auto` 必须显式选择。两种模式都必须经过自动审查门，区别只是：`review-gated` 在自动审查通过后仍由人确认关键节点，`draft-auto` 在自动审查通过后减少人工暂停；任何 `block` verdict 都会停止运行并生成 fallback 证据。
+TUI 使用同一套 runtime，不是独立行为路径；slash completion、normal turn、ask_user prompt 和 worker notification 都走公共 runtime。
 
-当前 live issue discovery、clone/fix/test/push/PR runner 仍属于下一阶段，不应把安全预演误写成已完成的全自动 PR。
+## Auto Issue Fix 真实执行与 dry-run 预演
 
-每次 dry-run 会生成 `.repo-harness/auto-pr/<run_id>/` 或 `--evidence-dir` 指定目录，标准文件为：
+`repo-harness auto-issue-fix` 是本版本的重要能力更新。默认不传 `--dry-run` 时进入真实执行：读取 GitHub issue、隔离 clone、创建分支、调用 RepoHarness 修复、运行测试、执行自动审查门、commit、push，并创建 draft PR。传入 `--dry-run` 时只生成预演证据，不执行 GitHub 副作用。
+
+```bash
+repo-harness auto-issue-fix --repo owner/name --issue 123 --mode draft-auto --test-command "python -m pytest -q"
+repo-harness auto-issue-fix --repo owner/name --issue 123 --dry-run
+repo-harness auto-issue-fix --repo owner/name --issue 123 --mode draft-auto --dry-run
+```
+
+REPL 也可以直接进入 Auto Issue Fix：
+
+```text
+/auto-issue-fix
+/auto-issue-fix --repo owner/name --issue 123
+/auto-issue-fix --repo owner/name --issue 123 --mode draft-auto
+/auto-issue-fix --repo owner/name --issue 123 --dry-run
+```
+
+推荐在普通 REPL 中直接输入 `/auto-issue-fix` 使用引导式流程：RepoHarness 会依次询问模式、仓库、issue 编号和可选测试命令。默认模式是 `review-gated` 真实执行；输入 `dry-run` 才只生成预演证据，输入 `draft-auto` 才进入草稿 PR 自动化模式。仓库留空会进入全局 discovery，从候选仓库中筛选 issue；输入仓库但 issue 留空，会在该仓库内筛选候选 issue。
+
+默认模式是 `review-gated`，也是推荐模式；`draft-auto` 必须显式选择。两种模式都必须经过自动审查门，区别只是：`review-gated` 在自动审查通过后仍由人确认关键节点，`draft-auto` 在自动审查通过后减少人工暂停；任何 `block` verdict 都会停止运行并生成 fallback 证据。无论使用哪种模式，输出的 patch、测试结果和 PR 描述都必须由人进行严格 review 和验证后再交给上游维护者。
+
+Auto Issue Fix 主要面向用户解决自己维护、或明确拥有维护/贡献权限的仓库中的 issue。它的目标是负责任地高效解决清晰、可验证的问题，而不是批量制造 PR。RepoHarness 只生成候选 patch、测试日志、证据包和 PR 描述草稿；使用者必须对最终 review、验证、提交、合并和发布承担责任。默认 PR 描述使用维护者友好的五段式模板：`Summary`、`Related Issue`、`Validation`、`Scope`、`Notes for Maintainers`。本地工具链、模型、实验记录、trace 和 evidence 细节保留在本地证据目录，默认不写入提交给上游的 `pr-body.md`。维护者信任审查门会检查公开 PR title、body、commit message 和 branch，发现工具实验说明、敏感路径、secret 或越权措辞时会阻断发布。
+
+真实执行默认创建 draft PR，不会自动标记 ready-for-review。默认 GitHub 接入使用本机 `gh` CLI 认证；默认测试仍使用 mocked backend，不在普通 CI 中创建真实 fork 或 PR。
+
+每次运行会生成 `.repo-harness/auto-issue-fix/<run_id>/` 或 `--evidence-dir` 指定目录，标准文件为：
 
 - `run-record.md`
 - `pr-body.md`
 - `formal-report-summary.md`
 - `run-record.json`
 - `pr-ready-fallback.md`，仅在失败或阻断时生成
+- `issue.json`
+- `baseline-repro.log`
+- `fix-run.log`
+- `test-after-fix.log`
+- `git-diff.patch`
+- `pr-url.txt`，仅成功创建 PR 时生成
 - `reviews/review-<stage>.json`
 - `reviews/review-<stage>.md`
 - `decision-log.jsonl`
@@ -303,7 +388,7 @@ RepoHarness 记忆系统继续以“可迁移、可审核、可解释”为核�
 
 - [新手指南](docs/getting-started.md)
 - [架构概览](docs/architecture/agent-harness-v1-overview.md)
-- [Auto PR 产品方案](docs/auto-pr-product-plan.md)
-- [Auto PR 实现计划](docs/auto-pr-implementation-plan.md)
+- [Auto Issue Fix 产品方案](docs/auto-issue-fix-product-plan.md)
+- [Auto Issue Fix 实现计划](docs/auto-issue-fix-implementation-plan.md)
 - [维护者文档入口](docs/maintainer-prep/README.md)
 - [Review Pack](docs/review-pack/README.md)

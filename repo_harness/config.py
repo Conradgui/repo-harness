@@ -19,6 +19,7 @@ DEFAULT_MAX_STEPS = 50
 DEFAULT_MAX_NEW_TOKENS = {
     "ollama": 512,
     "openai": 8192,
+    "chat-completions": 8192,
     "anthropic": 32000,
     "deepseek": 8192,
 }
@@ -29,6 +30,12 @@ DEFAULT_PROVIDER_PROFILES = {
         "model": "gpt-5.4",
         "base_url": "https://www.right.codes/codex/v1",
         "api_key_env": "OPENAI_API_KEY",
+    },
+    "chat-completions": {
+        "client": "chat-completions",
+        "model": "gpt-5.4",
+        "base_url": "https://api.openai.com/v1",
+        "api_key_env": "CHAT_COMPLETIONS_API_KEY",
     },
     "anthropic": {
         "client": "anthropic",
@@ -59,6 +66,7 @@ DEFAULT_OLLAMA_HOST = DEFAULT_PROVIDER_PROFILES["ollama"]["base_url"]
 
 PROVIDER_MODEL_ENV = {
     "openai": "OPENAI_MODEL",
+    "chat-completions": "CHAT_COMPLETIONS_MODEL",
     "anthropic": "ANTHROPIC_MODEL",
     "deepseek": "DEEPSEEK_MODEL",
     "ollama": "OLLAMA_MODEL",
@@ -66,6 +74,7 @@ PROVIDER_MODEL_ENV = {
 
 PROVIDER_BASE_URL_ENV = {
     "openai": "OPENAI_API_BASE",
+    "chat-completions": "CHAT_COMPLETIONS_API_BASE",
     "anthropic": "ANTHROPIC_API_BASE",
     "deepseek": "DEEPSEEK_API_BASE",
     "ollama": "OLLAMA_HOST",

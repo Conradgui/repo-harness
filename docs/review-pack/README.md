@@ -4,11 +4,12 @@
 
 本文件为维护者和评审者提供可审查快照。它不替代 README；它说明当前版本应该如何被验证、哪些工件可作为证据、哪些治理边界不能被绕过。
 
-## 2026-05-25：v3 能力完善与 Auto PR 版本级更新快照
+## 2026-05-25：v3 能力完善与 Auto Issue Fix 版本级更新快照
 
-本快照覆盖最终版 v3 能力完善，以及同等级重要更新 Auto PR 框架与安全预演模式：
+本快照覆盖最终版 v3 能力完善，以及同等级重要更新 Auto Issue Fix 真实执行与 dry-run 预演：
 
 - provider config：全局 config、项目 config、项目 `.env`、CLI/env/config/default 优先级。
+- Chat Completions-compatible provider：MiMo 等 `/chat/completions` 后端必须走 `chat-completions`，不能误用 `openai` Responses API provider。
 - DeepSeek 一等 provider，走 Anthropic-compatible client。
 - core executor、permission、tool policy、sandbox、active tool profile。
 - skills frontmatter、prompt section、allowed tools gate。
@@ -17,7 +18,7 @@
 - RunEvidence public CLI scripted task。
 - business dogfood 三业务场景。
 - release evidence scenario contract。
-- Auto PR CLI/REPL 安全预演、标准证据包、自动审查门、脱敏、路径普适化、decision log 和 checkpoint。
+- Auto Issue Fix CLI/REPL 真实执行、dry-run 预演、标准证据包、自动审查门、脱敏、路径普适化、decision log 和 checkpoint。
 
 ## Review Skeleton
 
@@ -53,11 +54,17 @@ CLI 构建 runtime；runtime 组织 prompt、model output、tool execution、ses
 - TUI optional extra 下应有真实 app/pilot smoke；无 Textual 时 fallback 不伪装完整 TUI。
 - Skill `allowed_tools` 同时限制 prompt 和实际执行。
 - Worker write task 必须有 `write_scope`，Explore worker 只读。
-- Auto PR 当前承诺框架与安全预演模式：dry-run 证据生成、自动审查门、模板脱敏、路径普适化、decision log 和 checkpoint；review 时必须防止文档把 live clone/fix/push/PR runner 写成已完成能力。
-- Auto PR 两种模式都必须经过自动审查门；`review-gated` 额外保留人工确认，`draft-auto` 不能关闭自动审查。
-- Auto PR 标准证据文件固定为 `run-record.md`、`pr-body.md`、`formal-report-summary.md`、`run-record.json`，失败或阻断时生成 `pr-ready-fallback.md`。
-- Auto PR 自动审查文件固定为 `reviews/review-<stage>.json`、`reviews/review-<stage>.md`、`decision-log.jsonl` 和 `checkpoint.json`。
-- Auto PR 默认测试应使用 mocked `gh`，不得在普通 CI 或单测中访问真实 GitHub、创建 fork 或创建 PR。
+- Auto Issue Fix 当前承诺真实执行与 dry-run 预演：非 dry-run 可执行 issue 获取、隔离 clone、RepoHarness 修复、测试、commit、push 和 draft PR；dry-run 只生成预演证据。
+- Auto Issue Fix REPL 应支持无参数引导式流程；普通 REPL 中 `/auto-issue-fix` 默认引导到 `review-gated` 真实执行，非交互环境必须返回 usage 而不是阻塞。
+- Auto Issue Fix 两种模式都必须经过自动审查门；`review-gated` 额外保留人工确认，`draft-auto` 不能关闭自动审查。
+- Auto Issue Fix 默认推荐 `review-gated`。即使使用 `draft-auto`，最终 patch、测试日志和 PR 描述也必须由人严格 review 和验证后再交给上游维护者。
+- Auto Issue Fix 的目标是负责任地帮助开源社区解决清晰、可验证的 issue；不得把它当作批量发布 PR 或绕过维护者判断的工具。
+- Auto Issue Fix 标准证据文件固定为 `run-record.md`、`pr-body.md`、`formal-report-summary.md`、`run-record.json`，失败或阻断时生成 `pr-ready-fallback.md`。
+- `pr-body.md` 必须使用维护者友好的五段式模板：`Summary`、`Related Issue`、`Validation`、`Scope`、`Notes for Maintainers`；默认不得包含工具链、模型、实验记录、trace、benchmark、dogfood 或本地 evidence 说明。
+- Auto Issue Fix 真实执行证据包括 `issue.json`、`baseline-repro.log`、`fix-run.log`、`test-after-fix.log`、`git-diff.patch`，成功时还包括 `pr-url.txt`。
+- Auto Issue Fix 自动审查文件固定为 `reviews/review-<stage>.json`、`reviews/review-<stage>.md`、`decision-log.jsonl` 和 `checkpoint.json`。
+- Auto Issue Fix 审查必须覆盖 `maintainer-trust`：公开 PR title、body、commit message 和 branch 中出现工具实验说明、敏感路径、secret 或越权措辞时，应阻断发布并写 fallback。
+- Auto Issue Fix 默认测试应使用 mocked `gh`，不得在普通 CI 或单测中访问真实 GitHub、创建 fork 或创建 PR。
 
 ## 记忆治理
 

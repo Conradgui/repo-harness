@@ -2,7 +2,7 @@
 
 ## Summary
 
-RepoHarness 已完成最终版 v3 能力完善。Auto PR 框架与安全预演模式是当前版本的同等级重要更新。这里的工作重点是系统化补齐 runtime、工作流、证据和文档中的薄弱环节，同时保留 RepoHarness 自身优势：Review Queue、Memory Pack、Explainable Retrieval、Fuzzy Lexical Retrieval 和 RepoHarness 命名体系。
+RepoHarness 已完成最终版 v3 能力完善。Auto Issue Fix 真实执行与 dry-run 预演是当前版本的同等级重要更新。这里的工作重点是系统化补齐 runtime、工作流、证据和文档中的薄弱环节，同时保留 RepoHarness 自身优势：Review Queue、Memory Pack、Explainable Retrieval、Fuzzy Lexical Retrieval 和 RepoHarness 命名体系。
 
 参考基线：参考仓库 v3 commit `91a7c17`。
 
@@ -11,7 +11,7 @@ RepoHarness 已完成最终版 v3 能力完善。Auto PR 框架与安全预演�
 ## 已交付能力
 
 - 配置系统：项目 `.repo-harness.toml`、用户级全局 config、项目 `.env`、CLI/env/config/default 优先级。
-- Provider：OpenAI-compatible、Anthropic-compatible、DeepSeek、Ollama。
+- Provider：OpenAI-compatible Responses API、Chat Completions-compatible、Anthropic-compatible、DeepSeek、Ollama。
 - Runtime：core executor、permission、tool policy、context usage、session events、report/trace。
 - Safety：更严格 shell policy、fresh read before write、重复调用 guard、approval ask once。
 - Sandbox：`off`、`best_effort`、`read_only`、`required`。
@@ -20,7 +20,7 @@ RepoHarness 已完成最终版 v3 能力完善。Auto PR 框架与安全预演�
 - TUI：可选 Textual TUI app，和 REPL 共用 runtime。
 - Evidence：public CLI scripted task、RunEvidence structured payload、release evidence scenario contract。
 - Business dogfood：三业务场景，默认 fake/scripted，live opt-in。
-- Auto PR：CLI/REPL 安全预演、标准证据包、自动审查门、decision log、checkpoint、脱敏和路径普适化。
+- Auto Issue Fix：CLI/REPL 真实执行、REPL 无参数引导式流程、dry-run 预演、标准证据包、自动审查门、维护者信任门、draft PR、decision log、checkpoint、脱敏和路径普适化。默认推荐 `review-gated`，所有模式的 patch、测试日志和 PR 描述都必须人工严格 review 和验证。
 
 ## 保留边界
 
@@ -40,5 +40,5 @@ Review Queue 是 RepoHarness 的产品边界，不是临时实现差异。
 ## 后续维护重点
 
 - 保持文档、测试、release evidence 与实现同步。
-- 任何 public CLI、provider、sandbox、skills、workers、TUI、Auto PR 或 memory 行为变化，都必须更新 README、getting-started、architecture、review-pack 和本目录维护者文档。
+- 任何 public CLI、provider、sandbox、skills、workers、TUI、Auto Issue Fix 或 memory 行为变化，都必须更新 README、getting-started、architecture、review-pack 和本目录维护者文档。
 - 文档更新使用独立 `docs:` 提交。
