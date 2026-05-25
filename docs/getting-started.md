@@ -339,3 +339,50 @@ uv run ruff check .
 git diff --check
 uv run --extra tui pytest tests/test_tui.py -q
 ```
+
+## Auto PR 框架与安全预演
+
+Auto PR 是本版本的重要能力更新。当前阶段提供框架与安全预演模式，用来生成 PR 自动化证据包、自动审查门、decision log 和 checkpoint；不会执行真实 clone、push 或 PR 创建。
+
+```bash
+uv run repo-harness auto-pr --repo owner/name --issue 123 --dry-run
+```
+
+如需指定证据目录：
+
+```bash
+uv run repo-harness auto-pr --repo owner/name --issue 123 --dry-run --evidence-dir <evidence_dir>
+```
+
+REPL 中也可以使用：
+
+```text
+/auto-pr
+/auto-pr --repo owner/name --issue 123
+/auto-pr --repo owner/name --issue 123 --mode draft-auto
+```
+
+未提供仓库和 issue 时，`/auto-pr` 会进入自动发现的安全预演流程，只生成规划证据，不执行真实网络筛选或代码修改。
+
+标准证据文件：
+
+- `run-record.md`：完整审计记录。
+- `pr-body.md`：提交给上游维护者的 PR 描述草稿。
+- `formal-report-summary.md`：面试/作品集讲述版。
+- `run-record.json`：机器可读运行摘要。
+- `pr-ready-fallback.md`：失败或阻断时生成的 PR-ready fallback。
+- `reviews/review-<stage>.json` / `reviews/review-<stage>.md`：自动审查门结果。
+- `decision-log.jsonl`：阶段性决策流水。
+- `checkpoint.json`：恢复和排障入口。
+
+默认模式是 `review-gated`。`draft-auto` 必须显式选择，并会输出风险提示：
+
+```bash
+uv run repo-harness auto-pr --repo owner/name --issue 123 --mode draft-auto --dry-run
+```
+
+两种模式都必须经过自动审查门。`review-gated` 是“自动审查 + 人工确认”；`draft-auto` 是“自动审查 + 无人工暂停”。如果任何审查门给出 `block`，运行会停止并写入 fallback 证据。
+
+报告默认使用 `<workspace>`、`<repo>`、`<evidence_dir>` 等占位符，并脱敏 token、cookie、API key 和 secret-shaped 内容。只有明确需要本机排障时才使用 `--include-local-paths`；该选项会把本地绝对路径写进证据，分享前需要复核。
+
+真实 issue discovery、clone/fix/test/push/PR live runner 仍在下一阶段，当前不要把安全预演描述为完整全自动 PR。

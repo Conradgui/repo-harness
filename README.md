@@ -2,12 +2,13 @@
 
 RepoHarness 是一个运行在本地仓库里的轻量 coding agent。它通过受约束工具读取文件、修改文件、运行命令，并把会话、运行工件、记忆和审计信息保存在 `.repo-harness/` 下。
 
-当前版本已经完成 v3 功能对标收尾，但保留 RepoHarness 自己的产品边界：
+当前版本已经完成 v3 能力完善收尾，并把 Auto PR 升级为同等级的重要版本能力。RepoHarness 继续保留自己的产品边界：
 
 - CLI 入口是 `repo-harness`，模块入口是 `python -m repo_harness`，Python 包名是 `repo_harness`。
 - 本地状态目录只使用 `.repo-harness/`。
 - 长期记忆必须经过 Review Queue；`/remember`、`/memory organize`、skills、workers、evidence 和自动整理都不能直接写 durable topics。
-- Memory Pack、Explainable Retrieval、Fuzzy Lexical Retrieval 和 Review Queue 是 RepoHarness 的核心优势，不为对标而降级。
+- Memory Pack、Explainable Retrieval、Fuzzy Lexical Retrieval 和 Review Queue 是 RepoHarness 的核心优势，不因外部兼容诉求而降级。
+- Auto PR 当前提供框架与安全预演模式：CLI/REPL 入口、标准证据包、自动审查门、脱敏和路径普适化已落地；真实 clone/fix/test/push/PR 属于下一阶段。
 
 长期记忆治理路径固定为：
 
@@ -149,6 +150,7 @@ uv run repo-harness --sandbox required --sandbox-backend bubblewrap
 - `/plan <topic>`、`/plan-exit`、`/mode`：进入/退出 plan mode。
 - `/usage`、`/model [name]`、`/history`、`/context`、`/compact`、`/working-memory`：查看运行状态。
 - `/skills`、`/skill <name> [args]`：发现并调用 skills。
+- `/auto-pr [args]`：进入 Auto PR 安全预演；未提供仓库和 issue 时会生成自动发现规划证据。
 - `/agents`、`/subagent explore <task>`、`/subagent worker --scope <path> <task>`：启动受限 worker。
 - `/memory review`：审核长期记忆候选。
 - `/memory organize`：整理候选事实，只进入 Review Queue。
@@ -205,6 +207,41 @@ uv run --extra tui repo-harness --tui
 ```
 
 TUI 使用同一套 runtime，不是独立行为路径；slash completion、normal turn、ask_user prompt 和 worker notification 都走公共 runtime。
+
+## Auto PR 框架与安全预演
+
+`repo-harness auto-pr` 是本版本的重要能力更新。当前公开能力是框架与安全预演模式：生成标准证据工件、自动审查门、decision log、checkpoint、脱敏报告和路径占位符，不执行真实 clone、push 或 PR 创建。
+
+```bash
+repo-harness auto-pr --repo owner/name --issue 123 --dry-run
+repo-harness auto-pr --repo owner/name --issue 123 --mode draft-auto --dry-run
+```
+
+REPL 也可以直接进入安全预演：
+
+```text
+/auto-pr
+/auto-pr --repo owner/name --issue 123
+/auto-pr --repo owner/name --issue 123 --mode draft-auto
+```
+
+默认模式是 `review-gated`；`draft-auto` 必须显式选择。两种模式都必须经过自动审查门，区别只是：`review-gated` 在自动审查通过后仍由人确认关键节点，`draft-auto` 在自动审查通过后减少人工暂停；任何 `block` verdict 都会停止运行并生成 fallback 证据。
+
+当前 live issue discovery、clone/fix/test/push/PR runner 仍属于下一阶段，不应把安全预演误写成已完成的全自动 PR。
+
+每次 dry-run 会生成 `.repo-harness/auto-pr/<run_id>/` 或 `--evidence-dir` 指定目录，标准文件为：
+
+- `run-record.md`
+- `pr-body.md`
+- `formal-report-summary.md`
+- `run-record.json`
+- `pr-ready-fallback.md`，仅在失败或阻断时生成
+- `reviews/review-<stage>.json`
+- `reviews/review-<stage>.md`
+- `decision-log.jsonl`
+- `checkpoint.json`
+
+报告默认使用 `<workspace>`、`<repo>`、`<evidence_dir>` 等占位符，并脱敏 API key、GitHub token、cookie 和 secret-shaped 内容。只有显式传入 `--include-local-paths` 时才会保留本地绝对路径。
 
 ## Evidence 和发布验收
 
@@ -266,5 +303,7 @@ RepoHarness 记忆系统继续以“可迁移、可审核、可解释”为核�
 
 - [新手指南](docs/getting-started.md)
 - [架构概览](docs/architecture/agent-harness-v1-overview.md)
+- [Auto PR 产品方案](docs/auto-pr-product-plan.md)
+- [Auto PR 实现计划](docs/auto-pr-implementation-plan.md)
 - [维护者文档入口](docs/maintainer-prep/README.md)
 - [Review Pack](docs/review-pack/README.md)

@@ -1,10 +1,10 @@
-# RepoHarness v3 功能对标状态
+# RepoHarness v3 能力完善状态
 
 ## Current Status
 
 status: completed
 
-最终版功能对标已经完成并合入 `main`。本文件记录当前事实，不再按早期阶段拆分待办。
+最终版能力完善已经完成并合入 `main`。Auto PR 框架与安全预演模式是当前版本的同等级重要更新。本文件记录当前事实，不再按早期阶段拆分待办。
 
 参考基线：参考仓库 v3 commit `91a7c17`。RepoHarness 只参考功能能力，不复制品牌、路径、文案或记忆治理方式。
 
@@ -25,6 +25,7 @@ status: completed
 - Evidence：`RunEvidence` public CLI scripted task、隔离 workspace、report、trace、session events、state dir、structured payload。
 - Business dogfood：默认 fake/scripted provider，场景为 `order_pricing_bugfix`、`release_readiness_review`、`incident_resume_fix`；live provider 必须显式 opt-in。
 - Release smoke：scenario id contract、all passed、artifact path exists。
+- Auto PR：`repo-harness auto-pr`、REPL `/auto-pr`、框架与安全预演、标准证据包、自动审查门、decision log、checkpoint、脱敏和路径普适化；真实 clone/fix/test/push/PR 仍在下一阶段。
 
 ## RepoHarness 保留优势
 

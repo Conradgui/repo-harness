@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-RepoHarness 最终版 v3 功能对标已经合入 `main`。当前维护目标是保持文档、测试和 release evidence 与实现一致，不再把已完成能力列为后续工作。
+RepoHarness 最终版 v3 能力完善已经合入 `main`。Auto PR 框架与安全预演模式是当前版本的同等级重要更新。维护目标是保持文档、测试和 release evidence 与实现一致，不再把已完成能力列为后续工作。
 
 当前公开边界：
 
@@ -11,6 +11,7 @@ RepoHarness 最终版 v3 功能对标已经合入 `main`。当前维护目标是
 - Python 包：`repo_harness`
 - 本地状态目录：`.repo-harness/`
 - 参考基线：参考仓库 v3 commit `91a7c17`
+- Auto PR：`repo-harness auto-pr` 和 `/auto-pr` 当前提供框架与安全预演模式，不执行真实 clone/fix/test/push/PR。
 
 不要恢复旧状态目录、旧配置文件、旧 CLI、旧截图或旧公共命名。
 
@@ -19,6 +20,8 @@ RepoHarness 最终版 v3 功能对标已经合入 `main`。当前维护目标是
 - 文档同步是功能完成后的必需门禁。
 - 代码改变公开入口、配置、provider、sandbox、skills、workers、TUI、evidence、memory 或 release gate 时，必须检查 README、getting-started、architecture、review-pack 和 maintainer-prep。
 - README、getting-started、memory roadmap、patch-summary 必须和当前实现同步。
+- Auto PR 变更还必须同步 `docs/auto-pr-product-plan.md`、`docs/auto-pr-implementation-plan.md`，并确认 README、getting-started、architecture 和 review-pack 没有把安全预演写成 live PR 能力。
+- Auto PR 文档必须说明两种模式都经过自动审查门：`review-gated` 是自动审查后人工确认，`draft-auto` 是自动审查后减少人工暂停。
 - 文档更新使用独立 `docs:` 提交，不和功能代码混在一个提交里。
 - 当前说明以中文为主；历史事实可以保留 commit id，但不要让旧参考仓库成为当前产品主体。
 - 文档不能绕过 Review Queue，不得写出“自动写 durable memory”的语义。
@@ -33,7 +36,7 @@ candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
 ## 目录索引
 
 - `repo-harness-v3-compat-status.md`：最终版功能状态和验证结果。
-- `repo-harness-v3-compat-roadmap.md`：v3 对标交付路线和保留边界。
+- `repo-harness-v3-compat-roadmap.md`：v3 能力完善路线和保留边界。
 - `patch-summary.md`：维护者修复摘要。
 - `changelog-draft.md`：面向发布说明的草稿。
 - `versioning-notes.md`：分支、提交和文档提交规则。

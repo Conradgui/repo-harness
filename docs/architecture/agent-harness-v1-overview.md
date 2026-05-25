@@ -6,7 +6,7 @@
 
 Agent Harness v1 的核心概念仍然保留：一次任务会生成 task state、trace 和 report，以便复现和审计。
 
-## 当前架构记录：2026-05-19 最终版 v3 功能对标
+## 当前架构记录：2026-05-19 最终版 v3 能力完善
 
 RepoHarness 的公共 API 仍然是 `RepoHarness.ask()`、`repo-harness` CLI 和 `python -m repo_harness`。REPL、TUI、public CLI scripted evidence、workers 和 release evidence 共用同一套 runtime、permission、tool policy、session events、trace/report 工件。
 
@@ -55,6 +55,16 @@ Skills 从 `skills/<name>/SKILL.md` 与 `.repo-harness/skills/<name>/SKILL.md` �
 Workers 是 session-scoped 子任务。Explore worker 只读；write worker 必须声明 `write_scope`。Worker 支持后台生命周期、continue、stop、shutdown、running send guard、notifications、artifacts 和 parent report 汇总。
 
 TUI 是可选 Textual 入口，和 REPL 共用 runtime。Slash completion、normal turn、ask_user prompt 和 worker notification 不走独立行为路径。
+
+## Auto PR 编排层
+
+Auto PR 是当前版本和 v3 能力完善同等级的重要更新。`repo-harness auto-pr` 和 REPL `/auto-pr` 复用现有 CLI 分发、配置解析、证据目录和脱敏策略，不绕过 permission gate、tool policy、sandbox 或 RunStore。
+
+当前已实现的是框架与安全预演模式：`AutoPrConfig` 归一化用户意图，`AutoPrReviewGate` 记录自动审查门，`AutoPrRunRecord` 记录可移植状态，模板渲染生成 `run-record.md`、`pr-body.md`、`formal-report-summary.md`、`run-record.json` 和失败时的 `pr-ready-fallback.md`。默认报告使用 `<workspace>`、`<repo>`、`<evidence_dir>` 等占位符，并对 token、cookie、API key 和 secret-shaped 内容做 `<redacted>` 脱敏。
+
+自动审查门是两种模式共享的治理层。`review-gated` 是自动审查通过后继续等待人确认；`draft-auto` 是自动审查通过后减少人工暂停。任一阶段出现 `block` verdict 都必须停止运行并生成 fallback 证据。
+
+每次安全预演会生成 `reviews/review-<stage>.json`、`reviews/review-<stage>.md`、`decision-log.jsonl` 和 `checkpoint.json`。后续 live runner 可以在同一边界内补齐 issue discovery、clone、fix、test、push 和 PR 创建，但这些能力当前不应被写成已完成行为。
 
 ## Evidence 和 Release Gate
 

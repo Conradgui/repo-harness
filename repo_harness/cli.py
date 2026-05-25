@@ -65,6 +65,7 @@ HELP_DETAILS = textwrap.dedent(
     /remember <text>  Queue a durable memory candidate for /memory review.
     /skills  List available skills.
     /skill <name> [args] Run a skill.
+    /auto-pr [args] Prepare an Auto PR safe preview with review gates.
     /agents  Show subagent worker status.
     /subagent explore <task>  Run a read-only worker.
     /subagent worker --scope <path[,path]> <task>  Run a scoped write worker.
@@ -538,6 +539,12 @@ def handle_repl_command(agent, user_input):
             return True, False, "usage: /skill <name> [args]"
         name, _, arguments = body.partition(" ")
         return True, False, agent.invoke_skill(name, arguments)
+    if user_input.startswith("/auto-pr"):
+        from .auto_pr import handle_auto_pr_repl_command
+
+        body = user_input[len("/auto-pr"):].strip()
+        _code, output = handle_auto_pr_repl_command(body, workspace_root=getattr(agent, "cwd", "."))
+        return True, False, output
     if user_input == "/agents":
         return True, False, agent.render_workers()
     if user_input.startswith("/subagent"):
@@ -1118,6 +1125,10 @@ def main(argv=None):
     raw_argv = list(sys.argv[1:] if argv is None else argv)
     if raw_argv and raw_argv[0] == "memory":
         return handle_memory_command(raw_argv[1:])
+    if raw_argv and raw_argv[0] == "auto-pr":
+        from .auto_pr import handle_auto_pr_command
+
+        return handle_auto_pr_command(raw_argv[1:])
 
     args = build_arg_parser().parse_args(raw_argv)
     agent = build_agent(args)
