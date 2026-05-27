@@ -26,6 +26,7 @@ from .config import (
 )
 from .models import AnthropicCompatibleModelClient, ChatCompletionsCompatibleModelClient, OllamaModelClient, OpenAICompatibleModelClient
 from .models import _sanitize_base_url
+from .provider_registry import provider_choices
 from .runtime import RepoHarness, SessionStore
 from .workspace import WorkspaceContext, middle
 
@@ -1101,7 +1102,7 @@ def build_arg_parser():
     parser.add_argument("--cwd", default=".", help="Workspace directory.")
     parser.add_argument(
         "--provider",
-        choices=("ollama", "openai", "chat-completions", "anthropic", "deepseek"),
+        choices=provider_choices(),
         default="openai",
         action=_ExplicitStoreAction,
         help="Model backend to use.",
@@ -1158,6 +1159,10 @@ def main(argv=None):
     raw_argv = list(sys.argv[1:] if argv is None else argv)
     if raw_argv and raw_argv[0] == "memory":
         return handle_memory_command(raw_argv[1:])
+    if raw_argv and raw_argv[0] == "provider":
+        from .provider_setup import run_provider_command
+
+        return run_provider_command(raw_argv[1:], workspace_root=Path.cwd())
     if raw_argv and raw_argv[0] == "auto-issue-fix":
         from .auto_issue_fix import handle_auto_issue_fix_command
 

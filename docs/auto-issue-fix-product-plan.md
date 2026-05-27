@@ -105,7 +105,7 @@ Auto Issue Fix 的价值不是“让模型直接发 PR”，而是把 PR 自动�
 
 默认报告会脱敏 API key、GitHub token、cookie、secret-shaped 环境变量、本地用户名和绝对路径。只有用户显式传入 `--include-local-paths` 时，才允许在证据中保留本地绝对路径。
 
-`pr-body.md` 默认使用维护者友好的五段式模板：`Summary`、`Related Issue`、`Validation`、`Scope`、`Notes for Maintainers`。工具链、模型、实验、trace、benchmark、dogfood 和本地 evidence 说明只保留在本地审计材料中，不默认进入公开 PR 描述。
+`pr-body.md` 默认使用维护者友好的六段式模板：`Summary`、`Related Issue`、`What Changed`、`Validation`、`Scope and Risk`、`Maintainer Notes`。工具链、模型、实验、trace、benchmark、dogfood 和本地 evidence 说明只保留在本地审计材料中，不默认进入公开 PR 描述。
 
 ## 指标
 
@@ -126,3 +126,11 @@ Auto Issue Fix 的价值不是“让模型直接发 PR”，而是把 PR 自动�
 当前阶段：完成真实执行模式和 dry-run 预演，包括 CLI、REPL、GitHub backend、隔离 clone、RepoHarness 修复 turn、测试门、自动审查门、draft PR、脱敏、路径普适化和 mocked `gh` 测试。
 
 后续阶段：增强 live GitHub dogfood 覆盖、复杂冲突处理、reviewer 模型化，以及官方 workflow plugin 分发。
+
+
+## 本轮产品化收口
+
+- RepoHarness 的统一定位是：面向本地仓库的可治理 coding-agent runtime；Auto Issue Fix 是其中一个重要的完整工作流。
+- `repo-harness provider probe` / `repo-harness provider setup` / `repo-harness provider doctor` 用于降低模型接入摩擦：probe 默认根据 endpoint 或已知厂商根路径推断 provider，不发送模型请求；setup 只写 API key 环境变量名，doctor 可选执行 smoke request 且不打印 secret。
+- 真实执行如果要 commit、push 或创建 draft PR，必须显式使用 `--confirm-maintainer-access`，确认用户维护该仓库或被明确授权。
+- 证据分三层：用户先看 `formal-report-summary.md`，维护者只看 `pr-body.md`，审计和排障看 `run-record.md`、JSON、reviews、trace 和日志。

@@ -63,7 +63,7 @@ uv run repo-harness "summarize this repository"
 
 ## Provider 配置
 
-如果你手上已经有一个模型 API key，先看厂商文档里的 endpoint，再选择 provider。`base_url` 只填到厂商给出的版本根路径，例如 `https://example.com/v1`；RepoHarness 会按 provider 自动追加 `/responses`、`/chat/completions` 或对应路径。
+如果你手上已经有一个模型 API key，先看厂商文档里的 endpoint，再选择 provider。配置文件里的 `base_url` 只填到厂商给出的版本根路径，例如 `https://example.com/v1`；RepoHarness 会按 provider 自动追加 `/responses`、`/chat/completions` 或对应路径。`provider setup` / `provider probe` 命令可以接收完整 endpoint 路径，并在写入配置时自动剥离成版本根路径。
 
 RepoHarness 支持五类 provider：
 
@@ -76,8 +76,23 @@ RepoHarness 支持五类 provider：
 推荐的配置步骤：
 
 1. 把 API key 放进环境变量，例如 `MY_MODEL_API_KEY`。
-2. 在项目根目录写 `.repo-harness.toml`。
-3. 启动 `uv run repo-harness --repl`。
+2. 如果不确定 provider，先运行 `repo-harness provider probe` 根据 endpoint 或已知厂商根路径推断 provider。
+3. 运行 `repo-harness provider setup`，或用 `provider probe --write` 生成 `.repo-harness.toml`。
+4. 运行 `repo-harness provider doctor` 检查配置；需要真实 smoke request 时加 `--smoke`。
+5. 启动 `uv run repo-harness --repl`。
+
+```bash
+repo-harness provider probe --base-url https://<vendor-host>/v1 --model <model> --api-key-env MY_MODEL_API_KEY
+repo-harness provider probe --base-url https://<vendor-host>/v1 --model <model> --api-key-env MY_MODEL_API_KEY --write
+repo-harness provider probe --base-url https://<vendor-host>/v1 --model <model> --api-key-env MY_MODEL_API_KEY --smoke
+repo-harness provider setup --base-url https://<vendor-host>/v1/chat/completions --model <model> --api-key-env MY_MODEL_API_KEY
+repo-harness provider doctor
+repo-harness provider doctor --smoke
+```
+
+`provider probe` 默认不发送模型请求，只根据 endpoint 后缀或已知厂商根路径推断 provider；只有加 `--smoke` 或 `--allow-live-probe` 才会发送一次真实最小模型请求，可能产生计费、日志或 rate limit。默认不写文件，只有加 `--write` 才更新配置。`provider setup` 只写入环境变量名，不会把 API key 值写进配置文件；如果 `.repo-harness.toml` 已存在，它会更新 provider 配置并保留 `max_steps`、`[sandbox]` 和其他 provider section。`provider doctor` 只报告 key 是否存在，不打印 secret。
+
+如果只给一个未知厂商的版本根路径，例如 `https://models.example.com/v1`，RepoHarness 无法可靠判断协议；这时请传 `--provider`，或把厂商文档里的完整 endpoint 路径交给 `provider setup` / `provider probe`。
 
 Chat Completions-compatible 示例，MiMo 只作为其中一个例子：
 
@@ -87,13 +102,13 @@ provider = "chat-completions"
 [providers.chat-completions]
 model = "mimo-v2.5-pro"
 base_url = "https://token-plan-cn.xiaomimimo.com/v1"
-api_key_env = "MIMO_API_KEY"
+api_key_env = "MY_CHAT_MODEL_API_KEY"
 ```
 
 PowerShell：
 
 ```powershell
-$env:MIMO_API_KEY="your-api-key"
+$env:MY_CHAT_MODEL_API_KEY="your-api-key"
 uv run repo-harness --repl
 ```
 
@@ -175,9 +190,11 @@ uv run repo-harness --provider ollama --model qwen3.5:4b
 如果需要临时把厂商自己的 key 变量映射成通用变量，也可以这样做；正式项目配置仍推荐使用 `.repo-harness.toml` 的 `api_key_env`：
 
 ```powershell
-$env:CHAT_COMPLETIONS_API_KEY=$env:MIMO_API_KEY
+$env:CHAT_COMPLETIONS_API_KEY=$env:MY_CHAT_MODEL_API_KEY
 uv run repo-harness --repl --provider chat-completions --base-url https://token-plan-cn.xiaomimimo.com/v1 --model mimo-v2.5-pro
 ```
+
+LiteLLM、OpenRouter、Vercel AI Gateway 这类外部 gateway 可以作为 OpenAI-compatible 或 Chat Completions-compatible endpoint 接入。RepoHarness 不要求安装这些组件；如果你已经在团队里使用它们，只需要把它们暴露出的 `base_url`、`model` 和 `api_key_env` 按上面的方式配置即可。
 
 默认 `max_steps` 为 50。`max_new_tokens` 会按 provider 推断，除非通过 CLI、环境变量或配置文件显式指定。
 
@@ -286,7 +303,7 @@ TUI 使用同一套 runtime，不是独立行为路径；slash completion、norm
 `repo-harness auto-issue-fix` 是本版本的重要能力更新。默认不传 `--dry-run` 时进入真实执行：读取 GitHub issue、隔离 clone、创建分支、调用 RepoHarness 修复、运行测试、执行自动审查门、commit、push，并创建 draft PR。传入 `--dry-run` 时只生成预演证据，不执行 GitHub 副作用。
 
 ```bash
-repo-harness auto-issue-fix --repo owner/name --issue 123 --mode draft-auto --test-command "python -m pytest -q"
+repo-harness auto-issue-fix --repo owner/name --issue 123 --mode draft-auto --test-command "python -m pytest -q" --confirm-maintainer-access
 repo-harness auto-issue-fix --repo owner/name --issue 123 --dry-run
 repo-harness auto-issue-fix --repo owner/name --issue 123 --mode draft-auto --dry-run
 ```
@@ -296,7 +313,7 @@ REPL 也可以直接进入 Auto Issue Fix：
 ```text
 /auto-issue-fix
 /auto-issue-fix --repo owner/name --issue 123
-/auto-issue-fix --repo owner/name --issue 123 --mode draft-auto
+/auto-issue-fix --repo owner/name --issue 123 --mode draft-auto --confirm-maintainer-access
 /auto-issue-fix --repo owner/name --issue 123 --dry-run
 ```
 
@@ -304,7 +321,7 @@ REPL 也可以直接进入 Auto Issue Fix：
 
 默认模式是 `review-gated`，也是推荐模式；`draft-auto` 必须显式选择。两种模式都必须经过自动审查门，区别只是：`review-gated` 在自动审查通过后仍由人确认关键节点，`draft-auto` 在自动审查通过后减少人工暂停；任何 `block` verdict 都会停止运行并生成 fallback 证据。无论使用哪种模式，输出的 patch、测试结果和 PR 描述都必须由人进行严格 review 和验证后再交给上游维护者。
 
-Auto Issue Fix 主要面向用户解决自己维护、或明确拥有维护/贡献权限的仓库中的 issue。它的目标是负责任地高效解决清晰、可验证的问题，而不是批量制造 PR。RepoHarness 只生成候选 patch、测试日志、证据包和 PR 描述草稿；使用者必须对最终 review、验证、提交、合并和发布承担责任。默认 PR 描述使用维护者友好的五段式模板：`Summary`、`Related Issue`、`Validation`、`Scope`、`Notes for Maintainers`。本地工具链、模型、实验记录、trace 和 evidence 细节保留在本地证据目录，默认不写入提交给上游的 `pr-body.md`。维护者信任审查门会检查公开 PR title、body、commit message 和 branch，发现工具实验说明、敏感路径、secret 或越权措辞时会阻断发布。
+Auto Issue Fix 主要面向用户解决自己维护、或明确拥有维护/贡献权限的仓库中的 issue。它的目标是负责任地高效解决清晰、可验证的问题，而不是批量制造 PR。RepoHarness 只生成候选 patch、测试日志、证据包和 PR 描述草稿；使用者必须对最终 review、验证、提交、合并和发布承担责任。默认 PR 描述使用维护者友好的六段式模板：`Summary`、`Related Issue`、`What Changed`、`Validation`、`Scope and Risk`、`Maintainer Notes`。本地工具链、模型、实验记录、trace 和 evidence 细节保留在本地证据目录，默认不写入提交给上游的 `pr-body.md`。维护者信任审查门会检查公开 PR title、body、commit message 和 branch，发现工具实验说明、敏感路径、secret 或越权措辞时会阻断发布。
 
 真实执行默认创建 draft PR，不会自动标记 ready-for-review。默认 GitHub 接入使用本机 `gh` CLI 认证；默认测试仍使用 mocked backend，不在普通 CI 中创建真实 fork 或 PR。
 

@@ -1060,7 +1060,7 @@ def test_build_agent_uses_chat_completions_provider_from_repo_harness_toml(tmp_p
                 "[providers.chat-completions]",
                 'model = "mimo-v2.5-pro"',
                 'base_url = "https://token-plan-cn.xiaomimimo.com/v1"',
-                'api_key_env = "MIMO_API_KEY"',
+                'api_key_env = "VENDOR_CHAT_API_KEY"',
             ]
         )
         + "\n",
@@ -1068,7 +1068,7 @@ def test_build_agent_uses_chat_completions_provider_from_repo_harness_toml(tmp_p
     )
     args = harness_pkg.build_arg_parser().parse_args(["--cwd", str(tmp_path)])
 
-    with patch.dict(os.environ, {"MIMO_API_KEY": "mimo-key"}, clear=True), patch(
+    with patch.dict(os.environ, {"VENDOR_CHAT_API_KEY": "vendor-chat-key"}, clear=True), patch(
         "repo_harness.cli.ChatCompletionsCompatibleModelClient"
     ) as mock_chat:
         agent = harness_pkg.build_agent(args)
@@ -1076,7 +1076,7 @@ def test_build_agent_uses_chat_completions_provider_from_repo_harness_toml(tmp_p
     mock_chat.assert_called_once()
     assert mock_chat.call_args.kwargs["model"] == "mimo-v2.5-pro"
     assert mock_chat.call_args.kwargs["base_url"] == "https://token-plan-cn.xiaomimimo.com/v1"
-    assert mock_chat.call_args.kwargs["api_key"] == "mimo-key"
+    assert mock_chat.call_args.kwargs["api_key"] == "vendor-chat-key"
     assert agent.model_client is mock_chat.return_value
 
 
@@ -1590,9 +1590,9 @@ def test_shell_env_keeps_windows_required_variables(tmp_path):
             "ComSpec": "C:\\Windows\\System32\\cmd.exe",
             "SystemRoot": "C:\\Windows",
             "PATHEXT": ".COM;.EXE;.BAT;.CMD",
-            "USERPROFILE": "C:\\Users\\Administrator",
-            "APPDATA": "C:\\Users\\Administrator\\AppData\\Roaming",
-            "LOCALAPPDATA": "C:\\Users\\Administrator\\AppData\\Local",
+            "USERPROFILE": "D:\\Profiles\\TestUser",
+            "APPDATA": "D:\\Profiles\\TestUser\\AppData\\Roaming",
+            "LOCALAPPDATA": "D:\\Profiles\\TestUser\\AppData\\Local",
         },
         clear=True,
     ):
@@ -1602,9 +1602,9 @@ def test_shell_env_keeps_windows_required_variables(tmp_path):
     assert env["ComSpec"] == "C:\\Windows\\System32\\cmd.exe"
     assert env["SystemRoot"] == "C:\\Windows"
     assert env["PATHEXT"] == ".COM;.EXE;.BAT;.CMD"
-    assert env["USERPROFILE"] == "C:\\Users\\Administrator"
-    assert env["APPDATA"] == "C:\\Users\\Administrator\\AppData\\Roaming"
-    assert env["LOCALAPPDATA"] == "C:\\Users\\Administrator\\AppData\\Local"
+    assert env["USERPROFILE"] == "D:\\Profiles\\TestUser"
+    assert env["APPDATA"] == "D:\\Profiles\\TestUser\\AppData\\Roaming"
+    assert env["LOCALAPPDATA"] == "D:\\Profiles\\TestUser\\AppData\\Local"
     assert env["PWD"] == str(agent.root)
 
 

@@ -10,7 +10,7 @@
 - 保留 Auto Issue Fix dry-run 预演：`repo-harness auto-issue-fix` 支持 `review-gated` / `draft-auto` 模式、标准证据模板、默认脱敏、路径普适化、自动审查门和失败 fallback 语义。
 - Auto Issue Fix 默认推荐 `review-gated`；所有模式输出的 patch、测试日志和 PR 描述都必须经过人工严格 review 和验证。
 - 新增维护者信任审查门：公开 PR title、body、commit message 和 branch 中出现工具链、模型、实验记录、trace、benchmark、dogfood 或敏感信息时阻断发布。
-- `pr-body.md` 改为维护者友好的五段式模板：`Summary`、`Related Issue`、`Validation`、`Scope`、`Notes for Maintainers`；本地工具链和证据说明默认只保留在 run record / formal report 中。
+- `pr-body.md` 改为维护者友好的六段式模板：`Summary`、`Related Issue`、`What Changed`、`Validation`、`Scope and Risk`、`Maintainer Notes`；本地工具链和证据说明默认只保留在 run record / formal report 中。
 - GitHub blocked / forbidden / permission denied / cannot perform action 错误会停止运行，不重试、不绕过，并写入 fallback。
 - Auto Issue Fix 标准证据文件固定为 `run-record.md`、`pr-body.md`、`formal-report-summary.md`、`run-record.json`，失败或阻断时生成 `pr-ready-fallback.md`。
 - Auto Issue Fix 真实执行日志包括 `issue.json`、`baseline-repro.log`、`fix-run.log`、`test-after-fix.log`、`git-diff.patch` 和成功时的 `pr-url.txt`。
@@ -42,3 +42,11 @@
 - `uv run ruff check .`
 - `git diff --check`
 - `uv run --extra tui pytest tests/test_tui.py -q`
+
+
+## 本轮追加
+
+- 新增 Provider Registry、`repo-harness provider probe`、`repo-harness provider setup` 和 `repo-harness provider doctor`，用于根据厂商 endpoint 推断 provider、生成 provider 配置、验证 API key 环境变量和解释常见 provider 错误；probe 的真实请求必须显式开启。
+- Auto Issue Fix live 发布新增 `--confirm-maintainer-access` 门禁；未确认维护权限时只生成 fallback evidence，不 clone、不运行模型工具、不 commit、不 push、不创建 draft PR。
+- Auto Issue Fix evidence 增加 metrics summary，并明确 `formal-report-summary.md`、`pr-body.md`、`run-record.md` 的分层用途。
+- Auto Issue Fix 代码按职责拆分为 config、github backend、安全、workspace、reviewer、evidence 和主入口模块。

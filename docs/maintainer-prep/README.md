@@ -23,7 +23,7 @@ RepoHarness 最终版 v3 能力完善已经合入 `main`。Auto Issue Fix 真实
 - Auto Issue Fix 变更还必须同步 `docs/auto-issue-fix-product-plan.md`、`docs/auto-issue-fix-implementation-plan.md`，并确认 README、getting-started、architecture 和 review-pack 准确区分真实执行和 `--dry-run` 预演。
 - Auto Issue Fix 文档必须说明两种模式都经过自动审查门：`review-gated` 是自动审查后人工确认，`draft-auto` 是自动审查后减少人工暂停。
 - Auto Issue Fix 文档必须默认推荐 `review-gated`，并说明所有模式的 patch、测试日志和 PR 描述都需要人工严格 review 和验证。
-- 公开 `pr-body.md` 必须使用维护者友好的五段式模板，不能默认包含工具链、模型、实验记录、trace、benchmark、dogfood 或本地 evidence 说明。
+- 公开 `pr-body.md` 必须使用维护者友好的六段式模板，不能默认包含工具链、模型、实验记录、trace、benchmark、dogfood 或本地 evidence 说明。
 - 任何 GitHub blocked / forbidden / permission denied / cannot perform action 结果都必须停止，不重试、不绕过、不换账号推进，只写 fallback 和复盘材料。
 - 文档更新使用独立 `docs:` 提交，不和功能代码混在一个提交里。
 - 当前说明以中文为主；历史事实可以保留 commit id，但不要让旧参考仓库成为当前产品主体。
@@ -57,3 +57,10 @@ git diff --check
 ```
 
 如果命令有命中，必须判断是合法历史事实还是过期表达；当前用户文档中不应出现旧品牌、旧路径或未完成措辞。
+
+
+## Provider 和 Auto Issue Fix 发布检查
+
+- Provider 变更必须覆盖 Provider Registry、`provider probe`、`provider setup`、`provider doctor`、配置优先级、secret redaction 和 README/getting-started 示例。
+- Auto Issue Fix live 变更必须检查 `--confirm-maintainer-access`，未确认维护权限时只能生成本地 patch/evidence，不能发布 PR。
+- Evidence 变更必须保持三层阅读路径：`formal-report-summary.md`、`pr-body.md`、`run-record.md` / JSON / reviews。

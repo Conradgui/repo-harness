@@ -60,7 +60,7 @@ CLI 构建 runtime；runtime 组织 prompt、model output、tool execution、ses
 - Auto Issue Fix 默认推荐 `review-gated`。即使使用 `draft-auto`，最终 patch、测试日志和 PR 描述也必须由人严格 review 和验证后再交给上游维护者。
 - Auto Issue Fix 的目标是负责任地帮助开源社区解决清晰、可验证的 issue；不得把它当作批量发布 PR 或绕过维护者判断的工具。
 - Auto Issue Fix 标准证据文件固定为 `run-record.md`、`pr-body.md`、`formal-report-summary.md`、`run-record.json`，失败或阻断时生成 `pr-ready-fallback.md`。
-- `pr-body.md` 必须使用维护者友好的五段式模板：`Summary`、`Related Issue`、`Validation`、`Scope`、`Notes for Maintainers`；默认不得包含工具链、模型、实验记录、trace、benchmark、dogfood 或本地 evidence 说明。
+- `pr-body.md` 必须使用维护者友好的六段式模板：`Summary`、`Related Issue`、`What Changed`、`Validation`、`Scope and Risk`、`Maintainer Notes`；默认不得包含工具链、模型、实验记录、trace、benchmark、dogfood 或本地 evidence 说明。
 - Auto Issue Fix 真实执行证据包括 `issue.json`、`baseline-repro.log`、`fix-run.log`、`test-after-fix.log`、`git-diff.patch`，成功时还包括 `pr-url.txt`。
 - Auto Issue Fix 自动审查文件固定为 `reviews/review-<stage>.json`、`reviews/review-<stage>.md`、`decision-log.jsonl` 和 `checkpoint.json`。
 - Auto Issue Fix 审查必须覆盖 `maintainer-trust`：公开 PR title、body、commit message 和 branch 中出现工具实验说明、敏感路径、secret 或越权措辞时，应阻断发布并写 fallback。
@@ -91,3 +91,11 @@ uv run --extra tui pytest tests/test_tui.py -q
 rg -n "<旧品牌或旧路径关键字>" README.md docs
 rg -n "<未完成或过期阶段措辞>" README.md docs
 ```
+
+
+## 本轮新增审查点
+
+- Provider onboarding：`repo-harness provider probe/setup` 不得写入 API key 值，除非 `probe --write` 显式写入环境变量名；`repo-harness provider doctor` 不得打印 secret，401/404/429 应给出可行动解释。
+- Auto Issue Fix live 发布：commit、push、draft PR 前必须有 `--confirm-maintainer-access` 或等价维护权限确认。
+- Evidence 分层：`formal-report-summary.md` 给用户先读，`pr-body.md` 给维护者，`run-record.md` / JSON / reviews / trace 用于审计。
+- 架构边界：Auto Issue Fix 拆分后的 config、github_backend、security、workspace、reviewer、evidence 模块不得重新互相耦合成单体。

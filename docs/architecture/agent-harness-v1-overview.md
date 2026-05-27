@@ -63,13 +63,15 @@ Auto Issue Fix 是当前版本和 v3 能力完善同等级的重要更新。`rep
 
 当前已实现的是真实执行 + dry-run 预演：`AutoIssueFixConfig` 归一化用户意图，`GhCliBackend` 负责 GitHub CLI 接入，`AutoIssueFixReviewGate` 记录自动审查门，`AutoIssueFixRunRecord` 记录可移植状态，模板渲染生成 `run-record.md`、`pr-body.md`、`formal-report-summary.md`、`run-record.json` 和失败时的 `pr-ready-fallback.md`。默认报告使用 `<workspace>`、`<repo>`、`<evidence_dir>` 等占位符，并对 token、cookie、API key 和 secret-shaped 内容做 `<redacted>` 脱敏。
 
+Auto Issue Fix 代码按职责拆成 `config`、`github_backend`、`security`、`workspace`、`reviewer`、`evidence`、`runner` 和 `guided_repl`，包入口只保留 public facade 和兼容导出。这样后续替换 GitHub backend、增强 runner 或改进 REPL 引导时，不需要重新耦合证据模板和配置模型。
+
 自动审查门是两种模式共享的治理层。`review-gated` 是自动审查通过后继续等待人确认；`draft-auto` 是自动审查通过后减少人工暂停。任一阶段出现 `block` verdict 都必须停止运行并生成 fallback 证据。
 
 `review-gated` 是推荐的默认使用方式；`draft-auto` 仍只创建 draft PR，不能绕过自动审查或人的最终 review。Auto Issue Fix 输出的是候选修复和证据包，patch、测试日志和 PR 描述都需要人工严格验证后再提交给上游维护者。
 
 每次运行会生成 `reviews/review-<stage>.json`、`reviews/review-<stage>.md`、`decision-log.jsonl` 和 `checkpoint.json`。真实执行还会生成 `issue.json`、`baseline-repro.log`、`fix-run.log`、`test-after-fix.log`、`git-diff.patch` 和成功时的 `pr-url.txt`。
 
-公开 `pr-body.md` 与本地证据分离：PR 描述只保留维护者需要看到的 summary、issue、validation、scope 和 notes；工具链、模型、实验记录、trace 和 evidence 细节留在本地 run record / formal report。`maintainer-trust` 审查门负责阻断不适合公开提交的 PR title、body、commit message 或 branch。
+公开 `pr-body.md` 与本地证据分离：PR 描述只保留维护者需要看到的 summary、issue、changed files、validation、scope/risk 和 maintainer notes；工具链、模型、实验记录、trace 和 evidence 细节留在本地 run record / formal report。`maintainer-trust` 审查门负责阻断不适合公开提交的 PR title、body、commit message 或 branch。
 
 ## Evidence 和 Release Gate
 
@@ -100,3 +102,8 @@ candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
 `/remember`、`/memory organize`、skills、workers、evidence 和 memory self-iteration 只能写 Review Queue candidates，不能直接写 `.repo-harness/memory/topics/*.md`。
 
 Memory Pack、Explainable Retrieval、Fuzzy Lexical Retrieval 是 RepoHarness 的保留优势。
+
+
+## Provider onboarding
+
+`repo-harness provider probe`、`repo-harness provider setup` 和 `repo-harness provider doctor` 属于 CLI/config/provider 装配层，不进入 runtime tool loop。probe 默认根据 endpoint 或已知厂商根路径推断 provider，不发送模型请求；只有显式 `--smoke` / `--allow-live-probe` 才执行最小 live request。setup 只写入 provider、model、base URL 和 API key 环境变量名；doctor 读取同一套 config 解析链路，验证 key 是否存在，并可选执行最小 smoke request。Provider Registry 是这些入口的单一事实源，用于降低模型接入摩擦，但不改变 OpenAI Responses、Chat Completions、Anthropic、DeepSeek 和 Ollama 的 provider 边界。

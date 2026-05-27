@@ -4,6 +4,13 @@ from dataclasses import dataclass, field
 import os
 from pathlib import Path
 
+from .provider_registry import (
+    default_max_new_tokens,
+    default_provider_profiles,
+    provider_base_url_env,
+    provider_choices,
+    provider_model_env,
+)
 from .sandbox import SandboxConfig
 
 try:
@@ -16,46 +23,8 @@ CONFIG_FILE_NAME = ".repo-harness.toml"
 
 DEFAULT_PROVIDER = "openai"
 DEFAULT_MAX_STEPS = 50
-DEFAULT_MAX_NEW_TOKENS = {
-    "ollama": 512,
-    "openai": 8192,
-    "chat-completions": 8192,
-    "anthropic": 32000,
-    "deepseek": 8192,
-}
-
-DEFAULT_PROVIDER_PROFILES = {
-    "openai": {
-        "client": "openai",
-        "model": "gpt-5.4",
-        "base_url": "https://www.right.codes/codex/v1",
-        "api_key_env": "OPENAI_API_KEY",
-    },
-    "chat-completions": {
-        "client": "chat-completions",
-        "model": "gpt-5.4",
-        "base_url": "https://api.openai.com/v1",
-        "api_key_env": "CHAT_COMPLETIONS_API_KEY",
-    },
-    "anthropic": {
-        "client": "anthropic",
-        "model": "claude-sonnet-4-6",
-        "base_url": "https://www.right.codes/claude/v1",
-        "api_key_env": "ANTHROPIC_API_KEY",
-    },
-    "deepseek": {
-        "client": "anthropic",
-        "model": "deepseek-v4-pro",
-        "base_url": "https://api.deepseek.com/anthropic",
-        "api_key_env": "DEEPSEEK_API_KEY",
-    },
-    "ollama": {
-        "client": "ollama",
-        "model": "qwen3.5:4b",
-        "base_url": "http://127.0.0.1:11434",
-        "api_key_env": "",
-    },
-}
+DEFAULT_MAX_NEW_TOKENS = default_max_new_tokens()
+DEFAULT_PROVIDER_PROFILES = default_provider_profiles()
 
 DEFAULT_OPENAI_MODEL = DEFAULT_PROVIDER_PROFILES["openai"]["model"]
 DEFAULT_OPENAI_BASE_URL = DEFAULT_PROVIDER_PROFILES["openai"]["base_url"]
@@ -64,21 +33,8 @@ DEFAULT_ANTHROPIC_BASE_URL = DEFAULT_PROVIDER_PROFILES["anthropic"]["base_url"]
 DEFAULT_OLLAMA_MODEL = DEFAULT_PROVIDER_PROFILES["ollama"]["model"]
 DEFAULT_OLLAMA_HOST = DEFAULT_PROVIDER_PROFILES["ollama"]["base_url"]
 
-PROVIDER_MODEL_ENV = {
-    "openai": "OPENAI_MODEL",
-    "chat-completions": "CHAT_COMPLETIONS_MODEL",
-    "anthropic": "ANTHROPIC_MODEL",
-    "deepseek": "DEEPSEEK_MODEL",
-    "ollama": "OLLAMA_MODEL",
-}
-
-PROVIDER_BASE_URL_ENV = {
-    "openai": "OPENAI_API_BASE",
-    "chat-completions": "CHAT_COMPLETIONS_API_BASE",
-    "anthropic": "ANTHROPIC_API_BASE",
-    "deepseek": "DEEPSEEK_API_BASE",
-    "ollama": "OLLAMA_HOST",
-}
+PROVIDER_MODEL_ENV = provider_model_env()
+PROVIDER_BASE_URL_ENV = provider_base_url_env()
 
 
 @dataclass(frozen=True)
@@ -211,13 +167,17 @@ def _arg_was_explicit(args, name):
 
 def _provider_from_sources(args, data, env):
     if _arg_was_explicit(args, "provider"):
-        return str(getattr(args, "provider")).strip()
-    env_provider = env.get("REPO_HARNESS_PROVIDER")
-    if env_provider:
-        return env_provider.strip()
-    if data.get("provider"):
-        return str(data["provider"]).strip()
-    return DEFAULT_PROVIDER
+        provider = str(getattr(args, "provider")).strip()
+    elif env.get("REPO_HARNESS_PROVIDER"):
+        provider = env["REPO_HARNESS_PROVIDER"].strip()
+    elif data.get("provider"):
+        provider = str(data["provider"]).strip()
+    else:
+        provider = DEFAULT_PROVIDER
+    if provider not in DEFAULT_PROVIDER_PROFILES:
+        allowed = ", ".join(provider_choices())
+        raise ValueError(f"provider must be one of: {allowed}")
+    return provider
 
 
 def _toml_provider_profile(data, provider):

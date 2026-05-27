@@ -10,7 +10,7 @@ Auto Issue Fix 已提升为和 v3 能力完善同等级的重要版本更新。�
 
 Auto Issue Fix 的产品目标收窄为“负责任地帮助开源社区高效解决清晰、可验证的 issue”。默认推荐 `review-gated`；`draft-auto` 不能关闭自动审查，也不替代人的最终 review。所有模式的 patch、测试日志和 PR 描述都必须由人严格复核后再交给上游维护者。
 
-公开 PR 描述与本地证据分离：`pr-body.md` 使用 `Summary`、`Related Issue`、`Validation`、`Scope`、`Notes for Maintainers` 五段式模板；工具链、模型、实验记录、trace、benchmark、dogfood 和 evidence 说明默认只进入本地 run record / formal report。新增 `maintainer-trust` 审查门和 GitHub blocked / forbidden 错误分类，命中后停止发布并生成 fallback。
+公开 PR 描述与本地证据分离：`pr-body.md` 使用 `Summary`、`Related Issue`、`What Changed`、`Validation`、`Scope and Risk`、`Maintainer Notes` 六段式模板；工具链、模型、实验记录、trace、benchmark、dogfood 和 evidence 说明默认只进入本地 run record / formal report。新增 `maintainer-trust` 审查门和 GitHub blocked / forbidden 错误分类，命中后停止发布并生成 fallback。
 
 ### 修改内容
 
@@ -58,3 +58,10 @@ Auto Issue Fix 的产品目标收窄为“负责任地帮助开源社区高效�
 - 2026-05-17：收敛 `.repo-harness.toml`、provider profiles、DeepSeek、tool policy 和 `/remember` Review Queue 入口。
 - 2026-05-14：收敛 Memory Self-Iteration v1，自动整理只写 Review Queue candidates。
 - 2026-05-14：收敛 Memory Pack、Review Queue 和 Explainable Retrieval v1。
+
+
+## 本轮追加摘要
+
+Provider 配置体验新增 Provider Registry、`repo-harness provider probe`、`repo-harness provider setup` 和 `repo-harness provider doctor`，帮助用户从厂商 base URL、model 和 API key 环境变量名推断 provider、生成配置，并在不泄露 secret 的前提下做诊断；probe 默认不发送模型请求。
+
+Auto Issue Fix 增加维护权限确认：真实执行要 clone、运行模型工具、commit、push 或创建 draft PR 时必须显式 `--confirm-maintainer-access`；否则只生成本地证据和 fallback。证据报告增加 metrics summary，并按用户、维护者、审计者三类读者分层。
