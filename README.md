@@ -2,6 +2,8 @@
 
 RepoHarness 是一个运行在本地仓库里的轻量 coding agent。它通过受约束工具读取文件、修改文件、运行命令，并把会话、运行工件、记忆和审计信息保存在 `.repo-harness/` 下。
 
+它的产品目标不是把 coding agent 做成一个“能调用 shell 的聊天窗口”，而是把真实工程里的上下文治理、权限控制、记忆审查、证据留存和 issue 修复流程产品化。RepoHarness 更像一个本地 AI engineering harness：让 agent 可以执行工作，同时让维护者始终知道它读了什么、改了什么、为什么这么做、失败时留下了哪些证据。
+
 当前版本已经完成 v3 功能迭代收尾，并把 Auto Issue Fix 升级为同等级的重要版本能力。RepoHarness 继续保留自己的产品边界：
 
 - CLI 入口是 `repo-harness`，模块入口是 `python -m repo_harness`，Python 包名是 `repo_harness`。
@@ -9,6 +11,17 @@ RepoHarness 是一个运行在本地仓库里的轻量 coding agent。它通过�
 - 长期记忆必须经过 Review Queue；`/remember`、`/memory organize`、skills、workers、evidence 和自动整理都不能直接写 durable topics。
 - Memory Pack、Explainable Retrieval、Fuzzy Lexical Retrieval 和 Review Queue 是 RepoHarness 的核心优势，不因外部兼容诉求而降级。
 - Auto Issue Fix v2 提供真实执行模式和 dry-run 预演：CLI/REPL 入口、issue 获取、隔离 clone、RepoHarness 修复、测试、自动审查门、draft PR、脱敏和路径普适化已落地。
+
+## 产品能力速览
+
+| 能力 | 面向的问题 | RepoHarness 的处理方式 |
+| --- | --- | --- |
+| 本地受控 agent runtime | Agent 需要读写仓库和运行命令，但不能失控执行。 | 统一经过 tool executor、permission gate、tool policy 和 sandbox。 |
+| Provider 配置闭环 | 不同模型厂商 endpoint、协议和 key 管理容易混乱。 | 提供 provider setup / probe / doctor，并只保存环境变量名，不写入 secret。 |
+| Memory governance | 长期记忆如果自动写入，会污染后续推理。 | 所有 durable memory 必须先进入 Review Queue，再由人 accept/edit。 |
+| Explainable retrieval | 记忆命中如果不可解释，很难审计。 | 保留 score breakdown 和 selected explanations，支持 `/memory_explain`。 |
+| Auto Issue Fix | AI 修 issue 需要真实执行能力，也需要证据和门禁。 | 支持 dry-run、review-gated、draft-auto、自动审查门、fallback evidence 和 draft PR。 |
+| Release evidence | 产品能力不能只停留在 README 描述。 | 通过 scripted provider、dogfood、focused tests 和 release evidence 验证关键路径。 |
 
 长期记忆治理路径固定为：
 
@@ -299,6 +312,8 @@ uv run repo-harness --repl
 TUI 使用同一套 runtime，不是独立行为路径；slash completion、normal turn、ask_user prompt 和 worker notification 都走公共 runtime。
 
 ## Auto Issue Fix 真实执行与 dry-run 预演
+
+Auto Issue Fix 是 RepoHarness 当前最完整的端到端产品能力：它把 GitHub issue、隔离工作区、RepoHarness 修复 turn、测试验证、自动审查门、证据包和 draft PR 串成一条可复盘的维护链路。它强调的不是“自动制造 PR”，而是让 AI issue fixing 在真实仓库里具备可授权、可审查、可阻断和可交接的产品边界。
 
 `repo-harness auto-issue-fix` 是本版本的重要能力更新。默认不传 `--dry-run` 时进入真实执行：读取 GitHub issue、隔离 clone、创建分支、调用 RepoHarness 修复、运行测试、执行自动审查门、commit、push，并创建 draft PR。传入 `--dry-run` 时只生成预演证据，不执行 GitHub 副作用。
 
