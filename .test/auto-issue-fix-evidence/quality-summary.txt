@@ -1,0 +1,17 @@
+Fresh verification after adding this curated evidence directory:
+
+Command:
+  .\.venv\Scripts\ruff.exe check repo_harness tests
+
+Result:
+  All checks passed!
+
+Command:
+  git diff --check HEAD
+
+Result:
+  Passed with exit code 0.
+
+Repository hygiene:
+  .pytest_cache/ and .pytest-temp*/ are ignored by .gitignore.
+  .repo-harness.toml remains a local untracked configuration file and is not part of this evidence.

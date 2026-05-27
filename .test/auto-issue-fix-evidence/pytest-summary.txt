@@ -1,0 +1,14 @@
+Command:
+  .\.venv\Scripts\python.exe -m pytest
+
+Environment:
+  platform win32
+  Python 3.13.13
+  pytest 9.0.3
+
+Result:
+  310 passed, 1 skipped in 167.75s (0:02:47)
+
+Context:
+  This full-suite result was captured on the merged main branch before pushing commit
+  f524fc5ccd49ae418a8b9327e506485035825d48 to repo-harness/main.
