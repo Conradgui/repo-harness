@@ -106,7 +106,9 @@ SCRIPTED_MODEL_OUTPUTS = {
         "<final>Project convention: Preserve benchmark regression artifacts under artifacts/.\nDecision: Keep harness regression deterministic and reproducible.</final>",
     ],
     "durable_promotion_reject": [
-        "<final>Project convention: Keep verifier outcomes stable across reruns.\nDependency: API key is sk-benchmark-secret.\nDecision: Current goal is debug the harness.</final>",
+        "<final>Project convention: Keep verifier outcomes stable across reruns.\nDependency: API key is "
+        "sk-"
+        "benchmark-secret.\nDecision: Current goal is debug the harness.</final>",
     ],
 }
 

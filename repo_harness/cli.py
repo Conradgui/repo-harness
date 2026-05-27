@@ -1,4 +1,4 @@
-﻿"""命令行入口。
+"""命令行入口。
 
 这个模块负责把“用户怎么启动 RepoHarness”翻译成 runtime 能理解的对象：
 解析参数、挑模型后端、构建工作区快照、恢复或新建 session，
@@ -24,16 +24,19 @@ from .config import (
     DEFAULT_OPENAI_MODEL,
     resolve_runtime_config,
 )
-from .models import AnthropicCompatibleModelClient, OllamaModelClient, OpenAICompatibleModelClient
+from .models import AnthropicCompatibleModelClient, ChatCompletionsCompatibleModelClient, OllamaModelClient, OpenAICompatibleModelClient
 from .models import _sanitize_base_url
+from .provider_registry import provider_choices
 from .runtime import RepoHarness, SessionStore
 from .workspace import WorkspaceContext, middle
 
 DEFAULT_SECRET_ENV_NAMES = (
     "OPENAI_API_KEY",
+    "CHAT_COMPLETIONS_API_KEY",
     "OPENAI_API_TOKEN",
     "REPO_HARNESS_API_KEY",
     "REPO_HARNESS_OPENAI_API_KEY",
+    "REPO_HARNESS_CHAT_COMPLETIONS_API_KEY",
     "REPO_HARNESS_ANTHROPIC_API_KEY",
     "REPO_HARNESS_DEEPSEEK_API_KEY",
     "DEEPSEEK_API_KEY",
@@ -65,6 +68,7 @@ HELP_DETAILS = textwrap.dedent(
     /remember <text>  Queue a durable memory candidate for /memory review.
     /skills  List available skills.
     /skill <name> [args] Run a skill.
+    /auto-issue-fix [args] Run or preview Auto Issue Fix; no args starts guided mode in REPL.
     /agents  Show subagent worker status.
     /subagent explore <task>  Run a read-only worker.
     /subagent worker --scope <path[,path]> <task>  Run a scoped write worker.
@@ -105,6 +109,11 @@ def _effective_model(args, provider):
         return explicit_model
     if provider == "openai":
         model = os.environ.get("OPENAI_MODEL")
+        if model:
+            return model
+        return DEFAULT_OPENAI_MODEL
+    if provider == "chat-completions":
+        model = os.environ.get("CHAT_COMPLETIONS_MODEL") or os.environ.get("REPO_HARNESS_MODEL")
         if model:
             return model
         return DEFAULT_OPENAI_MODEL
@@ -522,7 +531,7 @@ def _format_compaction(summary):
     )
 
 
-def handle_repl_command(agent, user_input):
+def handle_repl_command(agent, user_input, *, interactive=False, input_func=input):
     user_input = str(user_input or "").strip()
     if not user_input.startswith("/"):
         return False, False, ""
@@ -538,6 +547,17 @@ def handle_repl_command(agent, user_input):
             return True, False, "usage: /skill <name> [args]"
         name, _, arguments = body.partition(" ")
         return True, False, agent.invoke_skill(name, arguments)
+    if user_input.startswith("/auto-issue-fix"):
+        from .auto_issue_fix import handle_auto_issue_fix_repl_command
+
+        body = user_input[len("/auto-issue-fix"):].strip()
+        _code, output = handle_auto_issue_fix_repl_command(
+            body,
+            workspace_root=getattr(agent, "cwd", "."),
+            interactive=interactive,
+            input_func=input_func,
+        )
+        return True, False, output
     if user_input == "/agents":
         return True, False, agent.render_workers()
     if user_input.startswith("/subagent"):
@@ -914,6 +934,27 @@ def _build_model_client(args, runtime_config=None):
             temperature=args.temperature,
             timeout=getattr(args, "openai_timeout", getattr(args, "ollama_timeout", 300)),
         )
+    if provider == "chat-completions":
+        model = profile.model if profile is not None else _effective_model(args, provider)
+        base_url = profile.base_url if profile is not None else (
+            getattr(args, "base_url", None) or os.environ.get("CHAT_COMPLETIONS_API_BASE") or DEFAULT_OPENAI_BASE_URL
+        )
+        api_key_env = profile.api_key_env if profile is not None else "CHAT_COMPLETIONS_API_KEY"
+        api_key = _first_env_from(
+            environment,
+            api_key_env,
+            "REPO_HARNESS_CHAT_COMPLETIONS_API_KEY",
+            "REPO_HARNESS_API_KEY",
+            "CHAT_COMPLETIONS_API_KEY",
+            "OPENAI_API_KEY",
+        )
+        return ChatCompletionsCompatibleModelClient(
+            model=model,
+            base_url=base_url,
+            api_key=api_key,
+            temperature=args.temperature,
+            timeout=getattr(args, "openai_timeout", getattr(args, "ollama_timeout", 300)),
+        )
     if provider in {"anthropic", "deepseek"}:
         model = profile.model if profile is not None else _effective_model(args, provider)
         base_url = profile.base_url if profile is not None else (
@@ -1047,7 +1088,7 @@ def build_agent(args):
 def build_arg_parser():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-        description="Minimal coding agent for Ollama, OpenAI-compatible, Anthropic-compatible, or DeepSeek models.",
+        description="Minimal coding agent for Ollama, OpenAI-compatible, Chat Completions-compatible, Anthropic-compatible, or DeepSeek models.",
         epilog="Advanced memory packs: repo-harness memory export/import/inspect/validate",
     )
     parser.set_defaults(
@@ -1061,7 +1102,7 @@ def build_arg_parser():
     parser.add_argument("--cwd", default=".", help="Workspace directory.")
     parser.add_argument(
         "--provider",
-        choices=("ollama", "openai", "anthropic", "deepseek"),
+        choices=provider_choices(),
         default="openai",
         action=_ExplicitStoreAction,
         help="Model backend to use.",
@@ -1070,7 +1111,7 @@ def build_arg_parser():
         "--model",
         default=None,
         action=_ExplicitStoreAction,
-        help="Model name override. Defaults to qwen3.5:4b for Ollama, OPENAI_MODEL for openai, ANTHROPIC_MODEL for anthropic, and DEEPSEEK_MODEL for deepseek when set.",
+        help="Model name override. Defaults to qwen3.5:4b for Ollama, OPENAI_MODEL for openai, CHAT_COMPLETIONS_MODEL for chat-completions, ANTHROPIC_MODEL for anthropic, and DEEPSEEK_MODEL for deepseek when set.",
     )
     parser.add_argument("--config", default=None, help="Path to .repo-harness.toml.")
     parser.add_argument("--host", default=DEFAULT_OLLAMA_HOST, help="Ollama server URL.")
@@ -1078,7 +1119,7 @@ def build_arg_parser():
         "--base-url",
         default=None,
         action=_ExplicitStoreAction,
-        help="Provider API base URL for openai, anthropic, or deepseek.",
+        help="Provider API base URL for openai, chat-completions, anthropic, or deepseek.",
     )
     parser.add_argument("--ollama-timeout", type=int, default=300, help="Ollama request timeout in seconds.")
     parser.add_argument("--openai-timeout", type=int, default=300, help="OpenAI-compatible request timeout in seconds.")
@@ -1118,6 +1159,14 @@ def main(argv=None):
     raw_argv = list(sys.argv[1:] if argv is None else argv)
     if raw_argv and raw_argv[0] == "memory":
         return handle_memory_command(raw_argv[1:])
+    if raw_argv and raw_argv[0] == "provider":
+        from .provider_setup import run_provider_command
+
+        return run_provider_command(raw_argv[1:], workspace_root=Path.cwd())
+    if raw_argv and raw_argv[0] == "auto-issue-fix":
+        from .auto_issue_fix import handle_auto_issue_fix_command
+
+        return handle_auto_issue_fix_command(raw_argv[1:])
 
     args = build_arg_parser().parse_args(raw_argv)
     agent = build_agent(args)
@@ -1155,7 +1204,7 @@ def main(argv=None):
 
         if not user_input:
             continue
-        handled, should_exit, output = handle_repl_command(agent, user_input)
+        handled, should_exit, output = handle_repl_command(agent, user_input, interactive=True)
         if handled:
             if output:
                 print(output)
