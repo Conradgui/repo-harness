@@ -59,7 +59,8 @@ class CompactManager:
 
     @staticmethod
     def _estimate_tokens(history):
-        return max(1, len(str(history)) // 4) if history else 0
+        from .context_usage import estimate_tokens
+        return estimate_tokens(str(history)) if history else 0
 
     @staticmethod
     def _summarize(history):

@@ -125,10 +125,11 @@ class WorkerManager:
         return drained
 
     def to_dict(self):
-        return {
-            "next_id": int(self.state.get("next_id", 1)),
-            "items": [dict(item) for item in self.state.get("items", [])],
-        }
+        with self._lock:
+            return {
+                "next_id": int(self.state.get("next_id", 1)),
+                "items": [dict(item) for item in self.state.get("items", [])],
+            }
 
     def _new_task(self, description, subagent_type, write_scope):
         with self._lock:
@@ -180,9 +181,10 @@ class WorkerManager:
         return task
 
     def _get_item(self, task_id):
-        for item in self.state.setdefault("items", []):
-            if item.get("id") == str(task_id):
-                return item
+        with self._lock:
+            for item in self.state.setdefault("items", []):
+                if item.get("id") == str(task_id):
+                    return item
         raise ValueError(f"unknown worker: {task_id}")
 
     def _public_payload(self, task, status=None):

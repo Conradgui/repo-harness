@@ -8,7 +8,8 @@ from pathlib import Path
 from .evaluator import run_fixed_benchmark
 from .config import resolve_runtime_config
 from .models import AnthropicCompatibleModelClient, FakeModelClient, OpenAICompatibleModelClient
-from .runtime import RepoHarness, SessionStore
+from .runtime import RepoHarness
+from .session_store import SessionStore
 from .workspace import WorkspaceContext
 
 METRICS_SCHEMA_VERSION = 2
@@ -735,7 +736,7 @@ def _provider_profile(provider, workspace_root=None):
         "provider": "claude",
         "status": "ready",
         "model": os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
-        "base_url": os.environ.get("ANTHROPIC_API_BASE", "https://www.right.codes/claude/v1"),
+        "base_url": os.environ.get("ANTHROPIC_API_BASE", "https://api.anthropic.com"),
         "api_key": api_key,
     }
 

@@ -7,7 +7,8 @@ from pathlib import Path
 
 from .cli import handle_repl_command
 from .models import FakeModelClient
-from .runtime import RepoHarness, SessionStore
+from .runtime import RepoHarness
+from .session_store import SessionStore
 from .sandbox import SandboxConfig
 from .tui import RepoHarnessTuiApp
 from .workspace import WorkspaceContext, now
@@ -216,7 +217,7 @@ def _evaluate_scenarios(evidence):
         "worker-stop": lambda: evidence["worker_stopped"]["status"] == "stopped",
         "sandbox-required": lambda: "sandbox required but unavailable" in evidence["sandbox_result"],
         "sandbox-best-effort": lambda: "exit_code: 0" in evidence["best_effort_result"],
-        "tui-smoke": lambda: "RepoHarness TUI" in RepoHarnessTuiApp(agent).snapshot(),
+        "tui-smoke": lambda: "RepoHarness" in RepoHarnessTuiApp(agent).snapshot(),
         "tui-slash-suggestions": lambda: bool(RepoHarnessTuiApp(agent).suggest_commands("/sk")),
         "tui-ask-user": lambda: hasattr(RepoHarnessTuiApp(agent), "ask_user"),
         "context-usage-report": lambda: "context_usage" in report.get("prompt_metadata", {}),

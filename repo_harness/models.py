@@ -36,6 +36,7 @@ def _provider_metadata(protocol, model, base_url, attempts, retry_count):
 
 class FakeModelClient:
     def __init__(self, outputs):
+        self.model = "fake"
         self.outputs = list(outputs)
         self.prompts = []
         self.supports_prompt_cache = False

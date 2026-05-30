@@ -3,9 +3,10 @@
 ## 当前基线
 
 - 当前目标分支：`main`
-- 最终版功能提交：`feat: complete RepoHarness v3 parity closeout`
-- 文档同步提交建议：`docs: sync RepoHarness v3 final documentation`
-- 参考基线：参考仓库 v3 commit `91a7c17`
+- v3 最终版功能提交：`feat: complete RepoHarness v3 parity closeout`
+- v4 优化提交：`refactor: Phase 1 & Phase 2 start - code cleanup, security fix, Claude Code Skill compatibility`
+- 文档同步提交建议：`docs: sync RepoHarness v4 documentation`
+- 参考基线：参考仓库 v3 commit `91a7c17`，v4 commit `9fca8c5`
 
 ## 公开入口
 

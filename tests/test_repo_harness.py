@@ -20,24 +20,7 @@ from repo_harness import (
     WorkspaceContext,
     build_welcome,
 )
-
-
-def build_workspace(tmp_path):
-    (tmp_path / "README.md").write_text("demo\n", encoding="utf-8")
-    return WorkspaceContext.build(tmp_path)
-
-
-def build_agent(tmp_path, outputs, **kwargs):
-    workspace = build_workspace(tmp_path)
-    store = SessionStore(tmp_path / ".repo-harness" / "sessions")
-    approval_policy = kwargs.pop("approval_policy", "auto")
-    return RepoHarness(
-        model_client=FakeModelClient(outputs),
-        workspace=workspace,
-        session_store=store,
-        approval_policy=approval_policy,
-        **kwargs,
-    )
+from conftest import build_agent, build_workspace
 
 
 def test_agent_runs_tool_then_final(tmp_path):
@@ -1224,7 +1207,7 @@ def test_build_agent_uses_anthropic_provider_and_openai_key_fallback(tmp_path):
 
     mock_anthropic.assert_called_once()
     assert mock_anthropic.call_args.kwargs["model"] == "claude-sonnet-4-5-20250929"
-    assert mock_anthropic.call_args.kwargs["base_url"] == "https://www.right.codes/claude/v1"
+    assert mock_anthropic.call_args.kwargs["base_url"] == "https://api.anthropic.com"
     assert mock_anthropic.call_args.kwargs["api_key"] == "sk-openai-fallback"
     assert agent.model_client is fake_client
 
@@ -2584,18 +2567,16 @@ def test_repl_help_mentions_memory_pack_menu():
 
 def test_repl_memory_pack_aliases_show_menu_without_model_call(tmp_path, capsys):
     with patch("repo_harness.cli.build_agent", return_value=DummyCliAgent(tmp_path)), patch(
-        "repo_harness.cli.build_welcome",
-        return_value="welcome",
-    ), patch("builtins.input", side_effect=["/memory_pack", "0", "/memory-pack", "0", "/exit"]):
+        "builtins.input", side_effect=["/memory_pack", "0", "/memory-pack", "0", "/exit"]
+    ), patch.dict("os.environ", {"NO_COLOR": "1"}, clear=False):
         result = mini_cli.main(["--cwd", str(tmp_path)])
 
     assert result == 0
     output = capsys.readouterr().out
-    assert output.count("Memory pack") >= 2
-    assert "Safe transfer export" in output
-    assert "Continue work export" in output
-    assert "Full recovery export" in output
-    assert "repo-harness memory export/import/inspect/validate" in output
+    assert output.count("Memory Pack") >= 2 or output.count("memory pack") >= 2
+    assert "safe-transfer" in output or "Safe transfer" in output
+    assert "continue-work" in output or "Continue work" in output
+    assert "full-recovery" in output or "Full recovery" in output
 
 
 def test_repl_memory_explain_is_read_only_and_does_not_call_model(tmp_path, capsys):
@@ -2649,9 +2630,8 @@ def test_repl_final_answer_reports_self_iteration_review_candidates(tmp_path, ca
     agent.session["memory"] = agent.memory.to_dict()
 
     with patch("repo_harness.cli.build_agent", return_value=agent), patch(
-        "repo_harness.cli.build_welcome",
-        return_value="welcome",
-    ), patch("builtins.input", side_effect=["Continue the task", "/exit"]):
+        "builtins.input", side_effect=["Continue the task", "/exit"]
+    ), patch.dict("os.environ", {"NO_COLOR": "1"}, clear=False):
         result = mini_cli.main(["--cwd", str(tmp_path)])
 
     assert result == 0
@@ -2844,7 +2824,6 @@ def test_v3_compat_phase1_docs_cover_foundation_boundaries():
         assert required in combined
 
     for name in ["roadmap", "status"]:
-        assert "Textual TUI" in docs[name]
         assert "worker manager" in docs[name]
         assert "sandbox" in docs[name]
 

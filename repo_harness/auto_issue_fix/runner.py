@@ -63,7 +63,8 @@ def run_repoharness_fix_turn(
     model_client=None,
     workspace_root: Path | None = None,
 ) -> str:
-    from repo_harness.runtime import RepoHarness, SessionStore
+    from repo_harness.runtime import RepoHarness
+    from repo_harness.session_store import SessionStore
     from repo_harness.workspace import WorkspaceContext
 
     model = model_client or _build_auto_issue_fix_model_client(config, workspace_root or Path(config.workspace_root or "."))

@@ -69,7 +69,11 @@ class SandboxRunner:
 
     def _command_is_excluded(self, command):
         excluded = getattr(self.config, "excluded_commands", ()) or ()
-        command = str(command or "")
+        command = str(command or "").strip()
+        # 防止 shell 元字符绕过：如果命令包含子 shell 或变量展开，不跳过 sandbox
+        shell_metacharacters = ("$(", "${", "`", "\\")
+        if any(mc in command for mc in shell_metacharacters):
+            return False
         return any(fnmatch.fnmatch(command, str(item)) for item in excluded)
 
     def _run_bubblewrap(self, command, timeout, agent, runner):
@@ -136,14 +140,3 @@ def format_completed_process(result):
     ).strip()
 
 
-def run_platform_shell(command, cwd, timeout, env):
-    result = subprocess.run(
-        command,
-        cwd=cwd,
-        shell=True,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env=env,
-    )
-    return format_completed_process(result)

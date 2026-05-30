@@ -18,7 +18,7 @@ RepoHarness 最终版 v3 能力完善已经合入 `main`。Auto Issue Fix 真实
 ## 文档同步规则
 
 - 文档同步是功能完成后的必需门禁。
-- 代码改变公开入口、配置、provider、sandbox、skills、workers、TUI、evidence、memory 或 release gate 时，必须检查 README、getting-started、architecture、review-pack 和 maintainer-prep。新增 provider 时还必须覆盖配置优先级、环境变量、`/usage` 元数据和文档示例。
+- 代码改变公开入口、配置、provider、sandbox、skills、workers、REPL、evidence、memory 或 release gate 时，必须检查 README、getting-started、architecture、review-pack 和 maintainer-prep。新增 provider 时还必须覆盖配置优先级、环境变量、`/usage` 元数据和文档示例。
 - README、getting-started、memory roadmap、patch-summary 必须和当前实现同步。
 - Auto Issue Fix 变更还必须同步 `docs/auto-issue-fix-product-plan.md`、`docs/auto-issue-fix-implementation-plan.md`，并确认 README、getting-started、architecture 和 review-pack 准确区分真实执行和 `--dry-run` 预演。
 - Auto Issue Fix 文档必须说明两种模式都经过自动审查门：`review-gated` 是自动审查后人工确认，`draft-auto` 是自动审查后减少人工暂停。

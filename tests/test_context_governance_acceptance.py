@@ -25,7 +25,7 @@ def test_context_usage_is_recorded_for_turn_report_and_session_events(tmp_path):
 
     report = json.loads((agent.current_run_dir / "report.json").read_text(encoding="utf-8"))
     usage = report["prompt_metadata"]["context_usage"]
-    assert usage["estimation_method"] == "chars_div_4"
+    assert usage["estimation_method"] == "cjk_aware"
     assert usage["sections"]["current_request"]["chars"] == len("Current user request:\nhi")
     assert usage["total_estimated_tokens"] == sum(section["tokens"] for section in usage["sections"].values())
     assert any(event["event"] == "context_usage_recorded" for event in read_jsonl(agent.session_event_bus.path))

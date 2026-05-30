@@ -10,7 +10,6 @@ import re
 import textwrap
 import uuid
 import hashlib
-import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -24,12 +23,10 @@ from .core.tool_profiles import build_tool_profiles
 from .permissions import PermissionChecker
 from .plan_mode import PlanModeManager
 from . import runtime_evidence
-from .runtime_control import RuntimeControlPlane
 from .run_store import RunStore
 from .sandbox import SandboxConfig, SandboxRunner
 from . import skills as skillslib
 from .features import skills_runtime
-from .task_state import TaskState
 from .todo_ledger import TodoLedger
 from . import tools as toolkit
 from .tool_policy import ToolPolicy
@@ -76,28 +73,6 @@ class PromptPrefix:
     workspace_fingerprint: str
     tool_signature: str
     built_at: str
-
-
-class SessionStore:
-    def __init__(self, root):
-        self.root = Path(root)
-        self.root.mkdir(parents=True, exist_ok=True)
-
-    def path(self, session_id):
-        return self.root / f"{session_id}.json"
-
-    def save(self, session):
-        path = self.path(session["id"])
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(session, indent=2), encoding="utf-8")
-        return path
-
-    def load(self, session_id):
-        return json.loads(self.path(session_id).read_text(encoding="utf-8"))
-
-    def latest(self):
-        files = sorted(self.root.glob("*.json"), key=lambda path: path.stat().st_mtime)
-        return files[-1].stem if files else None
 
 
 class RepoHarness:
@@ -171,16 +146,34 @@ class RepoHarness:
         self.tool_policy = ToolPolicy(self)
         self.permission_checker = PermissionChecker(self)
         self.plan_mode = PlanModeManager(self)
-        self.control_plane = RuntimeControlPlane(self)
         self.engine = Engine(self)
         self.prefix_state = self.build_prefix()
         self.prefix = self.prefix_state.text
-        self.context_manager = ContextManager(self)
+        # 根据模型和 provider 动态计算 context budget
+        from .context_manager import detect_context_window, compute_budgets
+        _provider_name = self._infer_provider_name(model_client)
+        _ctx_window = detect_context_window(
+            str(getattr(model_client, "model", "")),
+            _provider_name,
+        )
+        _total_budget, _section_budgets, _section_floors, _recent_window = compute_budgets(
+            _ctx_window, max_new_tokens
+        )
+        self.context_window = _ctx_window
+        self.context_manager = ContextManager(
+            self,
+            total_budget=_total_budget,
+            section_budgets=_section_budgets,
+            section_floors=_section_floors,
+            recent_window=_recent_window,
+        )
         self.resume_state = self.evaluate_resume_state()
         self.session_path = self.session_store.save(self.session)
         self.current_task_state = None
         self.current_run_id = ""
         self.current_turn_id = ""
+        self._trusted_tools = set()
+        self._display = None
         self.current_run_dir = None
         self.abort_requested = False
         self.last_prompt_metadata = {}
@@ -586,6 +579,20 @@ class RepoHarness:
         except RuntimeError:
             return None
 
+    @staticmethod
+    def _infer_provider_name(model_client):
+        """从 model_client 类名推断 provider 名称。"""
+        cls_name = type(model_client).__name__
+        if "Ollama" in cls_name:
+            return "ollama"
+        if "Anthropic" in cls_name:
+            return "anthropic"
+        if "ChatCompletions" in cls_name:
+            return "chat-completions"
+        if "OpenAI" in cls_name:
+            return "openai"
+        return ""
+
     def spawn_worker(self, description, prompt, subagent_type="worker", write_scope=None):
         return self.worker_manager.spawn(description, prompt, subagent_type=subagent_type, write_scope=write_scope)
 
@@ -711,7 +718,8 @@ class RepoHarness:
 
     @staticmethod
     def _estimate_tokens(text):
-        return max(0, (len(str(text)) + 3) // 4)
+        from .core.context_usage import estimate_tokens
+        return estimate_tokens(text)
 
     def context_usage(self, prompt_metadata=None):
         from .core.context_usage import ContextUsageAnalyzer
@@ -1243,259 +1251,6 @@ class RepoHarness:
         """
         return self.engine.ask(user_message)
 
-        run_started_at = time.monotonic()
-        self.memory.set_task_summary(user_message)
-        self.record({"role": "user", "content": user_message, "created_at": now()})
-
-        task_state = TaskState.create(run_id=self.new_run_id(), task_id=self.new_task_id(), user_request=user_message)
-        task_state.resume_status = self.resume_state.get("status", CHECKPOINT_NONE_STATUS)
-        self.current_task_state = task_state
-        self.current_run_dir = self.run_store.start_run(task_state)
-        self._run_changed_paths = []
-        self.runtime_reminders = []
-        self.emit_session_event("turn_started", run_id=task_state.run_id, turn_id=task_state.task_id, user_request=clip(user_message, 300))
-        self.emit_trace(
-            task_state,
-            "run_started",
-            {
-                "task_id": task_state.task_id,
-                "user_request": clip(user_message, 300),
-            },
-        )
-
-        tool_steps = 0
-        attempts = 0
-        max_attempts = max(self.max_steps * 3, self.max_steps + 4)
-
-        # 这是 agent 的主循环，可以按“感知 -> 决策 -> 行动 -> 记录”来理解：
-        # 1. 感知：重新组 prompt，把当前状态整理给模型看
-        # 2. 决策：让模型返回一个工具调用，或一个最终答案
-        # 3. 行动：如果是工具调用，就执行工具
-        # 4. 记录：把结果写回 history / task_state / trace / memory
-        # 然后进入下一轮，直到停机条件满足
-        while tool_steps < self.max_steps and attempts < max_attempts:
-            attempts += 1
-            task_state.record_attempt()
-            self.run_store.write_task_state(task_state)
-            prompt_started_at = time.monotonic()
-            prompt, prompt_metadata = self._build_prompt_and_metadata(user_message)
-            self.emit_trace(
-                task_state,
-                "prompt_built",
-                {
-                    "prompt_metadata": prompt_metadata,
-                    "duration_ms": int((time.monotonic() - prompt_started_at) * 1000),
-                },
-            )
-            self.emit_session_event(
-                "context_usage_recorded",
-                run_id=task_state.run_id,
-                turn_id=task_state.task_id,
-                context_usage=prompt_metadata.get("context_usage", {}),
-            )
-            if prompt_metadata.get("resume_status") == CHECKPOINT_PARTIAL_STALE_STATUS:
-                checkpoint = self.create_checkpoint(task_state, user_message, trigger="freshness_mismatch")
-                self.run_store.write_task_state(task_state)
-                self.emit_trace(
-                    task_state,
-                    "checkpoint_created",
-                    {
-                        "checkpoint_id": checkpoint["checkpoint_id"],
-                        "trigger": "freshness_mismatch",
-                    },
-                )
-            elif prompt_metadata.get("resume_status") == CHECKPOINT_WORKSPACE_MISMATCH_STATUS:
-                self.emit_trace(
-                    task_state,
-                    "runtime_identity_mismatch",
-                    {
-                        "fields": list(prompt_metadata.get("runtime_identity_mismatch_fields", [])),
-                    },
-                )
-                checkpoint = self.create_checkpoint(task_state, user_message, trigger="workspace_mismatch")
-                self.run_store.write_task_state(task_state)
-                self.emit_trace(
-                    task_state,
-                    "checkpoint_created",
-                    {
-                        "checkpoint_id": checkpoint["checkpoint_id"],
-                        "trigger": "workspace_mismatch",
-                    },
-                )
-            if prompt_metadata.get("budget_reductions"):
-                checkpoint = self.create_checkpoint(task_state, user_message, trigger="context_reduction")
-                self.run_store.write_task_state(task_state)
-                self.emit_trace(
-                    task_state,
-                    "checkpoint_created",
-                    {
-                        "checkpoint_id": checkpoint["checkpoint_id"],
-                        "trigger": "context_reduction",
-                    },
-                )
-            self.emit_trace(
-                task_state,
-                "model_requested",
-                {
-                    "attempts": task_state.attempts,
-                    "tool_steps": task_state.tool_steps,
-                    "prompt_cache_key": prompt_metadata.get("prompt_cache_key"),
-                },
-            )
-            prompt_cache_key = None
-            prompt_cache_retention = None
-            if getattr(self.model_client, "supports_prompt_cache", False):
-                # 只有后端明确支持时，才把稳定前缀的 hash 作为 cache key 发出去。
-                prompt_cache_key = prompt_metadata.get("prompt_cache_key")
-                prompt_cache_retention = "in_memory"
-            model_started_at = time.monotonic()
-            raw = self.control_plane.complete_model(
-                prompt,
-                prompt_cache_key=prompt_cache_key,
-                prompt_cache_retention=prompt_cache_retention,
-            )
-            self.emit_session_event("model_requested", run_id=task_state.run_id, turn_id=task_state.task_id, attempts=task_state.attempts)
-            completion_metadata = dict(getattr(self.model_client, "last_completion_metadata", {}) or {})
-            if completion_metadata:
-                # 把后端返回的 usage/cache 统计并回 prompt_metadata，
-                # 方便统一写入 report 和 trace。
-                prompt_metadata.update(completion_metadata)
-            self.last_completion_metadata = completion_metadata
-            self.last_prompt_metadata = prompt_metadata
-            kind, payload = self.parse(raw)
-            self.emit_trace(
-                task_state,
-                "model_parsed",
-                {
-                    "kind": kind,
-                    "completion_metadata": completion_metadata,
-                    "duration_ms": int((time.monotonic() - model_started_at) * 1000),
-                },
-            )
-            self.emit_session_event("model_parsed", run_id=task_state.run_id, turn_id=task_state.task_id, kind=kind)
-
-            if kind == "tool":
-                tool_steps += 1
-                name = payload.get("name", "")
-                args = payload.get("args", {})
-                task_state.record_tool(name)
-                tool_started_at = time.monotonic()
-                result = self.control_plane.execute_tool(name, args)
-                self.record(
-                    {
-                        "role": "tool",
-                        "name": name,
-                        "args": args,
-                        "content": result,
-                        "created_at": now(),
-                    }
-                )
-                self.run_store.write_task_state(task_state)
-                self.emit_trace(
-                    task_state,
-                    "tool_executed",
-                    {
-                        "name": name,
-                        "args": args,
-                        "result": clip(result, 500),
-                        "duration_ms": int((time.monotonic() - tool_started_at) * 1000),
-                        "artifact_paths": list((self._last_tool_result_metadata or {}).get("affected_paths", [])),
-                        **dict(self._last_tool_result_metadata or {}),
-                    },
-                )
-                self.emit_session_event(
-                    "tool_executed",
-                    run_id=task_state.run_id,
-                    turn_id=task_state.task_id,
-                    name=name,
-                    status=(self._last_tool_result_metadata or {}).get("tool_status", ""),
-                    artifact_paths=list((self._last_tool_result_metadata or {}).get("affected_paths", [])),
-                )
-                checkpoint = self.create_checkpoint(task_state, user_message, trigger="tool_executed")
-                self.run_store.write_task_state(task_state)
-                self.emit_trace(
-                    task_state,
-                    "checkpoint_created",
-                    {
-                        "checkpoint_id": checkpoint["checkpoint_id"],
-                        "trigger": "tool_executed",
-                    },
-                )
-                continue
-
-            if kind == "retry":
-                self.record({"role": "assistant", "content": payload, "created_at": now()})
-                self.run_store.write_task_state(task_state)
-                continue
-
-            final = (payload or raw).strip()
-            if self.runtime_mode == "plan" and not self.plan_mode.artifact_has_content():
-                notice = self.plan_mode.final_block_message()
-                self.emit_trace(task_state, "runtime_notice", {"content": notice, "status": "blocked"})
-                self.record({"role": "assistant", "content": notice, "created_at": now()})
-                continue
-            self.record({"role": "assistant", "content": final, "created_at": now()})
-            task_state.finish_success(final)
-            self.promote_durable_memory(user_message, final)
-            self.run_memory_self_iteration()
-            checkpoint = self.create_checkpoint(task_state, user_message, trigger="run_finished")
-            if self.runtime_mode == "plan":
-                self.exit_plan_mode()
-            self._finalize_runtime_evidence(task_state)
-            self.run_store.write_task_state(task_state)
-            self.emit_trace(
-                task_state,
-                "checkpoint_created",
-                {
-                    "checkpoint_id": checkpoint["checkpoint_id"],
-                    "trigger": "run_finished",
-                },
-            )
-            self.emit_trace(
-                task_state,
-                "run_finished",
-                {
-                    "status": task_state.status,
-                    "stop_reason": task_state.stop_reason,
-                    "final_answer": final,
-                    "run_duration_ms": int((time.monotonic() - run_started_at) * 1000),
-                },
-            )
-            self.run_store.write_report(task_state, self.redact_artifact(self.build_report(task_state)))
-            return final
-
-        if attempts >= max_attempts and tool_steps < self.max_steps:
-            final = "Stopped after too many malformed model responses without a valid tool call or final answer."
-            task_state.stop_retry_limit(final)
-        else:
-            final = "Stopped after reaching the step limit without a final answer."
-            task_state.stop_step_limit(final)
-        self.record({"role": "assistant", "content": final, "created_at": now()})
-        self.promote_durable_memory(user_message, final)
-        self.run_memory_self_iteration()
-        self._finalize_runtime_evidence(task_state)
-        self.run_store.write_task_state(task_state)
-        checkpoint = self.create_checkpoint(task_state, user_message, trigger=task_state.stop_reason or "run_stopped")
-        self.emit_trace(
-            task_state,
-            "checkpoint_created",
-            {
-                "checkpoint_id": checkpoint["checkpoint_id"],
-                "trigger": task_state.stop_reason or "run_stopped",
-            },
-        )
-        self.emit_trace(
-            task_state,
-            "run_finished",
-            {
-                "status": task_state.status,
-                "stop_reason": task_state.stop_reason,
-                "final_answer": final,
-                "run_duration_ms": int((time.monotonic() - run_started_at) * 1000),
-            },
-        )
-        self.run_store.write_report(task_state, self.redact_artifact(self.build_report(task_state)))
-        return final
 
     def run_tool(self, name, args):
         """执行一次工具调用，并在执行前后套上完整护栏。
@@ -1526,23 +1281,6 @@ class RepoHarness:
             return False
         recent = tool_events[-2:]
         return all(item["name"] == name and item["args"] == args for item in recent)
-
-    def _write_scope_error(self, name, args):
-        if not self.write_scope or name not in {"write_file", "patch_file"}:
-            return ""
-        target = self.path(args.get("path", ""))
-        allowed = []
-        for item in self.write_scope:
-            scope_path = self.path(item)
-            allowed.append(scope_path)
-            try:
-                target.relative_to(scope_path if scope_path.is_dir() else scope_path.parent)
-            except ValueError:
-                continue
-            if scope_path.is_dir() or target == scope_path or scope_path.name == target.name:
-                return ""
-        allowed_text = ", ".join(str(path.relative_to(self.root)) for path in allowed)
-        return f"error: worker write_scope does not allow {name} on {target.relative_to(self.root)}; allowed: {allowed_text}"
 
     def _finalize_runtime_evidence(self, task_state):
         graph = runtime_evidence.artifact_graph(self.root, list(getattr(self, "_run_changed_paths", [])))
@@ -1639,11 +1377,31 @@ class RepoHarness:
             return True
         if self.approval_policy == "never":
             return False
-        try:
-            answer = input(f"approve {name} {json.dumps(args, ensure_ascii=True)}? [y/N] ")
-        except EOFError:
-            return False
-        return answer.strip().lower() in {"y", "yes"}
+        # 会话级信任：已确认的工具本次会话内自动放行
+        if name in self._trusted_tools:
+            return True
+
+        # Rich 风格输入（如果 display 可用）
+        display = getattr(self, "_display", None)
+        args_summary = json.dumps(args, ensure_ascii=True)[:80]
+        if display:
+            answer = display.prompt_choice(
+                f"approve {name} {args_summary}?",
+                ["y", "n", "a"],
+            )
+        else:
+            try:
+                answer = input(f"approve {name} {args_summary}? [y/N/a(llow this session)] ")
+            except EOFError:
+                return False
+            answer = answer.strip().lower()
+
+        if answer in {"y", "yes"}:
+            return True
+        if answer in {"a", "all", "always"}:
+            self._trusted_tools.add(name)
+            return True
+        return False
 
     @staticmethod
     def parse(raw):

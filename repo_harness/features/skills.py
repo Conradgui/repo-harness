@@ -95,6 +95,13 @@ def discover_skills(root, user_home=None, home=None):
     for directory, source in search_roots:
         for skill in load_skills_from_dir(directory, source=source):
             skills[skill.name] = skill
+    # 兼容 Claude Code Skill 格式：从 ~/.claude/skills/ 发现
+    try:
+        from .claude_code_skills import discover_claude_code_skills
+        for skill in discover_claude_code_skills(user_home=str(home_path) if home_path else None):
+            skills.setdefault(skill.name, skill)
+    except ImportError:
+        pass
     return dict(sorted(skills.items()))
 
 

@@ -17,7 +17,7 @@ RepoHarness 已完成最终版 v3 能力完善。Auto Issue Fix 真实执行与 
 - Sandbox：`off`、`best_effort`、`read_only`、`required`。
 - Skills：frontmatter、YAML list、allowed tools、prompt refresh、fork/model override。
 - Workers：worker manager 支持后台生命周期、continue/stop/shutdown、notifications、artifacts、write scope。
-- TUI：可选 Textual TUI app，和 REPL 共用 runtime。
+- REPL：基于 `rich` 的增强 REPL，工具调用卡片、Markdown 渲染、状态栏。
 - Evidence：public CLI scripted task、RunEvidence structured payload、release evidence scenario contract。
 - Business dogfood：三业务场景，默认 fake/scripted，live opt-in。
 - Auto Issue Fix：CLI/REPL 真实执行、REPL 无参数引导式流程、dry-run 预演、标准证据包、自动审查门、维护者信任门、draft PR、decision log、checkpoint、脱敏和路径普适化。默认推荐 `review-gated`，所有模式的 patch、测试日志和 PR 描述都必须人工严格 review 和验证。
@@ -40,5 +40,5 @@ Review Queue 是 RepoHarness 的产品边界，不是临时实现差异。
 ## 后续维护重点
 
 - 保持文档、测试、release evidence 与实现同步。
-- 任何 public CLI、provider、sandbox、skills、workers、TUI、Auto Issue Fix 或 memory 行为变化，都必须更新 README、getting-started、architecture、review-pack 和本目录维护者文档。
+- 任何 public CLI、provider、sandbox、skills、workers、REPL、Auto Issue Fix 或 memory 行为变化，都必须更新 README、getting-started、architecture、review-pack 和本目录维护者文档。
 - 文档更新使用独立 `docs:` 提交。

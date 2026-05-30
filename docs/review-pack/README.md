@@ -4,9 +4,9 @@
 
 本文件为维护者和评审者提供可审查快照。它不替代 README；它说明当前版本应该如何被验证、哪些工件可作为证据、哪些治理边界不能被绕过。
 
-## 2026-05-25：v3 能力完善与 Auto Issue Fix 版本级更新快照
+## 2026-05-30：v5 动态上下文预算与代码质量提升
 
-本快照覆盖最终版 v3 能力完善，以及同等级重要更新 Auto Issue Fix 真实执行与 dry-run 预演：
+本快照覆盖 v5 版本，包含 v3 能力完善、v4 代码清理与安全加固、以及 v5 动态上下文预算：
 
 - provider config：全局 config、项目 config、项目 `.env`、CLI/env/config/default 优先级。
 - Chat Completions-compatible provider：MiMo 等 `/chat/completions` 后端必须走 `chat-completions`，不能误用 `openai` Responses API provider。
@@ -14,7 +14,8 @@
 - core executor、permission、tool policy、sandbox、active tool profile。
 - skills frontmatter、prompt section、allowed tools gate。
 - worker 后台生命周期、notifications、artifacts、write scope。
-- optional Textual TUI，和 REPL 共用 runtime。
+- 基于 `rich` 的增强 REPL，工具调用卡片、Markdown 渲染、状态栏。
+- 动态 context budget：根据模型 context window 自动计算预算（最高 400K 字符）。
 - RunEvidence public CLI scripted task。
 - business dogfood 三业务场景。
 - release evidence scenario contract。
@@ -28,7 +29,7 @@ RepoHarness 是一个本地仓库 coding agent，强调受约束工具、可审�
 
 ### Architecture map
 
-CLI 构建 runtime；runtime 组织 prompt、model output、tool execution、session events、task state、trace 和 report；workers、skills、TUI 和 evidence 共用这条路径。
+CLI 构建 runtime；runtime 组织 prompt、model output、tool execution、session events、task state、trace 和 report；workers、skills、REPL 和 evidence 共用这条路径。
 
 ### Benchmark evidence
 
@@ -51,7 +52,7 @@ CLI 构建 runtime；runtime 组织 prompt、model output、tool execution、ses
   - `order_pricing_bugfix`
   - `release_readiness_review`
   - `incident_resume_fix`
-- TUI optional extra 下应有真实 app/pilot smoke；无 Textual 时 fallback 不伪装完整 TUI。
+- REPL 基于 `rich` 库，工具调用卡片、Markdown 渲染、状态栏等终端交互增强已验证。
 - Skill `allowed_tools` 同时限制 prompt 和实际执行。
 - Worker write task 必须有 `write_scope`，Explore worker 只读。
 - Auto Issue Fix 当前承诺真实执行与 dry-run 预演：非 dry-run 可执行 issue 获取、隔离 clone、RepoHarness 修复、测试、commit、push 和 draft PR；dry-run 只生成预演证据。
@@ -82,7 +83,7 @@ candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
 uv run pytest tests -q --basetemp C:\tmp\rh-test
 uv run ruff check .
 git diff --check
-uv run --extra tui pytest tests/test_tui.py -q
+uv run pytest tests -q
 ```
 
 文档同步后额外检查：

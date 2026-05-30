@@ -1,18 +1,7 @@
 import json
 
-from repo_harness import FakeModelClient, RepoHarness, SessionStore, WorkspaceContext
 from repo_harness.providers import ProviderError
-
-
-def build_agent(tmp_path, outputs, **kwargs):
-    (tmp_path / "README.md").write_text("demo\n", encoding="utf-8")
-    return RepoHarness(
-        model_client=FakeModelClient(outputs),
-        workspace=WorkspaceContext.build(tmp_path),
-        session_store=SessionStore(tmp_path / ".repo-harness" / "sessions"),
-        approval_policy="auto",
-        **kwargs,
-    )
+from conftest import build_agent
 
 
 def read_jsonl(path):

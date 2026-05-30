@@ -159,7 +159,7 @@ $env:CHAT_COMPLETIONS_API_KEY=$env:MY_CHAT_MODEL_API_KEY
 uv run repo-harness --repl --provider chat-completions --base-url https://token-plan-cn.xiaomimimo.com/v1 --model mimo-v2.5-pro
 ```
 
-P2 实测能跑通，是因为当时使用了临时脚本：脚本直接读取厂商 key 环境变量，并自己调用 `base_url + "/chat/completions"`。正式 REPL/TUI 走 RepoHarness provider 配置链路，所以必须通过 `api_key_env` 或通用环境变量告诉 RepoHarness 读哪个 key。
+P2 实测能跑通，是因为当时使用了临时脚本：脚本直接读取厂商 key 环境变量，并自己调用 `base_url + "/chat/completions"`。正式 REPL 走 RepoHarness provider 配置链路，所以必须通过 `api_key_env` 或通用环境变量告诉 RepoHarness 读哪个 key。
 
 ### 2.3 Anthropic-compatible
 
@@ -354,6 +354,8 @@ uv run repo-harness --sandbox required --sandbox-backend bubblewrap
 
 `required` 模式在后端不可用时 fail closed。Windows fallback 会写入不可用 metadata，而不是伪装为完整隔离。
 
+`excluded_commands` 使用前导空格规范化和 shell 元字符检测（`$(`、`` ` ``、`\`、`${`）防止绕过 sandbox。
+
 ## 7. Skills
 
 Skill 文件位置：
@@ -363,7 +365,18 @@ skills/<name>/SKILL.md
 .repo-harness/skills/<name>/SKILL.md
 ```
 
-示例：
+同时兼容 Claude Code Skill 格式，自动从 `~/.claude/skills/` 发现并加载。Claude Code 工具名称自动映射：
+
+| Claude Code | RepoHarness |
+| --- | --- |
+| `Read` | `read_file` |
+| `Write` | `write_file` |
+| `Edit` | `patch_file` |
+| `Bash` | `run_shell` |
+| `Glob` | `list_files` |
+| `Grep` | `search` |
+
+示例（RepoHarness 格式）：
 
 ```markdown
 ---
@@ -376,6 +389,18 @@ paths:
 ---
 
 Read the relevant tests and summarize the smallest useful fix.
+```
+
+示例（Claude Code 格式，同样兼容）：
+
+```markdown
+---
+name: humanizer
+description: Remove AI writing patterns
+allowed-tools: Read, Write, Edit, Grep
+---
+
+Humanize $ARGUMENTS.
 ```
 
 `allowed_tools` 会刷新 prompt 工具列表，也会限制实际工具执行。
@@ -396,17 +421,7 @@ Write worker 必须声明写入范围：
 
 Worker 支持后台生命周期、continue、stop、shutdown、running send guard、notifications 和 artifact 汇总。
 
-## 9. TUI
-
-安装 Textual extra 后启动：
-
-```bash
-uv run --extra tui repo-harness --tui
-```
-
-TUI 和 REPL 共用同一 runtime，slash completion、normal turn、ask_user 和 worker notification 都会走同一套事件与权限路径。
-
-## 10. Evidence 和 dogfood
+## 9. Evidence 和 dogfood
 
 默认 evidence 不需要 live provider：
 
@@ -428,7 +443,7 @@ $env:REPO_HARNESS_RUN_LIVE_BUSINESS_DOGFOOD="1"
 uv run python scripts/run_business_scenario_dogfood.py --live
 ```
 
-## 11. 常见问题
+## 10. 常见问题
 
 **命令找不到 `repo-harness`**
 
@@ -438,15 +453,15 @@ uv run python scripts/run_business_scenario_dogfood.py --live
 uv run python -m repo_harness --help
 ```
 
-**模型请求失败**
+### 模型请求失败
 
 检查 provider、base URL、API key 环境变量和 `.repo-harness.toml`。优先用 `--provider`、`--model`、`--base-url` 做临时覆盖。
 
-**工具被拒绝**
+### 工具被拒绝
 
 查看当前 approval、sandbox、tool profile 和 plan mode。写文件前先读文件；搜索应使用 `search`，不要用 shell 做普通搜索。
 
-**记忆没有进入长期 topics**
+### 记忆没有进入长期 topics
 
 这是预期行为。候选必须先进入 Review Queue，再通过 `/memory review` accept/edit。
 
@@ -467,17 +482,16 @@ uv run python -m repo_harness --help
 
 Memory Pack 的 `safe-transfer`、`continue-work`、`full-recovery` 分别服务可迁移、可审核、可解释的恢复场景。运行工件中的 prompts、tool outputs、local paths、reports 和 traces 用于复盘。
 
-## 12. 项目背景和读者
+## 11. 项目背景和读者
 
 RepoHarness 曾有 v2.0 历史实验结果，用来验证本地 coding agent 在仓库任务中的可复现性。当前最终版面向实际开发者、维护者和 AI 产品经理：它不仅展示模型调用，也展示 provider 配置、工具治理、运行证据和记忆治理如何组合成一个可落地的 Agent 产品。
 
-## 13. 维护验证
+## 12. 维护验证
 
 ```powershell
 uv run pytest tests -q --basetemp C:\tmp\rh-test
 uv run ruff check .
 git diff --check
-uv run --extra tui pytest tests/test_tui.py -q
 ```
 
 ## Auto Issue Fix 真实执行与 dry-run 预演
