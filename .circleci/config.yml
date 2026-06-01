@@ -26,22 +26,6 @@ jobs:
       - store_artifacts:
           path: htmlcov
           destination: coverage-report
-  test-tui:
-    docker:
-      - image: cimg/python:3.12
-    steps:
-      - checkout
-      - run:
-          name: Install uv
-          command: |
-            python -m pip install --upgrade pip
-            python -m pip install uv
-      - run:
-          name: Install dependencies with TUI
-          command: uv sync --extra tui
-      - run:
-          name: TUI Tests
-          command: uv run pytest tests/test_tui.py -q --tb=short
 
 workflows:
   test:
@@ -54,4 +38,3 @@ workflows:
                 - "3.11"
                 - "3.12"
                 - "3.13"
-      - test-tui

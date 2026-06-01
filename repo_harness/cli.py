@@ -1242,6 +1242,7 @@ def build_arg_parser():
     parser.add_argument("--sandbox", choices=("off", "best_effort", "read_only", "required"), default=None, help="Sandbox mode for run_shell.")
     parser.add_argument("--sandbox-backend", default=None, help="Sandbox backend name.")
     parser.add_argument("--repl", action="store_true", help="Use the interactive REPL.")
+    parser.add_argument("--tui", action="store_true", help=argparse.SUPPRESS)  # deprecated, kept for backward compat
     parser.add_argument("--resume", default=None, help="Session id to resume or 'latest'.")
     parser.add_argument("--approval", choices=("ask", "auto", "never"), default="ask", help="Approval policy for risky tools.")
     parser.add_argument("--trust-session", action="store_true", help="Trust all risky tools for this session (equivalent to --approval auto, but preserves audit trail).")
@@ -1285,6 +1286,18 @@ def main(argv=None):
         return handle_auto_issue_fix_command(raw_argv[1:])
 
     args = build_arg_parser().parse_args(raw_argv)
+
+    # --tui 已废弃，自动降级为 --repl 并提示用户
+    if getattr(args, "tui", False):
+        import warnings
+        warnings.warn(
+            "--tui is deprecated and has been removed. Use --repl instead. "
+            "Falling back to interactive REPL mode.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        args.repl = True
+
     agent = build_agent(args)
 
     from .repl_display import ReplDisplay
