@@ -27,7 +27,8 @@ from .config import (
 from .models import AnthropicCompatibleModelClient, ChatCompletionsCompatibleModelClient, OllamaModelClient, OpenAICompatibleModelClient
 from .models import _sanitize_base_url
 from .provider_registry import provider_choices
-from .runtime import RepoHarness, SessionStore
+from .runtime import RepoHarness
+from .session_store import SessionStore
 from .workspace import WorkspaceContext, middle
 
 DEFAULT_SECRET_ENV_NAMES = (
@@ -379,112 +380,201 @@ def _review_record_label(record):
     return f"{topic}: {text}"
 
 
-def _prompt_review_topic(default_topic):
+def _prompt_review_topic(default_topic, display=None):
     topics = sorted(memorylib.DURABLE_TOPIC_DEFAULTS)
-    while True:
-        topic = input(f"topic [{default_topic}] ({', '.join(topics)}): ").strip() or default_topic
-        if topic in memorylib.DURABLE_TOPIC_DEFAULTS:
-            return topic
-        print(f"invalid topic: {topic}")
+    if display:
+        display.show_info(f"Available topics: {', '.join(topics)}")
+        topic = display.prompt_text(f"topic [{default_topic}]")
+    else:
+        topic = input(f"topic [{default_topic}] ({', '.join(topics)}): ").strip()
+    topic = topic.strip() or default_topic
+    if topic not in memorylib.DURABLE_TOPIC_DEFAULTS:
+        if display:
+            display.show_warning(f"invalid topic: {topic}, using default: {default_topic}")
+        else:
+            print(f"invalid topic: {topic}")
+        return default_topic
+    return topic
 
 
-def _print_review_apply_result(result, fallback_record):
+def _print_review_apply_result(result, fallback_record, display=None):
     result = result if isinstance(result, dict) else {}
     status = str(result.get("status", "")).strip()
     record = result.get("record") if isinstance(result.get("record"), dict) else fallback_record
+    label = _review_record_label(record)
     if status == "accepted":
-        print(f"accepted: {_review_record_label(record)}")
+        if display:
+            display.show_success(f"accepted: {label}")
+        else:
+            print(f"accepted: {label}")
         return True
     if status == "rejected" and result.get("reason"):
-        print(f"review action rejected: {result['reason']}")
+        if display:
+            display.show_warning(f"review action rejected: {result['reason']}")
+        else:
+            print(f"review action rejected: {result['reason']}")
         return False
     if status == "rejected":
-        print(f"rejected: {_review_record_label(record)}")
+        if display:
+            display.show_warning(f"rejected: {label}")
+        else:
+            print(f"rejected: {label}")
         return True
     if status == "not_found":
-        print(f"not found: {_review_record_label(fallback_record)}")
+        if display:
+            display.show_warning(f"not found: {_review_record_label(fallback_record)}")
+        else:
+            print(f"not found: {_review_record_label(fallback_record)}")
         return True
-    print(f"memory review: unexpected status {status or '-'}")
+    if display:
+        display.show_warning(f"memory review: unexpected status {status or '-'}")
+    else:
+        print(f"memory review: unexpected status {status or '-'}")
     return False
 
 
-def run_memory_review(agent):
+def run_memory_review(agent, display=None):
     if not hasattr(agent, "memory_review_pending"):
-        print("memory review: unavailable")
+        if display:
+            display.show_warning("memory review: unavailable")
+        else:
+            print("memory review: unavailable")
         return
     pending = list(agent.memory_review_pending())
     if not pending:
-        print("memory review: no pending durable memory candidates")
+        if display:
+            display.show_info("memory review: no pending durable memory candidates")
+        else:
+            print("memory review: no pending durable memory candidates")
         return
 
-    print(f"memory review: {len(pending)} pending durable memory candidates")
+    if display:
+        display.show_info(f"memory review: {len(pending)} pending durable memory candidates")
+    else:
+        print(f"memory review: {len(pending)} pending durable memory candidates")
+
     for index, record in enumerate(pending, start=1):
-        print(f"[{index}/{len(pending)}] {_review_record_label(record)}")
+        label = _review_record_label(record)
+        if display:
+            display.show_info(f"[{index}/{len(pending)}] {label}")
+        else:
+            print(f"[{index}/{len(pending)}] {label}")
+
         while True:
-            action = input("accept/edit/reject/skip/quit> ").strip().lower()
+            if display:
+                action = display.prompt_choice(
+                    "accept/edit/reject/skip/quit",
+                    ["accept", "edit", "reject", "skip", "quit"],
+                )
+            else:
+                action = input("accept/edit/reject/skip/quit> ").strip().lower()
+
             if action in {"accept", "a"}:
                 result = agent.memory_review_accept(record.get("id", ""))
-                if _print_review_apply_result(result, record):
+                if _print_review_apply_result(result, record, display):
                     break
                 continue
             if action in {"edit", "e"}:
-                topic = _prompt_review_topic(str(record.get("topic", "")).strip())
-                text = input("text: ").strip() or str(record.get("text", "")).strip()
+                topic = _prompt_review_topic(str(record.get("topic", "")).strip(), display)
+                if display:
+                    text = display.prompt_text("text") or str(record.get("text", "")).strip()
+                else:
+                    text = input("text: ").strip() or str(record.get("text", "")).strip()
                 result = agent.memory_review_edit(record.get("id", ""), topic=topic, text=text)
-                if _print_review_apply_result(result, record):
+                if _print_review_apply_result(result, record, display):
                     break
                 continue
             if action in {"reject", "r"}:
                 result = agent.memory_review_reject(record.get("id", ""))
-                print(f"rejected: {_review_record_label(result.get('record', record))}")
+                rej_label = _review_record_label(result.get("record", record))
+                if display:
+                    display.show_warning(f"rejected: {rej_label}")
+                else:
+                    print(f"rejected: {rej_label}")
                 break
             if action in {"skip", "s"}:
-                print(f"skipped: {_review_record_label(record)}")
+                if display:
+                    display.show_info(f"skipped: {label}")
+                else:
+                    print(f"skipped: {label}")
                 break
             if action in {"quit", "q", "exit"}:
                 return
-            print("usage: accept, edit, reject, skip, or quit")
+            if display:
+                display.show_warning("usage: accept, edit, reject, skip, or quit")
+            else:
+                print("usage: accept, edit, reject, skip, or quit")
 
 
-def run_remember(agent, text):
+def run_remember(agent, text, display=None):
     if not hasattr(agent, "remember_candidate"):
-        print("remember: unavailable")
+        if display:
+            display.show_warning("remember: unavailable")
+        else:
+            print("remember: unavailable")
         return
     result = agent.remember_candidate(text)
     status = result.get("status")
     if status == "usage":
-        print("usage: /remember <text>")
+        if display:
+            display.show_warning("usage: /remember <text>")
+        else:
+            print("usage: /remember <text>")
         return
     if status == "rejected":
-        print(f"remember rejected: {result.get('reason', 'unknown')}")
+        if display:
+            display.show_warning(f"remember rejected: {result.get('reason', 'unknown')}")
+        else:
+            print(f"remember rejected: {result.get('reason', 'unknown')}")
         return
     if status == "duplicate":
-        print("remember: candidate already pending; run /memory review")
+        if display:
+            display.show_info("remember: candidate already pending; run /memory review")
+        else:
+            print("remember: candidate already pending; run /memory review")
         return
     record = result.get("record") if isinstance(result.get("record"), dict) else {}
-    print(f"remember: queued durable memory candidate for review: {_review_record_label(record)}")
-    print("run /memory review to accept, edit, reject, or skip")
+    label = _review_record_label(record)
+    if display:
+        display.show_success(f"remember: queued durable memory candidate for review: {label}")
+        display.show_info("run /memory review to accept, edit, reject, or skip")
+    else:
+        print(f"remember: queued durable memory candidate for review: {label}")
+        print("run /memory review to accept, edit, reject, or skip")
 
 
-def run_subagent(agent, text):
+def run_subagent(agent, text, display=None):
     parts = text.split()
+    usage = "usage: /subagent explore <task> or /subagent worker --scope <path[,path]> <task>"
     if not parts or parts[0] not in {"explore", "worker"}:
-        print("usage: /subagent explore <task> or /subagent worker --scope <path[,path]> <task>")
+        if display:
+            display.show_warning(usage)
+        else:
+            print(usage)
         return
     mode = parts.pop(0)
     write_scope = []
     if mode == "worker":
         if len(parts) < 3 or parts[0] != "--scope":
-            print("usage: /subagent worker --scope <path[,path]> <task>")
+            if display:
+                display.show_warning("usage: /subagent worker --scope <path[,path]> <task>")
+            else:
+                print("usage: /subagent worker --scope <path[,path]> <task>")
             return
         write_scope = [item.strip() for item in parts[1].split(",") if item.strip()]
         parts = parts[2:]
     task = " ".join(parts).strip()
     if not task:
-        print("usage: /subagent explore <task> or /subagent worker --scope <path[,path]> <task>")
+        if display:
+            display.show_warning(usage)
+        else:
+            print(usage)
         return
     result = agent.spawn_worker(task, task, subagent_type="Explore" if mode == "explore" else "worker", write_scope=write_scope)
-    print(f"{result['id']} {result['status']}: {result.get('result', '')}")
+    if display:
+        display.show_info(f"{result['id']} {result['status']}: {result.get('result', '')}")
+    else:
+        print(f"{result['id']} {result['status']}: {result.get('result', '')}")
 
 
 def _format_usage(agent):
@@ -811,7 +901,9 @@ def handle_memory_command(argv):
     return 0
 
 
-def _menu_input(prompt):
+def _menu_input(prompt, display=None):
+    if display:
+        return display.prompt_text(prompt)
     try:
         return input(prompt).strip()
     except (EOFError, KeyboardInterrupt):
@@ -819,93 +911,116 @@ def _menu_input(prompt):
         return None
 
 
-def _menu_output_path():
-    value = _menu_input("Output path (blank for default): ")
+def _menu_output_path(display=None):
+    value = _menu_input("Output path (blank for default): ", display)
     if value is None:
         return None, False
     return value or None, True
 
 
-def _run_memory_menu_export(cwd, preset):
-    output, ok = _menu_output_path()
+def _run_memory_menu_export(cwd, preset, display=None):
+    output, ok = _menu_output_path(display)
     if not ok:
-        print("memory pack: cancelled")
+        if display:
+            display.show_info("memory pack: cancelled")
+        else:
+            print("memory pack: cancelled")
         return
     _run_memory_export(cwd=cwd, preset=preset, output=output)
 
 
-def run_memory_pack_menu(cwd):
-    menu = textwrap.dedent(
-        """\
-        Memory pack
-
-        1. Safe transfer export
-           Export stable project memory for another computer.
-
-        2. Continue work export
-           Export stable memory plus current task context and recent file summaries.
-
-        3. Full recovery export
-           Export stable memory, working context, sessions, checkpoints, and run artifacts.
-           Privacy warning: may include prompts, tool outputs, local paths, reports, and traces.
-
-        4. Import pack
-           Merge a memory pack into this workspace without overwriting existing memory.
-
-        5. Inspect/validate pack
-           Preview and validate a pack before importing it.
-
-        0. Cancel
-
-        Advanced: repo-harness memory export/import/inspect/validate
-        """
-    ).strip()
+def run_memory_pack_menu(cwd, display=None):
+    menu_options = [
+        ("safe-transfer", "Export stable project memory for another computer"),
+        ("continue-work", "Export stable memory plus current task context and recent file summaries"),
+        ("full-recovery", "Export everything (privacy warning: includes prompts, traces, paths)"),
+        ("import", "Merge a memory pack into this workspace"),
+        ("inspect", "Preview and validate a pack before importing"),
+    ]
 
     while True:
-        print(menu)
-        choice = _menu_input("Choose an option: ")
+        if display:
+            display.show_menu("Memory Pack", menu_options)
+            choice = display.prompt_choice("Choose an option", ["1", "2", "3", "4", "5", "0"])
+        else:
+            print(textwrap.dedent("""\
+                Memory pack
+                1. Safe transfer export
+                2. Continue work export
+                3. Full recovery export (privacy warning)
+                4. Import pack
+                5. Inspect/validate pack
+                0. Cancel
+            """))
+            choice = _menu_input("Choose an option: ")
+
         if choice is None or choice in {"0", "q", "quit", "cancel"}:
-            print("memory pack: cancelled")
+            if display:
+                display.show_info("memory pack: cancelled")
+            else:
+                print("memory pack: cancelled")
             return
 
         try:
             if choice == "1":
-                _run_memory_menu_export(cwd, "safe-transfer")
+                _run_memory_menu_export(cwd, "safe-transfer", display)
                 return
             if choice == "2":
-                _run_memory_menu_export(cwd, "continue-work")
+                _run_memory_menu_export(cwd, "continue-work", display)
                 return
             if choice == "3":
-                print(
-                    "Privacy warning: full recovery packs may include prompts, tool outputs, "
-                    "local paths, reports, traces, sessions, and checkpoints."
-                )
-                confirm = _menu_input("Type FULL RECOVERY to continue: ")
+                if display:
+                    display.show_warning(
+                        "Full recovery packs may include prompts, tool outputs, "
+                        "local paths, reports, traces, sessions, and checkpoints."
+                    )
+                    confirm = display.prompt_text("Type FULL RECOVERY to continue")
+                else:
+                    print(
+                        "Privacy warning: full recovery packs may include prompts, tool outputs, "
+                        "local paths, reports, traces, sessions, and checkpoints."
+                    )
+                    confirm = _menu_input("Type FULL RECOVERY to continue: ")
                 if confirm != "FULL RECOVERY":
-                    print("memory pack: cancelled")
+                    if display:
+                        display.show_info("memory pack: cancelled")
+                    else:
+                        print("memory pack: cancelled")
                     return
-                _run_memory_menu_export(cwd, "full-recovery")
+                _run_memory_menu_export(cwd, "full-recovery", display)
                 return
             if choice == "4":
-                pack_path = _menu_input("Pack path: ")
+                pack_path = _menu_input("Pack path: ", display)
                 if not pack_path:
-                    print("memory pack: cancelled")
+                    if display:
+                        display.show_info("memory pack: cancelled")
+                    else:
+                        print("memory pack: cancelled")
                     return
                 _run_memory_import(pack_path, cwd=cwd)
                 return
             if choice == "5":
-                pack_path = _menu_input("Pack path: ")
+                pack_path = _menu_input("Pack path: ", display)
                 if not pack_path:
-                    print("memory pack: cancelled")
+                    if display:
+                        display.show_info("memory pack: cancelled")
+                    else:
+                        print("memory pack: cancelled")
                     return
                 _run_memory_inspect(pack_path, cwd=cwd)
                 _run_memory_validate(pack_path, cwd=cwd)
                 return
         except Exception as exc:
-            print(f"memory pack error: {exc}", file=sys.stderr)
+            if display:
+                display.show_error(f"memory pack error: {exc}")
+            else:
+                print(f"memory pack error: {exc}", file=sys.stderr)
             return
 
-        print("Choose 1, 2, 3, 4, 5, or 0.")
+        if display:
+            display.show_warning("Choose 1, 2, 3, 4, 5, or 0.")
+        else:
+            print("Choose 1, 2, 3, 4, 5, or 0.")
 
 
 def _build_model_client(args, runtime_config=None):
@@ -1058,6 +1173,7 @@ def build_agent(args):
     configured_secret_names = _configured_secret_names(args)
     store = SessionStore(workspace.repo_root + "/.repo-harness/sessions")
     model = _build_model_client(args, runtime_config=runtime_config)
+    approval = "auto" if getattr(args, "trust_session", False) else args.approval
     session_id = args.resume
     if session_id == "latest":
         session_id = store.latest()
@@ -1067,7 +1183,7 @@ def build_agent(args):
             workspace=workspace,
             session_store=store,
             session_id=session_id,
-            approval_policy=args.approval,
+            approval_policy=approval,
             max_steps=runtime_config.max_steps,
             max_new_tokens=runtime_config.max_new_tokens,
             secret_env_names=configured_secret_names,
@@ -1077,7 +1193,7 @@ def build_agent(args):
         model_client=model,
         workspace=workspace,
         session_store=store,
-        approval_policy=args.approval,
+        approval_policy=approval,
         max_steps=runtime_config.max_steps,
         max_new_tokens=runtime_config.max_new_tokens,
         secret_env_names=configured_secret_names,
@@ -1125,10 +1241,11 @@ def build_arg_parser():
     parser.add_argument("--openai-timeout", type=int, default=300, help="OpenAI-compatible request timeout in seconds.")
     parser.add_argument("--sandbox", choices=("off", "best_effort", "read_only", "required"), default=None, help="Sandbox mode for run_shell.")
     parser.add_argument("--sandbox-backend", default=None, help="Sandbox backend name.")
-    parser.add_argument("--tui", action="store_true", help="Start the RepoHarness terminal UI.")
-    parser.add_argument("--repl", action="store_true", help="Use the plain line-oriented REPL.")
+    parser.add_argument("--repl", action="store_true", help="Use the interactive REPL.")
+    parser.add_argument("--tui", action="store_true", help=argparse.SUPPRESS)  # deprecated, kept for backward compat
     parser.add_argument("--resume", default=None, help="Session id to resume or 'latest'.")
     parser.add_argument("--approval", choices=("ask", "auto", "never"), default="ask", help="Approval policy for risky tools.")
+    parser.add_argument("--trust-session", action="store_true", help="Trust all risky tools for this session (equivalent to --approval auto, but preserves audit trail).")
     parser.add_argument(
         "--secret-env-name",
         dest="secret_env_names",
@@ -1169,27 +1286,71 @@ def main(argv=None):
         return handle_auto_issue_fix_command(raw_argv[1:])
 
     args = build_arg_parser().parse_args(raw_argv)
+
+    # --tui 已废弃，自动降级为 --repl 并提示用户
+    if getattr(args, "tui", False):
+        import warnings
+        warnings.warn(
+            "--tui is deprecated and has been removed. Use --repl instead. "
+            "Falling back to interactive REPL mode.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        args.repl = True
+
     agent = build_agent(args)
 
-    model = getattr(agent.model_client, "model", getattr(args, "model", DEFAULT_OLLAMA_MODEL))
-    host = getattr(agent.model_client, "host", getattr(agent.model_client, "base_url", getattr(args, "host", DEFAULT_OLLAMA_HOST)))
-    print(build_welcome(agent, model=model, host=host))
+    from .repl_display import ReplDisplay
 
-    if args.tui and not args.repl and not args.prompt:
-        from .tui import run_tui
+    no_color = os.environ.get("NO_COLOR") is not None
+    display = ReplDisplay(no_color=no_color)
+    agent._display = display
+    display.show_welcome(agent)
 
-        run_tui(agent)
-        return 0
+    # prompt_toolkit: 行编辑、历史、slash 命令补全
+    _pt_session = None
+    try:
+        from prompt_toolkit import PromptSession
+        from prompt_toolkit.completion import WordCompleter
+        from prompt_toolkit.history import FileHistory
+
+        _slash_commands = [
+            "/help", "/skills", "/skill", "/plan", "/plan-exit", "/mode",
+            "/usage", "/model", "/history", "/context", "/compact",
+            "/working-memory", "/memory", "/memory_explain", "/remember",
+            "/memory review", "/memory organize", "/agents", "/subagent",
+            "/auto-issue-fix", "/session", "/reset", "/exit",
+        ]
+        _pt_completer = WordCompleter(_slash_commands, ignore_case=True)
+        _pt_history_file = Path(agent.workspace.cwd) / ".repo-harness" / "input_history"
+        _pt_history_file.parent.mkdir(parents=True, exist_ok=True)
+        _pt_session = PromptSession(
+            history=FileHistory(str(_pt_history_file)),
+            completer=_pt_completer,
+        )
+    except Exception:
+        pass
+
+    def _read_input(prompt_text):
+        if _pt_session is not None:
+            try:
+                return _pt_session.prompt(prompt_text)
+            except Exception:
+                pass
+        return input(prompt_text)
 
     if args.prompt:
         # one-shot 模式：只跑一次 ask，不进入 REPL 循环。
         prompt = " ".join(args.prompt).strip()
         if prompt:
-            print()
             try:
-                print(agent.ask(prompt))
+                final = ""
+                for event in agent.engine.run_turn(prompt):
+                    if event["type"] in {"final", "stop"}:
+                        final = event["content"]
+                display.show_response(final)
             except RuntimeError as exc:
-                print(str(exc), file=sys.stderr)
+                display.show_error(str(exc))
                 return 1
         return 0
 
@@ -1197,41 +1358,69 @@ def main(argv=None):
         # 交互模式：每次读取一条用户输入，交给同一个 agent，
         # 因此 session history 和 working memory 会跨轮延续。
         try:
-            user_input = input("\nrepo-harness> ").strip()
+            user_input = _read_input("\nrepo-harness> ").strip()
         except (EOFError, KeyboardInterrupt):
             print("")
             return 0
 
         if not user_input:
             continue
+
+        # Slash 命令处理
         handled, should_exit, output = handle_repl_command(agent, user_input, interactive=True)
         if handled:
             if output:
-                print(output)
+                # 增强特定 slash 命令的输出格式
+                if user_input == "/help":
+                    display.show_table("Commands", display.build_help_table())
+                elif user_input == "/usage":
+                    display.show_table("Usage", display.build_usage_table(agent))
+                elif user_input == "/history":
+                    display.show_table("History", display.build_history_table(agent))
+                else:
+                    display.show_slash_output(user_input, output)
             if should_exit:
                 return 0
             continue
         if user_input.startswith("/subagent"):
-            run_subagent(agent, user_input[len("/subagent"):].strip())
+            run_subagent(agent, user_input[len("/subagent"):].strip(), display=display)
             continue
         if user_input in {"/memory_pack", "/memory-pack"}:
-            run_memory_pack_menu(agent.workspace.cwd)
+            run_memory_pack_menu(agent.workspace.cwd, display=display)
             continue
         if user_input == "/memory review":
-            run_memory_review(agent)
+            run_memory_review(agent, display=display)
             continue
         if user_input.startswith("/remember"):
             text = user_input[len("/remember"):].strip()
-            run_remember(agent, text)
+            run_remember(agent, text, display=display)
             continue
 
-        print()
+        # 普通消息：消费事件流，实时显示工具调用和结果
+        display.show_user_input(user_input)
         try:
-            print(agent.ask(user_input))
+            for event in agent.engine.run_turn(user_input):
+                etype = event.get("type", "")
+                if etype == "tool_call":
+                    display.show_tool_call(event.get("name", "?"), event.get("args", {}))
+                elif etype == "tool_result":
+                    metadata = event.get("metadata", {})
+                    status = metadata.get("tool_status", "success")
+                    display.show_tool_result(event.get("name", "?"), event.get("content", ""), status=status)
+                elif etype == "final":
+                    display.show_response(event.get("content", ""))
+                elif etype == "stop":
+                    display.show_error(event.get("content", "Stopped"))
+                elif etype == "retry":
+                    display.show_thinking("retrying")
+                elif etype == "model_requested":
+                    display.show_thinking("thinking")
+
+            display.show_status(agent)
             notice = _memory_self_iteration_notice(agent)
             if notice:
                 print(notice)
         except RuntimeError as exc:
-            print(str(exc), file=sys.stderr)
+            display.show_error(str(exc))
 
 

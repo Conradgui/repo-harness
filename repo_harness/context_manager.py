@@ -33,6 +33,100 @@ SECTION_ORDER = ("prefix", "memory", "skills", "relevant_memory", "history", "cu
 CURRENT_REQUEST_SECTION = "current_request"
 RELEVANT_MEMORY_LIMIT = 3
 
+# 已知模型的 context window（token 数），按模型名子串匹配。
+MODEL_CONTEXT_WINDOWS = {
+    # OpenAI
+    "gpt-4o": 128000,
+    "gpt-4-turbo": 128000,
+    "gpt-4.1": 1048576,
+    "gpt-5": 1048576,
+    "o1": 200000,
+    "o3": 200000,
+    "o4-mini": 200000,
+    # Anthropic
+    "claude-sonnet-4": 200000,
+    "claude-opus-4": 200000,
+    "claude-3.5-sonnet": 200000,
+    "claude-3-opus": 200000,
+    "claude-3-haiku": 200000,
+    # DeepSeek
+    "deepseek-v4": 128000,
+    "deepseek-r1": 65536,
+    # Ollama 本地模型
+    "qwen3": 32768,
+    "llama3.1": 128000,
+    "llama3": 8192,
+    "mistral": 32768,
+    "codellama": 16384,
+    "phi3": 4096,
+    "phi4": 16384,
+    "gemma2": 8192,
+    "fake": 4096,
+}
+
+# Provider 级别兜底 context window。
+PROVIDER_CONTEXT_WINDOWS = {
+    "openai": 1048576,
+    "chat-completions": 128000,
+    "anthropic": 200000,
+    "deepseek": 128000,
+    "ollama": 32768,
+}
+
+
+def detect_context_window(model_name, provider_name=""):
+    """从模型名或 provider 推断 context window 大小（token 数）。"""
+    model = str(model_name or "").lower()
+    for pattern, window in MODEL_CONTEXT_WINDOWS.items():
+        if pattern in model:
+            return window
+    provider = str(provider_name or "").lower()
+    return PROVIDER_CONTEXT_WINDOWS.get(provider, 128000)
+
+
+def compute_budgets(context_window, max_new_tokens=8192):
+    """根据 context window 计算各 section 的字符预算。
+
+    返回 (total_budget, section_budgets, section_floors, recent_window)。
+    """
+    # 输出预留：给 max_new_tokens 留 2 倍空间
+    output_reserve = max_new_tokens * 2
+    available_tokens = max(1000, context_window - output_reserve)
+    # 字符预算：按混合内容估算（×3，兼容中文 1.5 token/字）
+    char_budget = int(available_tokens * 3)
+    char_budget = max(12000, min(char_budget, 400000))
+
+    # section 分配比例（保持与当前默认值相近的历史占比）
+    ratios = {
+        "prefix": 0.20,
+        "memory": 0.10,
+        "skills": 0.05,
+        "relevant_memory": 0.15,
+        "history": 0.50,
+    }
+    section_budgets = {
+        section: int(char_budget * ratio)
+        for section, ratio in ratios.items()
+    }
+
+    # recent_window 随预算缩放
+    if char_budget <= 20000:
+        recent_window = 6
+    elif char_budget <= 50000:
+        recent_window = 10
+    elif char_budget <= 100000:
+        recent_window = 16
+    else:
+        recent_window = 24
+
+    # floors: 25% of each budget, minimum 20
+    section_floors = {
+        section: max(20, budget // 4)
+        for section, budget in section_budgets.items()
+    }
+
+    return char_budget, section_budgets, section_floors, recent_window
+
 
 def _tail_clip(text, limit):
     text = str(text)
@@ -69,6 +163,7 @@ class ContextManager:
         section_budgets=None,
         section_floors=None,
         reduction_order=None,
+        recent_window=6,
     ):
         self.agent = agent
         self.total_budget = int(total_budget)
@@ -80,6 +175,7 @@ class ContextManager:
         self._section_floor_overrides = {str(key): int(value) for key, value in (section_floors or {}).items()}
         self.section_floors = self._compute_section_floors()
         self.reduction_order = tuple(reduction_order or DEFAULT_REDUCTION_ORDER)
+        self.recent_window = int(recent_window)
 
     def build(self, user_message):
         """按预算组装一轮完整 prompt。
@@ -350,7 +446,7 @@ class ContextManager:
             )
 
         # 优先保留最近的历史，因为下一步决策通常最依赖刚刚发生的工具结果。
-        recent_window = 6
+        recent_window = getattr(self, "recent_window", 6)
         recent_start = max(0, len(history) - recent_window)
         history_entries, history_details = self._compressed_history_entries(history, recent_start)
         rendered_entries = []

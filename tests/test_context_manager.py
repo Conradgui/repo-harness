@@ -1,5 +1,5 @@
 ﻿from repo_harness import FakeModelClient, RepoHarness, SessionStore, WorkspaceContext
-from repo_harness.context_manager import ContextManager
+from repo_harness.context_manager import ContextManager, detect_context_window, compute_budgets
 
 
 def build_workspace(tmp_path):
@@ -245,5 +245,86 @@ def test_context_manager_relevant_memory_can_mix_durable_notes(tmp_path):
     assert metadata["relevant_memory"]["selected_explanations"][0]["kind"] == "durable"
     assert metadata["relevant_memory"]["selected_explanations"][0]["source"] == "project-conventions"
     assert metadata["relevant_memory"]["selected_explanations"][0]["score_breakdown"]["keyword_overlap"] > 0
+
+
+# --- detect_context_window 测试 ---
+
+def test_detect_context_window_known_openai_model():
+    assert detect_context_window("gpt-5.4") == 1048576
+    assert detect_context_window("gpt-4o") == 128000
+    assert detect_context_window("o3-mini") == 200000
+
+
+def test_detect_context_window_known_anthropic_model():
+    assert detect_context_window("claude-sonnet-4-6") == 200000
+    assert detect_context_window("claude-opus-4") == 200000
+
+
+def test_detect_context_window_known_deepseek_model():
+    assert detect_context_window("deepseek-v4-pro") == 128000
+    assert detect_context_window("deepseek-r1") == 65536
+
+
+def test_detect_context_window_unknown_model_falls_back_to_provider():
+    assert detect_context_window("unknown-model-xyz", "ollama") == 32768
+    assert detect_context_window("unknown-model-xyz", "anthropic") == 200000
+
+
+def test_detect_context_window_unknown_model_and_provider_defaults():
+    assert detect_context_window("totally-unknown", "nonexistent") == 128000
+
+
+def test_detect_context_window_none_inputs():
+    assert detect_context_window(None, None) == 128000
+    assert detect_context_window("", "") == 128000
+
+
+# --- compute_budgets 测试 ---
+
+def test_compute_budgets_small_window():
+    """32K context window (Ollama) should return at least the minimum budget."""
+    total, sections, floors, recent_window = compute_budgets(32768)
+    assert total >= 12000
+    assert total <= 400000
+    assert recent_window >= 6
+
+
+def test_compute_budgets_large_window():
+    """1M context window (OpenAI) should return a large budget, clamped at 400K."""
+    total, sections, floors, recent_window = compute_budgets(1048576)
+    assert total == 400000
+    assert recent_window == 24
+
+
+def test_compute_budgets_medium_window():
+    """200K context window (Anthropic) should return a large budget."""
+    total, sections, floors, recent_window = compute_budgets(200000)
+    assert total >= 100000
+    assert total <= 400000
+    assert recent_window >= 16
+
+
+def test_compute_budgets_large_max_new_tokens():
+    """When max_new_tokens > context_window / 2, budget should still be >= 12000."""
+    total, sections, floors, recent_window = compute_budgets(32768, max_new_tokens=20000)
+    assert total >= 12000
+
+
+def test_compute_budgets_section_ratios():
+    """History should be the largest section (~50% of total)."""
+    total, sections, floors, recent_window = compute_budgets(200000)
+    assert sections["history"] > sections["prefix"]
+    assert sections["history"] > sections["memory"]
+    assert sections["history"] > sections["relevant_memory"]
+    assert sections["history"] > sections["skills"]
+    # history should be ~50% of total
+    assert 0.45 <= sections["history"] / total <= 0.55
+
+
+def test_compute_budgets_floors_are_25_percent():
+    """Section floors should be 25% of their budget."""
+    total, sections, floors, recent_window = compute_budgets(200000)
+    for section, budget in sections.items():
+        assert floors[section] == max(20, budget // 4)
 
 

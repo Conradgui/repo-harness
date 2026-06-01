@@ -6,9 +6,9 @@
 
 Agent Harness v1 的核心概念仍然保留：一次任务会生成 task state、trace 和 report，以便复现和审计。
 
-## 当前架构记录：2026-05-19 最终版 v3 功能迭代与 Auto Issue Fix 能力完善
+## 当前架构记录：2026-05-29 v4 代码清理、安全加固与 Claude Code Skill 兼容
 
-RepoHarness 的公共 API 仍然是 `RepoHarness.ask()`、`repo-harness` CLI 和 `python -m repo_harness`。REPL、TUI、public CLI scripted evidence、workers 和 release evidence 共用同一套 runtime、permission、tool policy、session events、trace/report 工件。
+RepoHarness 的公共 API 仍然是 `RepoHarness.ask()`、`repo-harness` CLI 和 `python -m repo_harness`。REPL、public CLI scripted evidence、workers 和 release evidence 共用同一套 runtime、permission、tool policy、session events、trace/report 工件。
 
 核心链路：
 
@@ -17,6 +17,8 @@ RepoHarness 的公共 API 仍然是 `RepoHarness.ask()`、`repo-harness` CLI 和
 - Model 输出解析为 final answer、tool calls、ask_user 或 control flow。
 - Core tool executor 统一执行 permission gate、tool policy、sandbox、write scope、artifact clipping、trace/report metadata。
 - Session event bus 记录 runtime mode、tool decisions、context usage、worker notifications、skill activity、compaction 和 evidence 相关事件。
+- Token 估算使用 CJK-aware 算法（中文字符 ~1.5 token/字，ASCII ~0.25 token/字符），通过 `context_usage.estimate_tokens()` 统一计算。
+- `SessionStore` 已提取为独立模块 `repo_harness/session_store.py`，便于独立测试和复用。
 
 ## Provider 和配置
 
@@ -47,15 +49,15 @@ CLI 显式参数 > process env / 项目 .env > 项目 .repo-harness.toml > 全�
 - 多 tool-call 按顺序执行，partial failure 写入 trace。
 - 长 shell 输出会裁剪展示，并把完整输出写入 run artifact。
 
-Sandbox 支持 `off`、`best_effort`、`read_only`、`required`。`required` 在后端不可用时 fail closed；Windows fallback 写入明确 metadata。
+Sandbox 支持 `off`、`best_effort`、`read_only`、`required`。`required` 在后端不可用时 fail closed；Windows fallback 写入明确 metadata。v4 修复了 `excluded_commands` 可通过 shell 元字符（`$(`、`` ` ``、`\`、`${`）绕过的安全漏洞。
 
-## Skills、Workers 和 TUI
+## Skills、Workers 和 REPL
 
-Skills 从 `skills/<name>/SKILL.md` 与 `.repo-harness/skills/<name>/SKILL.md` 发现。frontmatter 支持常见 YAML list；`allowed_tools` 会同步刷新 prompt 工具列表和实际 permission gate。
+Skills 从 `skills/<name>/SKILL.md` 与 `.repo-harness/skills/<name>/SKILL.md` 发现。v4 新增 Claude Code Skill 兼容层（`features/claude_code_skills.py`），同时从 `~/.claude/skills/` 发现 SKILL.md 文件。Claude Code 工具名称自动映射到 RepoHarness 等价物（`Read` → `read_file`，`Bash` → `run_shell` 等）。frontmatter 支持常见 YAML list；`allowed_tools` 会同步刷新 prompt 工具列表和实际 permission gate。
 
 Workers 是 session-scoped 子任务。Explore worker 只读；write worker 必须声明 `write_scope`。Worker 支持后台生命周期、continue、stop、shutdown、running send guard、notifications、artifacts 和 parent report 汇总。
 
-TUI 是可选 Textual 入口，和 REPL 共用 runtime。Slash completion、normal turn、ask_user prompt 和 worker notification 不走独立行为路径。
+v4 移除了 Textual TUI 框架，改为基于 `rich` 的增强 REPL。REPL 现在直接消费 `engine.run_turn()` 事件流，实时显示工具调用和结果。`ReplFacade`（`repl_facade.py`）提供 snapshot、suggest_commands、ask_user、run_turn 等核心抽象。Slash completion、normal turn、ask_user prompt 和 worker notification 不走独立行为路径。
 
 ## Auto Issue Fix 编排层
 

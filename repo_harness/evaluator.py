@@ -10,7 +10,8 @@ from zoneinfo import ZoneInfo
 
 from . import memory as memorylib
 from .models import FakeModelClient
-from .runtime import RepoHarness, SessionStore
+from .runtime import RepoHarness
+from .session_store import SessionStore
 from .run_store import RunStore
 from .task_state import STOP_REASON_FINAL_ANSWER_RETURNED
 from .workspace import WorkspaceContext

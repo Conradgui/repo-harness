@@ -6,7 +6,8 @@ from .models import (
     OllamaModelClient,
     OpenAICompatibleModelClient,
 )
-from .runtime import RepoHarness, SessionStore
+from .runtime import RepoHarness
+from .session_store import SessionStore
 from .workspace import WorkspaceContext
 
 __all__ = [

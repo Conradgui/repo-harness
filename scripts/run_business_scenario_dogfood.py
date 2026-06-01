@@ -8,7 +8,8 @@ from types import SimpleNamespace
 
 from repo_harness.config import resolve_runtime_config
 from repo_harness.models import AnthropicCompatibleModelClient, FakeModelClient, OpenAICompatibleModelClient
-from repo_harness.runtime import RepoHarness, SessionStore
+from repo_harness.runtime import RepoHarness
+from repo_harness.session_store import SessionStore
 from repo_harness.workspace import WorkspaceContext, now
 
 

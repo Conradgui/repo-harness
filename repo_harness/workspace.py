@@ -69,9 +69,10 @@ class WorkspaceContext:
                     ["git", *args],
                     cwd=cwd,
                     capture_output=True,
-                    text=True,
                     check=True,
                     timeout=5,
+                    encoding="utf-8",
+                    errors="replace",
                 )
                 return result.stdout.strip() or fallback
             except Exception:

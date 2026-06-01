@@ -21,7 +21,7 @@ status: completed
 - Skills：bundled/project/local skills、frontmatter、YAML list、allowed tools gate、prompt section、fork/model override、skill events。
 - Workers：worker manager 支持后台生命周期、continue/stop/shutdown、running send guard、notifications、artifacts、write scope、Explore readonly。
 - Sandbox：`off`、`best_effort`、`read_only`、`required`；sandbox 支持 backend metadata、glob excluded commands 和 fail closed。
-- TUI：可选 Textual TUI app，覆盖 slash completion、normal turn、ask_user 和 worker notification；无依赖时只提供 fallback。
+- REPL：基于 `rich` 的增强 REPL，工具调用卡片、Markdown 渲染、状态栏、slash 命令补全。
 - Evidence：`RunEvidence` public CLI scripted task、隔离 workspace、report、trace、session events、state dir、structured payload。
 - Business dogfood：默认 fake/scripted provider，场景为 `order_pricing_bugfix`、`release_readiness_review`、`incident_resume_fix`；live provider 必须显式 opt-in。
 - Release smoke：scenario id contract、all passed、artifact path exists。
@@ -48,5 +48,5 @@ candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
 - `uv run pytest tests -q --basetemp C:\tmp\rh-test`：240 passed, 1 skipped。
 - `uv run ruff check .`：passed。
 - `git diff --check`：passed，仅有 Windows LF/CRLF 提示。
-- `uv run --extra tui pytest tests/test_tui.py -q`：4 passed。
+- `uv run pytest tests -q`：326 passed, 1 skipped。
 - `uv run pytest tests/test_memory.py tests/test_safety_invariants.py -q -k "review or organize or durable"`：3 passed, 30 deselected。

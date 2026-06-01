@@ -11,7 +11,8 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from ..models import FakeModelClient
-from ..runtime import RepoHarness, SessionStore
+from ..runtime import RepoHarness
+from ..session_store import SessionStore
 from ..workspace import WorkspaceContext, now
 
 
@@ -232,6 +233,7 @@ class RunEvidence:
         if existing:
             parts.append(existing)
         env["PYTHONPATH"] = os.pathsep.join(parts)
+        env["NO_COLOR"] = "1"
         return env
 
     def _write_log(self, name, content):

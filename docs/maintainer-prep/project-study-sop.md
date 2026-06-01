@@ -17,9 +17,9 @@
 
 1. `README.md`：了解用户能力、配置方式和运行边界。
 2. `docs/getting-started.md`：按操作级指南跑通 CLI、provider、sandbox、skills、workers 和 evidence。
-3. `repo_harness/cli.py`：看参数解析、provider config、one-shot、REPL、TUI 分流。
+3. `repo_harness/cli.py`：看参数解析、provider config、one-shot、REPL 分流。
 4. `repo_harness/runtime.py`：看 `RepoHarness` 主循环、prompt、session、report。
-5. `repo_harness/core/tool_executor.py`、`repo_harness/core/permissions.py`、`repo_harness/core/tool_policy.py`：看工具执行、安全和 trace metadata。
+5. `repo_harness/core/tool_executor.py`、`repo_harness/permissions.py`、`repo_harness/tool_policy.py`：看工具执行、安全和 trace metadata。
 6. `repo_harness/features/skills.py`、`repo_harness/core/worker_manager.py`、`repo_harness/sandbox.py`：看 workflow 能力。
 7. `repo_harness/memory.py`、`repo_harness/memory_pack.py`、`repo_harness/context_manager.py`：看记忆治理、pack 和检索解释。
 8. `repo_harness/evaluation/run_evidence.py`、`repo_harness/release_evidence.py`、`scripts/run_business_scenario_dogfood.py`：看验收体系。
@@ -30,7 +30,7 @@
 - Tool execution 必须经过 permission、tool policy、sandbox 和 trace/report metadata。
 - Skill `allowed_tools` 必须同时限制 prompt 和实际执行。
 - Write worker 必须有 `write_scope`；Explore worker 只读。
-- TUI、REPL、public CLI evidence 共用 runtime。
+- REPL、public CLI evidence 共用 runtime。
 - Business dogfood 默认 fake/scripted provider，live 必须显式 opt-in。
 
 ## 记忆治理
@@ -49,10 +49,4 @@ uv run repo-harness --help
 uv run pytest tests -q --basetemp C:\tmp\rh-test
 uv run ruff check .
 git diff --check
-```
-
-TUI 相关：
-
-```powershell
-uv run --extra tui pytest tests/test_tui.py -q
 ```

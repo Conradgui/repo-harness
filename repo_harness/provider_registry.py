@@ -26,6 +26,8 @@ class ProviderRegistryEntry:
     supports_prompt_cache: bool = False
     smoke_supported: bool = True
     gateway_compatible: bool = False
+    context_window: int = 128000
+    supports_native_tools: bool = False
 
     def default_profile(self) -> dict[str, str]:
         return {
@@ -41,7 +43,7 @@ PROVIDER_REGISTRY: dict[str, ProviderRegistryEntry] = {
         name="openai",
         client="openai",
         default_model="gpt-5.4",
-        default_base_url="https://www.right.codes/codex/v1",
+        default_base_url="https://api.openai.com/v1",
         default_api_key_env="OPENAI_API_KEY",
         model_env="OPENAI_MODEL",
         base_url_env="OPENAI_API_BASE",
@@ -50,6 +52,8 @@ PROVIDER_REGISTRY: dict[str, ProviderRegistryEntry] = {
         protocol="openai-compatible",
         supports_prompt_cache=True,
         gateway_compatible=True,
+        context_window=1048576,
+        supports_native_tools=True,
     ),
     "chat-completions": ProviderRegistryEntry(
         name="chat-completions",
@@ -63,18 +67,22 @@ PROVIDER_REGISTRY: dict[str, ProviderRegistryEntry] = {
         endpoint_path="/chat/completions",
         protocol="chat-completions-compatible",
         gateway_compatible=True,
+        context_window=128000,
+        supports_native_tools=True,
     ),
     "anthropic": ProviderRegistryEntry(
         name="anthropic",
         client="anthropic",
         default_model="claude-sonnet-4-6",
-        default_base_url="https://www.right.codes/claude/v1",
+        default_base_url="https://api.anthropic.com",
         default_api_key_env="ANTHROPIC_API_KEY",
         model_env="ANTHROPIC_MODEL",
         base_url_env="ANTHROPIC_API_BASE",
         max_new_tokens=32000,
         endpoint_path="/messages",
         protocol="anthropic-compatible",
+        context_window=200000,
+        supports_native_tools=True,
     ),
     "deepseek": ProviderRegistryEntry(
         name="deepseek",
@@ -87,6 +95,8 @@ PROVIDER_REGISTRY: dict[str, ProviderRegistryEntry] = {
         max_new_tokens=8192,
         endpoint_path="/messages",
         protocol="anthropic-compatible",
+        context_window=128000,
+        supports_native_tools=True,
     ),
     "ollama": ProviderRegistryEntry(
         name="ollama",
@@ -100,6 +110,8 @@ PROVIDER_REGISTRY: dict[str, ProviderRegistryEntry] = {
         endpoint_path="/api/generate",
         protocol="ollama",
         smoke_supported=True,
+        context_window=32768,
+        supports_native_tools=True,
     ),
 }
 

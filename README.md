@@ -1,10 +1,45 @@
 # RepoHarness
 
+> **v0.1.0** | Python 3.10+ | MIT License
+
 RepoHarness 是一个运行在本地仓库里的轻量 coding agent。它通过受约束工具读取文件、修改文件、运行命令，并把会话、运行工件、记忆和审计信息保存在 `.repo-harness/` 下。
 
 RepoHarness 面向需要在本地仓库中可控使用 AI agent 的工程场景：把上下文治理、权限控制、记忆审查、证据留存和 issue 修复流程放进同一套运行边界。Agent 可以执行实际工作，维护者也能持续追踪它读了什么、改了什么、为什么这么做，以及失败时留下了哪些证据。
 
-当前版本已经完成 v3 功能迭代收尾，并把 Auto Issue Fix 升级为同等级的重要版本能力。RepoHarness 继续保留自己的产品边界：
+## v5 版本迭代
+
+v5 聚焦上下文治理升级和代码质量提升：
+
+| 类别 | 变更 |
+| --- | --- |
+| 动态 Context Budget | 根据模型 context window 自动计算预算（最高 400K 字符），替代固定 12K 限制 |
+| Provider 元数据 | `ProviderRegistryEntry` 新增 `context_window` 和 `supports_native_tools` 字段 |
+| 智能 recent_window | 历史窗口从固定 6 条缩放为根据预算动态调整（6/10/16/24 条） |
+| 死代码清理 | 删除 3 个未使用的 compatibility shim 文件 + 2 个死方法，消除冗余 `_normalize_tool_args` |
+| 补全命令建议 | `ReplFacade.suggest_commands()` 补全 8 个缺失的 slash 命令 |
+| 边界测试 | 新增 12 个 `detect_context_window` / `compute_budgets` 边界测试 |
+
+详细变更记录见 [changelog-draft.md](docs/maintainer-prep/changelog-draft.md)。
+
+## v4 版本迭代
+
+v4 是与 v3 同等重要的版本迭代，聚焦代码清理、安全加固、架构改进和生态兼容：
+
+| 类别 | 变更 |
+| --- | --- |
+| 安全修复 | Shell `excluded_commands` metacharacter 绕过漏洞修复 |
+| 死代码清理 | 删除 254 行 runtime.py 不可达代码 + 5 个重复 re-export 文件 + 490 行 TUI 死代码 |
+| 架构改进 | `SessionStore` 提取为独立模块；`ReplFacade` 从 TUI 提取为独立模块 |
+| Token 估算 | CJK-aware token 估算（中文字符 ~1.5 token/字，ASCII ~0.25 token/字符） |
+| 路径编码 | 修复 Windows CJK 路径编码问题（`workspace.py` git 子进程使用 UTF-8） |
+| REPL 增强 | 基于 `rich` 的增强 REPL：工具调用卡片、Markdown 渲染、语法高亮、状态栏 |
+| 新功能 | Claude Code Skill 兼容层（`claude_code_skills.py`），支持从 `~/.claude/skills/` 发现和加载 |
+| CI 增强 | Python 3.10-3.13 测试矩阵 + TUI 专属 job + 覆盖率报告 |
+| 测试改进 | `conftest.py` 共享 fixtures + sandbox 安全测试扩展 |
+
+详细变更记录见 [changelog-draft.md](docs/maintainer-prep/changelog-draft.md)。
+
+## 产品边界
 
 - CLI 入口是 `repo-harness`，模块入口是 `python -m repo_harness`，Python 包名是 `repo_harness`。
 - 本地状态目录只使用 `.repo-harness/`。
@@ -21,6 +56,7 @@ RepoHarness 面向需要在本地仓库中可控使用 AI agent 的工程场景�
 | Memory governance | 长期记忆如果自动写入，会污染后续推理。 | 所有 durable memory 必须先进入 Review Queue，再由人 accept/edit。 |
 | Explainable retrieval | 记忆命中如果不可解释，很难审计。 | 保留 score breakdown 和 selected explanations，支持 `/memory_explain`。 |
 | Auto Issue Fix | AI 修 issue 需要真实执行能力，也需要证据和门禁。 | 支持 dry-run、review-gated、draft-auto、自动审查门、fallback evidence 和 draft PR。 |
+| Claude Code Skill 兼容 | 不同 agent 平台的 skill 生态割裂。 | 自动从 `~/.claude/skills/` 发现 SKILL.md，工具名称自动映射。 |
 | Release evidence | 关键路径需要可复现验证。 | 通过 scripted provider、dogfood、focused tests 和 release evidence 验证关键路径。 |
 
 长期记忆治理路径固定为：
@@ -107,7 +143,7 @@ repo-harness provider doctor --smoke
 
 如果只给一个未知厂商的版本根路径，例如 `https://models.example.com/v1`，RepoHarness 无法可靠判断协议；这时请传 `--provider`，或把厂商文档里的完整 endpoint 路径交给 `provider setup` / `provider probe`。
 
-Chat Completions-compatible 示例，MiMo 只作为其中一个例子：
+Chat Completions-compatible 示例：
 
 ```toml
 provider = "chat-completions"
@@ -125,7 +161,7 @@ $env:MY_CHAT_MODEL_API_KEY="your-api-key"
 uv run repo-harness --repl
 ```
 
-`api_key_env` 的含义是“RepoHarness 应该读取哪个环境变量”。如果你的厂商使用 `ACME_API_KEY`，就把 `api_key_env` 改成 `"ACME_API_KEY"`，同时替换 `model` 和 `base_url`。
+`api_key_env` 的含义是"RepoHarness 应该读取哪个环境变量"。如果你的厂商使用 `ACME_API_KEY`，就把 `api_key_env` 改成 `"ACME_API_KEY"`，同时替换 `model` 和 `base_url`。
 
 配置优先级固定为：
 
@@ -219,6 +255,8 @@ RepoHarness 的工具执行统一经过 core executor、permission gate、tool p
 - shell 普通搜索/读取会被拦截，鼓励使用结构化 `read_file` / `search`。
 - 修改既有文件前需要 fresh read；重复工具调用会进入 guard。
 - 多 tool-call 按模型输出顺序执行，partial failure 会进入 trace。
+- `excluded_commands` 使用前导空格规范化和 shell 元字符检测（`$(`、`` ` ``、`\`、`${`）防止绕过 sandbox。
+- Token 估算支持 CJK 文本感知（中文字符约 1.5 token/字，ASCII 约 0.25 token/字符）。
 
 Sandbox 支持：
 
@@ -234,6 +272,13 @@ uv run repo-harness --sandbox required --sandbox-backend bubblewrap
 ```
 
 ## REPL 和工作流能力
+
+REPL 基于 `rich` 库提供增强的终端交互体验：
+
+- 工具调用实时显示（蓝色边框卡片 + 参数摘要）
+- AI 回复 Markdown 渲染（代码块语法高亮、列表、粗体）
+- `/help` 用表格显示命令列表，`/usage` 用表格显示 token 统计
+- 错误用红色面板显示，状态栏显示 session/mode/steps 信息
 
 常用 REPL 命令：
 
@@ -257,6 +302,8 @@ skills/<name>/SKILL.md
 .repo-harness/skills/<name>/SKILL.md
 ```
 
+同时兼容 Claude Code Skill 格式，自动从 `~/.claude/skills/` 发现并加载 SKILL.md 文件。Claude Code 的工具名称会自动映射到 RepoHarness 等价物（`Read` → `read_file`，`Bash` → `run_shell` 等）。
+
 Skill frontmatter 支持常见 YAML list，例如：
 
 ```yaml
@@ -268,6 +315,17 @@ allowed_tools:
 paths:
   - src/
 ---
+```
+
+Claude Code 格式的 Skill 也完全兼容：
+
+```yaml
+---
+name: humanizer
+description: Remove AI writing patterns
+allowed-tools: Read, Write, Edit, Grep
+---
+Your prompt here using $ARGUMENTS.
 ```
 
 `allowed_tools` 会同时影响 prompt 中展示的工具列表和实际 permission gate。skill 可提供 prompt、参数替换、fork/model override 和事件记录，但不能绕过 Review Queue 写 durable memory。
@@ -289,31 +347,9 @@ Worker 是 session-scoped 子任务：
 /agents
 ```
 
-## TUI
-
-安装 Textual extra 后可启动 TUI：
-
-```bash
-uv run --extra tui repo-harness --tui
-```
-
-TUI 是可选体验入口。在 Windows PowerShell / CMD 中，Textual TUI 可能出现粘贴、复制、选择文本或终端重绘不稳定的问题；Windows 用户建议优先使用普通 REPL：
-
-```powershell
-uv run repo-harness --repl
-```
-
-在 REPL 中可以直接使用 Auto Issue Fix：
-
-```text
-/auto-issue-fix --repo owner/name --issue 123 --dry-run
-```
-
-TUI 使用同一套 runtime，不是独立行为路径；slash completion、normal turn、ask_user prompt 和 worker notification 都走公共 runtime。
-
 ## Auto Issue Fix 真实执行与 dry-run 预演
 
-Auto Issue Fix 将 GitHub issue、隔离工作区、RepoHarness 修复 turn、测试验证、自动审查门、证据包和 draft PR 串成一条可复盘的维护链路。它强调的不是“自动制造 PR”，而是在真实仓库中保留授权、审查、阻断和交接边界。
+Auto Issue Fix 将 GitHub issue、隔离工作区、RepoHarness 修复 turn、测试验证、自动审查门、证据包和 draft PR 串成一条可复盘的维护链路。它强调的不是"自动制造 PR"，而是在真实仓库中保留授权、审查、阻断和交接边界。
 
 `repo-harness auto-issue-fix` 是本版本的重要能力更新。默认不传 `--dry-run` 时进入真实执行：读取 GitHub issue、隔离 clone、创建分支、调用 RepoHarness 修复、运行测试、执行自动审查门、commit、push，并创建 draft PR。传入 `--dry-run` 时只生成预演证据，不执行 GitHub 副作用。
 
@@ -414,12 +450,13 @@ Pending review queue 不进入 prompt memory、不参与 `/memory_explain`，也
 - Pending queue：待审队列，不进入 prompt memory、`/memory_explain` 或 `safe-transfer`。
 - `score_breakdown` 与 `selected_explanations`：Explainable Retrieval 的解释字段。
 
-RepoHarness 记忆系统继续以“可迁移、可审核、可解释”为核心。
+RepoHarness 记忆系统继续以"可迁移、可审核、可解释"为核心。
 
 ## 项目文档
 
 - [新手指南](docs/getting-started.md)
 - [架构概览](docs/architecture/agent-harness-v1-overview.md)
+- [更新日志](docs/maintainer-prep/changelog-draft.md)
 - [Auto Issue Fix 产品方案](docs/auto-issue-fix-product-plan.md)
 - [Auto Issue Fix 实现计划](docs/auto-issue-fix-implementation-plan.md)
 - [维护者文档入口](docs/maintainer-prep/README.md)
