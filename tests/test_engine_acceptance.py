@@ -1,7 +1,7 @@
 import json
 
 from repo_harness.providers import ProviderError
-from conftest import build_agent
+from tests.helpers import build_agent
 
 
 def read_jsonl(path):
@@ -74,7 +74,7 @@ def test_engine_records_provider_error_as_failed_run(tmp_path):
 
     assert events[-2]["type"] == "stop"
     assert "rate_limited" in events[-2]["content"]
-    assert events[-2]["content"].startswith("模型错误")
+    assert events[-2]["content"].startswith("model error")
     report = json.loads((agent.current_run_dir / "report.json").read_text(encoding="utf-8"))
     assert report["status"] == "failed"
     assert report["stop_reason"] == "model_error"

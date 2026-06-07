@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-RepoHarness 最终版 v3 能力完善已经合入 `main`。Auto Issue Fix 真实执行与 dry-run 预演是当前版本的同等级重要更新。维护目标是保持文档、测试和 release evidence 与实现一致，不再把已完成能力列为后续工作。
+RepoHarness v6 已合入 `main`，包含安全加固（16 项）、稳定性提升（27 项）、可观测性（`/metrics` + 快照持久化）和多 Agent 编排（`parallel`/`pipeline`/`dag`/消息队列）。Auto Issue Fix 已重构为 5 stage 流水线 + 失败重试。维护目标是保持文档、测试和 release evidence 与实现一致，不再把已完成能力列为后续工作。
 
 当前公开边界：
 

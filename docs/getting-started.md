@@ -67,6 +67,14 @@ RepoHarness 支持五类 provider：
 CLI 显式参数 > process env / 项目 .env > 项目 .repo-harness.toml > 全局 config > 默认值
 ```
 
+> **安全提示**：如果项目级 `.repo-harness.toml` 覆盖了 `base_url` 或 `provider`，启动时会在 stderr 输出警告。这是为了防止恶意仓库通过项目配置重定向模型 endpoint。收到此警告时请确认配置是否可信。
+
+配置文件中的隐藏行为：
+
+- `max_tokens` 是 `max_new_tokens` 的别名，两者等价。
+- 全局配置路径可通过 `REPO_HARNESS_HOME` 环境变量覆盖（默认为 `~/.repo-harness/`）。
+- `.env` 文件支持 `export KEY=VALUE` 格式（`export` 前缀会被静默处理）。
+
 也可以用内置向导生成和检查配置：
 
 ```bash
@@ -325,11 +333,13 @@ uv run pytest tests/test_provider_config_acceptance.py tests/test_real_session_a
 ## 5. REPL 常用命令
 
 - `/help`：命令列表。
+- `/exit` 或 `/quit`：退出 REPL（两者等价）。
 - `/plan <topic>`：进入 plan mode，只允许读和计划相关工具。
 - `/plan-exit`：退出 plan mode。
 - `/usage`：查看 token / context 使用情况。
 - `/model [name]`：查看或临时切换当前模型，不写配置文件。
 - `/history`、`/context`、`/compact`、`/working-memory`：查看或整理上下文。
+- `/metrics`：查看工具调用统计（成功率、平均耗时、循环检测、热路径、token 消耗），快照自动保存到 `.repo-harness/metrics/`。
 - `/skills`、`/skill <name> [args]`：使用 skills。
 - `/agents`、`/subagent explore <task>`、`/subagent worker --scope <path> <task>`：管理 worker。
 - `/memory review`：审核长期记忆候选。
@@ -337,9 +347,18 @@ uv run pytest tests/test_provider_config_acceptance.py tests/test_real_session_a
 - `/memory_explain <query>`：解释记忆检索结果。
 - `/memory_pack`：打开 memory pack 菜单。
 
+### CLI 隐藏选项
+
+以下 CLI 选项在帮助文本中存在但容易被忽略：
+
+- `--trust-session`：将 `approval_policy` 强制设为 `"auto"`，跳过所有 risky 工具的人工审批。谨慎使用，适合自动化场景。
+- `--resume latest`：自动恢复最近的 session（按文件修改时间排序）。不需要手动指定 session ID。
+- `--resume <session_id>`：恢复指定 session，checkpoint 状态会影响 prompt 构建。
+- `--secret-env-name <name>`：额外指定要脱敏的环境变量名，可多次使用。也可通过 `REPO_HARNESS_SECRET_ENV_NAMES` 环境变量设置（逗号分隔）。
+
 ## 6. Sandbox
 
-Sandbox 模式：
+Sandbox 默认为 `best_effort`（有 bubblewrap 就用，没有则回退并记录警告）。支持模式：
 
 ```text
 off | best_effort | read_only | required
@@ -352,9 +371,14 @@ uv run repo-harness --sandbox read_only
 uv run repo-harness --sandbox required --sandbox-backend bubblewrap
 ```
 
-`required` 模式在后端不可用时 fail closed。Windows fallback 会写入不可用 metadata，而不是伪装为完整隔离。
+`required` 模式在后端不可用时 fail closed。Windows fallback 会写入不可用 metadata 并输出 stderr 警告，而不是伪装为完整隔离。
 
-`excluded_commands` 使用前导空格规范化和 shell 元字符检测（`$(`、`` ` ``、`\`、`${`）防止绕过 sandbox。
+安全特性：
+
+- `run_shell` 内置危险命令黑名单（`rm -rf /`、`curl | sh`、`shutdown` 等），自动拦截。
+- `search` 默认使用 `--fixed-strings` 字面匹配，防止 ReDoS 攻击。
+- bubblewrap 沙箱默认启用 `--unshare-net` 网络隔离。
+- `excluded_commands` 使用前导空格规范化和 shell 元字符检测（`$(`、`` ` ``、`\`、`${`）防止绕过 sandbox。
 
 ## 7. Skills
 
@@ -421,6 +445,10 @@ Write worker 必须声明写入范围：
 
 Worker 支持后台生命周期、continue、stop、shutdown、running send guard、notifications 和 artifact 汇总。
 
+编排原语（通过 `WorkerManager` API 调用）：`parallel()` 并行执行、`pipeline()` 串行传递输出、`dag()` 依赖关系并行、`post_message()`/`read_messages()` worker 间消息队列。
+
+> **注意**：delegate 工具创建的子 agent 强制只读（`read_only=True`、`approval_policy="never"`），且深度限制为 1，防止委派失控。Worker 则支持写入（需指定 `write_scope`）。
+
 ## 9. Evidence 和 dogfood
 
 默认 evidence 不需要 live provider：
@@ -482,7 +510,51 @@ uv run python -m repo_harness --help
 
 Memory Pack 的 `safe-transfer`、`continue-work`、`full-recovery` 分别服务可迁移、可审核、可解释的恢复场景。运行工件中的 prompts、tool outputs、local paths、reports 和 traces 用于复盘。
 
-## 11. 项目背景和读者
+### delegate 子 agent 为什么是只读的
+
+delegate 工具创建的子 agent 强制以 `read_only=True`、`approval_policy="never"` 运行，且深度限制为 1（子 agent 不能再 delegate）。这是刻意的安全设计，防止委派失控。
+
+### Session 文件损坏了怎么办
+
+`SessionStore.load()` 在 JSON 解析失败时会返回空 session（带 `_load_error` 字段），不会崩溃。下次保存时会覆盖损坏的文件。如果遇到 session 异常，可以用 `/reset` 清空重来。
+
+### search 工具找不到 rg 会怎样
+
+`search` 工具优先使用 `rg`（ripgrep），如果系统未安装 `rg`，会自动 fallback 到 Python 遍历文件搜索（速度较慢但功能等价）。搜索 pattern 默认使用字面匹配（`--fixed-strings`），不会触发正则引擎。
+
+### ask_user 工具没有回调时的行为
+
+如果 `ask_user_callback` 未设置且提供了 `choices`，默认选第一个 choice。如果没有 choices，尝试调用 `input()` 从终端读取。在非交互环境中（如 CI），`input()` 会触发 `EOFError`，返回空字符串。
+
+## 11. 运行时隐式行为
+
+以下行为在运行时自动发生，用户可能不会主动感知：
+
+### 自动历史压缩
+
+当 prompt token 超过模型 context window 时，引擎在调用模型前自动压缩旧 history 并重建 prompt。用户不会看到明确提示，仅在 event stream 中有 `history_auto_compacted` 事件。可通过 `/metrics` 命令查看最近一次压缩事件。也可通过 `/compact` 手动触发压缩。
+
+### 记忆自迭代
+
+每次 agent 完成一轮后，系统自动扫描 episodic notes，将符合 durable pattern 的笔记推入 Review Queue。这不会直接写入 durable topics。用户需主动运行 `/memory review` 才能看到和处理候选项。通过 `/memory self_iteration` 可查看最近一次自迭代状态。
+
+### Tool Policy 隐式拒绝
+
+以下情况工具调用会被静默拒绝（模型会收到错误提示）：
+
+- `patch_file` 或 `write_file` 覆盖已有文件前未先 `read_file`（错误码：`prior_read_required`）
+- `run_shell` 被检测为普通搜索/读取操作，应使用 `search` 或 `read_file`（错误码：`tool_policy_workspace_read`）
+- 最近 5 次工具调用中，相同工具+相同参数出现 3 次以上（错误码：`repeated_identical_call`）
+
+### 项目级配置安全警告
+
+如果项目级 `.repo-harness.toml` 覆盖了 `base_url` 或 `provider`，启动时会在 stderr 输出警告，提醒用户确认配置是否可信。这是为了防止恶意仓库通过项目配置重定向模型 endpoint。
+
+### PATH 消毒
+
+构建子进程环境变量时，PATH 中的临时目录（`/tmp`、`AppData\Local\Temp` 等）会被自动过滤，防止 PATH 注入攻击。
+
+## 12. 项目背景和读者
 
 RepoHarness 曾有 v2.0 历史实验结果，用来验证本地 coding agent 在仓库任务中的可复现性。当前最终版面向实际开发者、维护者和 AI 产品经理：它不仅展示模型调用，也展示 provider 配置、工具治理、运行证据和记忆治理如何组合成一个可落地的 Agent 产品。
 

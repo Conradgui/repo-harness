@@ -13,6 +13,108 @@ from functools import partial
 from ..workspace import IGNORED_PATH_NAMES, clip
 from .base import RegisteredTool
 
+# ---------------------------------------------------------------------------
+# 危险命令黑名单：匹配的命令将被 run_shell 拒绝执行。
+# 每条规则是 (pattern, reason)，pattern 用 fnmatch 匹配（忽略前导空白）。
+# 子命令分隔符（&&、||、;、|）会被拆分后逐条检查。
+# ---------------------------------------------------------------------------
+import fnmatch
+import re
+
+_DANGEROUS_COMMAND_PATTERNS: list[tuple[str, str]] = [
+    # 递归删除根目录 / home 目录
+    ("rm -rf /", "recursive delete of filesystem root"),
+    ("rm -rf /*", "recursive delete of filesystem root"),
+    ("rm -rf ~", "recursive delete of home directory"),
+    ("rm -rf ~/*", "recursive delete of home directory"),
+    ("rm -fr /", "recursive delete of filesystem root"),
+    ("rm -fr /*", "recursive delete of filesystem root"),
+    ("rm -fr ~", "recursive delete of home directory"),
+    ("rm -fr ~/*", "recursive delete of home directory"),
+    # 磁盘级破坏
+    ("mkfs*", "filesystem format command"),
+    ("fdisk*", "disk partition command"),
+    ("dd if=* of=/dev/*", "direct disk write"),
+    # fork bomb
+    (":(){ * };:", "fork bomb"),
+    # 系统级权限修改
+    ("chmod -R 777 /", "recursive permission change on root"),
+    ("chown -R * /", "recursive ownership change on root"),
+    # 系统关机 / 重启
+    ("shutdown*", "system shutdown"),
+    ("reboot*", "system reboot"),
+    ("halt*", "system halt"),
+    ("poweroff*", "system poweroff"),
+    # 杀死所有进程
+    ("kill -9 -1", "kill all processes"),
+]
+
+# 子命令分隔符：&&、||、;（不拆分管道 |，因为管道是一条完整命令链）
+_SUBCOMMAND_SEPARATORS = re.compile(r"\s*(?:&&|\|\||;)\s*")
+# 管道分隔符（用于检测管道链中的危险组合）
+_PIPE_SEPARATOR = re.compile(r"\s*\|\s*")
+
+# 含管道的危险模式：检测 "X | sh" 或 "X | bash" 形式的远程代码执行
+_PIPE_TO_SHELL_PATTERNS: list[tuple[str, str]] = [
+    ("curl * | sh", "remote code execution via curl pipe sh"),
+    ("curl * | bash", "remote code execution via curl pipe bash"),
+    ("wget * | sh", "remote code execution via wget pipe sh"),
+    ("wget * | bash", "remote code execution via wget pipe bash"),
+    ("curl *|sh", "remote code execution via curl pipe sh"),
+    ("curl *|bash", "remote code execution via curl pipe bash"),
+    ("wget *|sh", "remote code execution via wget pipe sh"),
+    ("wget *|bash", "remote code execution via wget pipe bash"),
+]
+
+
+def check_dangerous_command(command: str) -> str:
+    """检查命令是否匹配危险模式。返回空字符串表示安全，非空表示被拒绝的原因。"""
+    command = str(command or "").strip()
+    if not command:
+        return ""
+
+    def _match_single(parts: list[str]) -> str:
+        """对一组命令片段逐条匹配黑名单。"""
+        for part in parts:
+            part = part.strip()
+            if not part:
+                continue
+            for pattern, reason in _DANGEROUS_COMMAND_PATTERNS:
+                if fnmatch.fnmatch(part, pattern):
+                    return f"dangerous command blocked: {reason} (matched pattern: {pattern!r})"
+        return ""
+
+    # 1) 先检查完整命令（匹配含管道的模式，如 "curl * | sh"）
+    for pattern, reason in _PIPE_TO_SHELL_PATTERNS:
+        if fnmatch.fnmatch(command, pattern):
+            return f"dangerous command blocked: {reason} (matched pattern: {pattern!r})"
+
+    # 2) 拆分逻辑链（&&、||、;），逐条检查单命令模式
+    logic_parts = _SUBCOMMAND_SEPARATORS.split(command)
+    result = _match_single(logic_parts)
+    if result:
+        return result
+
+    # 3) 对含管道的逻辑链，检测 "curl/wget ... | sh/bash" 组合
+    for logic_part in logic_parts:
+        logic_part = logic_part.strip()
+        if "|" in logic_part:
+            pipe_parts = [p.strip() for p in _PIPE_SEPARATOR.split(logic_part) if p.strip()]
+            if len(pipe_parts) >= 2:
+                last_cmd = pipe_parts[-1].split()[0] if pipe_parts[-1] else ""
+                if last_cmd in ("sh", "bash"):
+                    # 检查管道链中是否有 curl 或 wget
+                    for upstream in pipe_parts[:-1]:
+                        first_word = upstream.split()[0] if upstream else ""
+                        if first_word in ("curl", "wget"):
+                            return (
+                                f"dangerous command blocked: remote code execution via "
+                                f"{first_word} pipe {last_cmd} (detected pipe-to-shell pattern)"
+                            )
+
+    return ""
+
+
 BASE_TOOL_SPECS = {
     "list_files": {
         "schema": {"path": "str='.'"},
@@ -117,6 +219,86 @@ def _preferred_shell_path():
     return ""
 
 
+def _format_shell_result(returncode, stdout="", stderr=""):
+    return textwrap.dedent(
+        f"""\
+        exit_code: {returncode}
+        stdout:
+        {str(stdout or "").strip() or "(empty)"}
+        stderr:
+        {str(stderr or "").strip() or "(empty)"}
+        """
+    ).strip()
+
+
+def _timeout_shell_result(timeout, stdout="", stderr=""):
+    return textwrap.dedent(
+        f"""\
+        exit_code: -1
+        stdout:
+        {str(stdout or "").strip() or "(empty)"}
+        stderr:
+        command timed out after {timeout}s
+        {str(stderr or "").strip() or "(empty)"}
+        """
+    ).strip()
+
+
+def _terminate_process_tree(process):
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            return
+        except Exception:
+            pass
+    try:
+        process.kill()
+    except Exception:
+        pass
+
+
+def _run_shell_subprocess(command, *, cwd, env, timeout, shell=False):
+    kwargs = {
+        "cwd": cwd,
+        "shell": shell,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "text": True,
+        "env": env,
+    }
+    if os.name == "nt":
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    process = subprocess.Popen(command, **kwargs)
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        _terminate_process_tree(process)
+        stdout = (
+            exc.stdout.decode("utf-8", errors="replace")
+            if isinstance(exc.stdout, bytes)
+            else (exc.stdout or "")
+        )
+        stderr = (
+            exc.stderr.decode("utf-8", errors="replace")
+            if isinstance(exc.stderr, bytes)
+            else (exc.stderr or "")
+        )
+        try:
+            more_stdout, more_stderr = process.communicate(timeout=5)
+            stdout = (stdout or "") + (more_stdout or "")
+            stderr = (stderr or "") + (more_stderr or "")
+        except Exception:
+            pass
+        return _timeout_shell_result(timeout, stdout, stderr)
+    return _format_shell_result(process.returncode, stdout, stderr)
+
+
 def build_tool_registry(agent):
     # 工具不是动态发现的，而是显式注册的。
     # 这样模型看到的是一个有边界、可审计的动作集合。
@@ -154,17 +336,17 @@ def validate_tool(agent, name, args):
     if name == "list_files":
         path = agent.path(args.get("path", "."))
         if not path.is_dir():
-            raise ValueError("path is not a directory")
+            raise ValueError(f"path is not a directory: {args.get('path', '.')}")
         return
 
     if name == "read_file":
         path = agent.path(args["path"])
         if not path.is_file():
-            raise ValueError("path is not a file")
+            raise ValueError(f"path is not a file: {args.get('path', '')}")
         start = int(args.get("start", 1))
         end = int(args.get("end", 200))
         if start < 1 or end < start:
-            raise ValueError("invalid line range")
+            raise ValueError(f"invalid line range: start={start}, end={end}")
         return
 
     if name == "search":
@@ -196,7 +378,7 @@ def validate_tool(agent, name, args):
         # 这样修改行为才是确定的，失败原因也更容易解释。
         path = agent.path(args["path"])
         if not path.is_file():
-            raise ValueError("path is not a file")
+            raise ValueError(f"path is not a file: {args.get('path', '')}")
         old_text = str(args.get("old_text", ""))
         if not old_text:
             raise ValueError("old_text must not be empty")
@@ -258,7 +440,7 @@ def validate_tool(agent, name, args):
 def tool_list_files(agent, args):
     path = agent.path(args.get("path", "."))
     if not path.is_dir():
-        raise ValueError("path is not a directory")
+        raise ValueError(f"path is not a directory: {args.get('path', '.')}")
     entries = [
         item for item in sorted(path.iterdir(), key=lambda item: (item.is_file(), item.name.lower()))
         if item.name not in IGNORED_PATH_NAMES
@@ -273,12 +455,15 @@ def tool_list_files(agent, args):
 def tool_read_file(agent, args):
     path = agent.path(args["path"])
     if not path.is_file():
-        raise ValueError("path is not a file")
+        raise ValueError(f"path is not a file: {args.get('path', '')}")
     start = int(args.get("start", 1))
     end = int(args.get("end", 200))
     if start < 1 or end < start:
-        raise ValueError("invalid line range")
-    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        raise ValueError(f"invalid line range: start={start}, end={end}")
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError as exc:
+        raise ValueError(f"failed to read {args.get('path', '')}: {exc}") from exc
     body = "\n".join(f"{number:>4}: {line}" for number, line in enumerate(lines[start - 1:end], start=start))
     return f"# {path.relative_to(agent.root)}\n{body}"
 
@@ -287,23 +472,49 @@ def tool_search(agent, args):
     pattern = str(args.get("pattern", "")).strip()
     if not pattern:
         raise ValueError("pattern must not be empty")
+    # ReDoS 防护：限制 pattern 长度
+    if len(pattern) > 200:
+        raise ValueError("search pattern too long (max 200 chars to prevent ReDoS)")
     path = agent.path(args.get("path", "."))
 
     if shutil.which("rg"):
         # 优先用 rg，因为搜索会非常频繁，搜索延迟会直接影响 agent 控制循环。
-        result = subprocess.run(
-            ["rg", "-n", "--smart-case", "--max-count", "200", pattern, str(path)],
-            cwd=agent.root,
-            capture_output=True,
-            text=True,
-        )
+        # 默认用 --fixed-strings（字面匹配），避免 ReDoS 风险。
+        rg_cmd = ["rg", "-n", "--smart-case", "--fixed-strings", "--max-count", "200", pattern, str(path)]
+        try:
+            result = subprocess.run(
+                rg_cmd,
+                cwd=agent.root,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except subprocess.TimeoutExpired:
+            return "(search timed out after 30s)"
+        except FileNotFoundError:
+            return "(rg not found, falling back to Python search)"
+        except OSError as exc:
+            return f"(search error: {exc})"
         return result.stdout.strip() or result.stderr.strip() or "(no matches)"
 
     matches = []
-    files = [path] if path.is_file() else [
-        item for item in path.rglob("*")
-        if item.is_file() and not any(part in IGNORED_PATH_NAMES for part in item.relative_to(agent.root).parts)
-    ]
+    # 单次搜索最多扫描的文件数，防止大仓库卡死
+    _SEARCH_MAX_FILES = 5000
+    if path.is_file():
+        files = [path]
+    else:
+        files = []
+        for item in path.rglob("*"):
+            if not item.is_file():
+                continue
+            try:
+                if any(part in IGNORED_PATH_NAMES for part in item.relative_to(agent.root).parts):
+                    continue
+            except ValueError:
+                continue
+            files.append(item)
+            if len(files) >= _SEARCH_MAX_FILES:
+                break
     for file_path in files:
         for number, line in enumerate(file_path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1):
             if pattern.lower() in line.lower():
@@ -317,30 +528,23 @@ def tool_run_shell(agent, args):
     command = str(args.get("command", "")).strip()
     if not command:
         raise ValueError("command must not be empty")
+    # 危险命令黑名单检查
+    block_reason = check_dangerous_command(command)
+    if block_reason:
+        raise ValueError(block_reason)
     timeout = int(args.get("timeout", 20))
     if timeout < 1 or timeout > 120:
         raise ValueError("timeout must be in [1, 120]")
     shell_env = agent.shell_env()
 
     def platform_runner(command, timeout):
-        result = subprocess.run(
+        return _run_shell_subprocess(
             command,
             cwd=agent.root,
             shell=True,
-            capture_output=True,
-            text=True,
             timeout=timeout,
             env=shell_env,
         )
-        return textwrap.dedent(
-            f"""\
-            exit_code: {result.returncode}
-            stdout:
-            {result.stdout.strip() or "(empty)"}
-            stderr:
-            {result.stderr.strip() or "(empty)"}
-            """
-        ).strip()
 
     sandbox_runner = getattr(agent, "sandbox_runner", None)
     if sandbox_runner is not None:
@@ -350,43 +554,22 @@ def tool_run_shell(agent, args):
 
     bash_path = _preferred_shell_path()
     if bash_path:
-        result = subprocess.run(
+        return _run_shell_subprocess(
             [bash_path, "-lc", command],
             cwd=agent.root,
-            capture_output=True,
-            text=True,
+            shell=False,
             timeout=timeout,
             env=shell_env,
         )
-        return textwrap.dedent(
-            f"""\
-            exit_code: {result.returncode}
-            stdout:
-            {result.stdout.strip() or "(empty)"}
-            stderr:
-            {result.stderr.strip() or "(empty)"}
-            """
-        ).strip()
-    result = subprocess.run(
+    return _run_shell_subprocess(
         command,
         cwd=agent.root,
         shell=True,
-        capture_output=True,
-        text=True,
         timeout=timeout,
         # 这里传入的是过滤后的环境变量，而不是直接继承整个父 shell 环境，
         # 目的是减少敏感信息被意外带进命令执行环境的风险。
         env=shell_env,
     )
-    return textwrap.dedent(
-        f"""\
-        exit_code: {result.returncode}
-        stdout:
-        {result.stdout.strip() or "(empty)"}
-        stderr:
-        {result.stderr.strip() or "(empty)"}
-        """
-    ).strip()
 
 
 def tool_write_file(agent, args):
@@ -399,18 +582,26 @@ def tool_write_file(agent, args):
 
 def tool_patch_file(agent, args):
     path = agent.path(args["path"])
-    if not path.is_file():
-        raise ValueError("path is not a file")
+    # TOCTOU 防护：执行时重新 resolve 路径，确保和验证时是同一个文件
+    try:
+        resolved = path.resolve()
+    except OSError as exc:
+        raise ValueError(f"failed to resolve path {args.get('path', '')}: {exc}") from exc
+    if not resolved.is_file():
+        raise ValueError(f"path is not a file: {args.get('path', '')}")
     old_text = str(args.get("old_text", ""))
     if not old_text:
         raise ValueError("old_text must not be empty")
     if "new_text" not in args:
         raise ValueError("missing new_text")
-    text = path.read_text(encoding="utf-8")
+    try:
+        text = resolved.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise ValueError(f"failed to read {args.get('path', '')}: {exc}") from exc
     count = text.count(old_text)
     if count != 1:
         raise ValueError(f"old_text must occur exactly once, found {count}")
-    path.write_text(text.replace(old_text, str(args["new_text"]), 1), encoding="utf-8")
+    resolved.write_text(text.replace(old_text, str(args["new_text"]), 1), encoding="utf-8")
     return f"patched {path.relative_to(agent.root).as_posix()}"
 
 

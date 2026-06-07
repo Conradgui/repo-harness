@@ -184,6 +184,22 @@ class Engine:
                         "trigger": "context_reduction",
                     },
                 )
+            # --- Context window 预检：prompt 超限时自动压缩 history ---
+            estimated_prompt_tokens = agent._estimate_tokens(prompt)
+            output_reserve = agent.max_new_tokens * 2
+            available_tokens = max(1000, agent.context_window - output_reserve)
+            if estimated_prompt_tokens > available_tokens:
+                compact_result = agent.compact_history(trigger="context_overflow")
+                prompt, prompt_metadata = agent._build_prompt_and_metadata(user_message)
+                prompt_metadata["auto_compacted"] = True
+                prompt_metadata["compact_trigger"] = "context_overflow"
+                prompt_metadata["compact_result"] = compact_result
+                yield {
+                    "type": "history_auto_compacted",
+                    "trigger": "context_overflow",
+                    "estimated_tokens_before": estimated_prompt_tokens,
+                    "available_tokens": available_tokens,
+                }
             agent.emit_trace(
                 task_state,
                 "model_requested",

@@ -92,12 +92,17 @@ class ToolPolicy:
             self._fresh_reads.clear()
             self._self_authored.clear()
 
+    # 滑动窗口：检查最近 N 条 tool 事件中，相同 name+args 出现次数是否超过阈值
+    _REPEAT_WINDOW = 5
+    _REPEAT_THRESHOLD = 3
+
     def _is_repeated(self, name, args):
         tool_events = [item for item in self.agent.session["history"] if item["role"] == "tool"]
-        if len(tool_events) < 2:
+        if len(tool_events) < self._REPEAT_THRESHOLD:
             return False
-        recent = tool_events[-2:]
-        return all(item["name"] == name and item["args"] == args for item in recent)
+        recent = tool_events[-self._REPEAT_WINDOW:]
+        count = sum(1 for item in recent if item["name"] == name and item["args"] == args)
+        return count >= self._REPEAT_THRESHOLD
 
     def _has_fresh_read(self, path, *, allow_self_authored=False):
         rel = self._relative_path(path)
@@ -111,7 +116,9 @@ class ToolPolicy:
             summary = self.agent.memory.to_dict().get("file_summaries", {}).get(rel, {})
             if summary and summary.get("freshness") == memorylib.file_freshness(rel, self.agent.root):
                 return True
-        except Exception:
+        except Exception as exc:
+            import logging
+            logging.getLogger("repo_harness").debug("fresh-read check failed for %s: %s", rel, exc)
             return False
         return False
 

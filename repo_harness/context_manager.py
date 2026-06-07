@@ -560,19 +560,26 @@ class ContextManager:
             return "Transcript:\n- empty"
         lines = []
         for item in history:
-            if item["role"] == "tool":
-                lines.append(f"[tool:{item['name']}] {json.dumps(item['args'], sort_keys=True)}")
-                lines.append(str(item["content"]))
+            role = item.get("role", "unknown")
+            content = item.get("content", "")
+            if role == "tool":
+                name = item.get("name", "?")
+                args = item.get("args", {})
+                lines.append(f"[tool:{name}] {json.dumps(args, sort_keys=True)}")
+                lines.append(str(content))
             else:
-                lines.append(f"[{item['role']}] {item['content']}")
+                lines.append(f"[{role}] {content}")
         return "\n".join(["Transcript:", *lines])
 
     def _render_history_item(self, item, line_limit):
-        if item["role"] == "tool":
-            prefix = f"[tool:{item['name']}] {json.dumps(item['args'], sort_keys=True)}"
-            content = _tail_clip(item["content"], max(20, line_limit))
-            return [prefix, content]
-        return [f"[{item['role']}] {_tail_clip(item['content'], line_limit)}"]
+        role = item.get("role", "unknown")
+        content = item.get("content", "")
+        if role == "tool":
+            name = item.get("name", "?")
+            args = item.get("args", {})
+            prefix = f"[tool:{name}] {json.dumps(args, sort_keys=True)}"
+            return [prefix, _tail_clip(content, max(20, line_limit))]
+        return [f"[{role}] {_tail_clip(content, line_limit)}"]
 
     def _assemble_prompt(self, rendered):
         # 顺序是刻意设计的：稳定规则放前面，最新请求放最后。

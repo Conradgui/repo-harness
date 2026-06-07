@@ -1,5 +1,6 @@
 """Run_shell sandbox controls for RepoHarness."""
 
+import sys
 from dataclasses import dataclass
 import fnmatch
 import shutil
@@ -10,7 +11,7 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class SandboxConfig:
-    mode: str = "off"
+    mode: str = "best_effort"
     backend: str = "native"
     workspace_write: bool = True
     excluded_commands: tuple[str, ...] = ()
@@ -49,9 +50,14 @@ class SandboxRunner:
                 )
             if mode == "required":
                 raise RuntimeError("sandbox required but unavailable")
+            print(
+                f"[repo-harness] WARNING: sandbox {mode} backend {backend!r} unavailable ({unavailable}); "
+                f"running command WITHOUT sandbox: {command[:80]}",
+                file=sys.stderr,
+            )
             return runner(command, timeout)
         if backend in {"auto", "native"}:
-            return runner(command, timeout)
+            return None
         if backend == "bubblewrap":
             return self._run_bubblewrap(command, timeout, agent, runner)
         return runner(command, timeout)
@@ -85,6 +91,7 @@ class SandboxRunner:
         argv = [
             backend_path,
             "--die-with-parent",
+            "--unshare-net",
             "--proc",
             "/proc",
             "--dev",

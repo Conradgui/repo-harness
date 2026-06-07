@@ -1,5 +1,76 @@
 # 更新日志草稿
 
+## v6：安全加固、稳定性提升、可观测性与多 Agent 编排
+
+### Added
+
+- 新增 `check_dangerous_command()` 危险命令黑名单（`rm -rf /`、`curl | sh`、`shutdown`、`kill -9 -1` 等 20+ 模式），`run_shell` 执行前自动拦截。
+- 新增 `/metrics` REPL 命令，展示工具调用统计（成功率、平均耗时）、循环调用检测（连续 4 次相同调用）、热路径分析（最近 20 条中最频繁工具对）、失败率突增告警（≥50% 且 ≥3 次）、session token 消耗估算。
+- 新增 `save_metrics_snapshot()` 方法，metrics 快照自动保存到 `.repo-harness/metrics/`（原子写入）。
+- `WorkerManager` 新增 `parallel(tasks)` — 并行执行多个 worker，返回结构化结果。
+- `WorkerManager` 新增 `pipeline(stages)` — 串行执行，前一个输出通过 `{input}` 传给下一个；stage 失败时后续标记为 skipped。
+- `WorkerManager` 新增 `dag(tasks)` — 支持依赖关系的并行执行（拓扑排序 + 批次并行 + 失败阻断下游）。
+- `WorkerManager` 新增 `post_message(channel, msg)` / `read_messages(channel, since)` / `clear_messages(channel)` — worker 间消息队列。
+- `WorkerManager` 新增 `_update_item()` 原子更新方法，消除 `_get_item` TOCTOU 竞态。
+- `runtime.py` 新增 `tool_call_patterns()` — 循环检测、热路径、失败率突增分析。
+- `runtime.py` 新增 `session_token_estimate()` + `last_compaction_event()`。
+- `runtime.py` 新增 `_sanitize_path()` — 过滤 PATH 中的临时目录。
+- `runtime.py` 新增 `_SECRET_REGEX_PATTERNS` — secret 脱敏 regex 后处理（sk-、AKIA、ghp_、Bearer、JWT 等）。
+- `SessionStore.save()` 支持 `redact_func` 参数，agent 初始化时自动绑定 `redact_text`。
+- `auto_issue_fix/runner.py` 新增 `_sanitize_for_prompt()` — 转义 issue body 中的 `<tool>`/`<final>`/`<plan>` 标签防止 prompt injection。
+- `auto_issue_fix/runner.py` 重构为 5 stage 流水线（`_stage_analyze` → `_stage_clone_and_baseline` → `_stage_fix` → `_stage_review` → `_stage_commit_push_pr`）+ 失败重试（默认最多 2 次）。
+- `auto_issue_fix/workspace.py` `run_shell_command()` 加危险命令检查 + POSIX 下 `shlex.split` 替代 `shell=True`。
+- `evaluator.py` 新增 verifier 命令白名单（`_VERIFIER_ALLOWED_PREFIXES`）。
+- `engine.py` 新增 context window 预检：prompt 超限时自动压缩 history 并重建 prompt。
+- `memory.py` `_kind_score()` 实现：durable=500, episodic=100（原为永远返回 0）。
+- `memory.py` `DurableMemoryStore` 新增 `_write_text_atomic()` 方法。
+- `memory.py` `load_index()` / `load_topic_notes()` 新增 `_corruption_warnings` 损坏检测。
+- 新增 `tests/test_dangerous_commands.py` — 33 个危险命令测试。
+- 新增 `tests/test_worker_orchestration.py` — 23 个编排测试（parallel + pipeline + DAG + 消息队列）。
+
+### Changed
+
+- `SandboxConfig.mode` 默认从 `"off"` 改为 `"best_effort"`；`_resolve_sandbox()` 同步更新。
+- bubblewrap 沙箱新增 `--unshare-net` 网络隔离。
+- `best_effort` 沙箱回退时输出 stderr 警告（原为静默回退）。
+- `search` 工具默认使用 `--fixed-strings` 字面匹配（原为 regex），pattern 长度限制 200 字符。
+- `run_shell` 捕获 `subprocess.TimeoutExpired` 返回结构化错误（原为 raw traceback）。
+- `tool_read_file` / `tool_patch_file` / `tool_search` 加 `OSError` / `FileNotFoundError` 捕获。
+- `tool_patch_file` TOCTOU 修复：执行时重新 `resolve()` 路径。
+- `SessionStore.save()` 改为 `tempfile + os.replace` 原子写入（原为直接 `write_text`）。
+- `SessionStore.load()` 加 `OSError` / `JSONDecodeError` 捕获（原为直接崩溃）。
+- `RunStore.load_task_state()` / `load_report()` 加 `OSError` / `JSONDecodeError` 捕获。
+- `DurableMemoryStore._write_index()` / `_write_topic()` 改为原子写入。
+- 重复调用守卫从"最近 2 条完全相同"改为"最近 5 条中出现 3 次相同"滑动窗口。
+- `runtime.path()` 路径逃逸检查改用 `Path.is_relative_to()`（原为 `os.path.commonpath()`）。
+- `context_manager.py` history item 访问改用 `.get()` 带默认值（原为直接 `item["key"]`）。
+- `_format_provider_error()` 错误信息统一为英文（原为中英混杂）。
+- 所有工具的错误信息包含实际路径（原为 `"path is not a file"` 不含路径）。
+- `pyproject.toml` 依赖加版本上限（`<3.0` / `<2026` / `<14.0` / `<4.0`）。
+- `skills.py` 通配符导入改为显式导入。
+- worker 默认最大 30 步（`DEFAULT_WORKER_MAX_STEPS`），防止僵尸线程。
+- 项目级 TOML 配置覆盖 `base_url` / `provider` 时输出 stderr 警告。
+- `config.py` `_resolve_sandbox()` 默认从 `"off"` 改为 `"best_effort"`。
+
+### Removed
+
+- 删除 `config.py` 中未使用的 `_int_value()` 函数。
+- 删除 `runtime.py` 中未使用的 `note_tool()` 包装方法。
+- `compact.py` 中 `CompactManager` 标记为 deprecated（runtime 已直接使用 `compact_history()`）。
+
+### Fixed
+
+- `.env` 加入 `.gitignore`（原未包含，可能导致 API key 泄露）。
+- `cli.py` prompt_toolkit 异常加 debug log（原为 `except: pass` 静默吞掉）。
+- `tool_policy.py` `_has_fresh_read` 异常加 debug log（原为 `except: return False`）。
+- `run_worker` 检查 `task_state.status == "failed"` 检测模型错误（原为仅捕获异常，模型错误返回字符串时状态误判为 "completed"）。
+
+### Verification
+
+- `uv run pytest tests/ -q` — 398 passed, 1 skipped
+
+---
+
 ## v5：动态上下文预算、死代码清理与代码质量提升
 
 ### Added

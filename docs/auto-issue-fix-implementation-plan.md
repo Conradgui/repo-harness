@@ -51,7 +51,7 @@ REPL 入口：
 - `GhCliBackend`：通过 `gh` CLI 获取 issue、搜索候选、clone、fork 和创建 draft PR。
 - `AutoIssueFixReviewGate`：记录每个审查阶段的 verdict、摘要、修复要求和尝试次数。
 - `AutoIssueFixRunRecord`：模板和 JSON 使用的可移植运行状态。
-- live runner：issue 选择、workspace 准备、RepoHarness 修复 turn、测试、diff gate、commit、push、draft PR。
+- live runner（v6 重构为 5 stage 流水线）：`_stage_analyze`（issue 发现）→ `_stage_clone_and_baseline`（克隆 + 基线测试）→ `_stage_fix`（agent 修复，可重试）→ `_stage_review`（测试 + diff + 审查门）→ `_stage_commit_push_pr`（commit + push + PR）。review gate 阻塞时不重试，仅测试失败时自动重试（默认最多 2 次）。issue body 通过 `_sanitize_for_prompt()` 防止 prompt injection。
 - 证据渲染：`run-record.md`、`run-record.json`、`pr-body.md`、`formal-report-summary.md`、`pr-ready-fallback.md`。
 - 真实日志：`issue.json`、`baseline-repro.log`、`fix-run.log`、`test-after-fix.log`、`git-diff.patch`、`pr-url.txt`。
 - 自动审查工件：`reviews/review-<stage>.json`、`reviews/review-<stage>.md`、`decision-log.jsonl`、`checkpoint.json`。

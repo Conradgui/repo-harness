@@ -7,11 +7,12 @@ RepoHarness 就是包在模型外面的控制循环：负责组 prompt、解析�
 import json
 import os
 import re
+import tempfile
 import textwrap
 import uuid
 import hashlib
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from . import memory as memorylib
@@ -102,6 +103,8 @@ class RepoHarness:
         self.workspace = workspace
         self.root = Path(workspace.repo_root)
         self.session_store = session_store
+        # 自动对 session 持久化内容做 secret 脱敏
+        session_store.redact_func = self.redact_text
         self.approval_policy = approval_policy
         self.max_steps = max_steps
         self.max_new_tokens = max_new_tokens
@@ -604,6 +607,190 @@ class RepoHarness:
             ["Agents:", *[f"- {item['id']} [{item['status']}] {item['description']}" for item in items]]
         )
 
+    # 循环检测阈值：连续 N 次相同工具+参数视为循环
+    _LOOP_DETECTION_WINDOW = 4
+    # 失败率突增阈值：失败率超过此值标记为异常
+    _FAILURE_RATE_ALERT = 0.5
+
+    def tool_metrics(self):
+        """从 session history 聚合 tool-level 指标。"""
+        from collections import defaultdict
+
+        stats = defaultdict(lambda: {"calls": 0, "ok": 0, "failed": 0, "total_ms": 0.0})
+        for item in self.session.get("history", []):
+            if item.get("role") != "tool":
+                continue
+            name = item.get("name", "unknown")
+            meta = item.get("metadata", {})
+            status = str(meta.get("tool_status", "")).strip()
+            duration = float(meta.get("duration_ms", 0) or 0)
+            stats[name]["calls"] += 1
+            stats[name]["total_ms"] += duration
+            if status in ("ok", "partial_success"):
+                stats[name]["ok"] += 1
+            elif status in ("error", "rejected"):
+                stats[name]["failed"] += 1
+        result = {}
+        for name, s in sorted(stats.items()):
+            result[name] = {
+                "calls": s["calls"],
+                "ok": s["ok"],
+                "failed": s["failed"],
+                "success_rate": f"{s['ok'] / s['calls']:.0%}" if s["calls"] else "N/A",
+                "avg_ms": f"{s['total_ms'] / s['calls']:.0f}" if s["calls"] else "N/A",
+            }
+        return result
+
+    def tool_call_patterns(self):
+        """分析工具调用模式：循环检测、热路径、失败率突增。"""
+        history = self.session.get("history", [])
+        tool_events = [item for item in history if item.get("role") == "tool"]
+
+        # 循环检测：最近 N 条 tool 事件中是否有连续重复
+        loops = []
+        if len(tool_events) >= self._LOOP_DETECTION_WINDOW:
+            recent = tool_events[-self._LOOP_DETECTION_WINDOW:]
+            first_name = recent[0].get("name", "")
+            first_args = recent[0].get("args", {})
+            if all(
+                item.get("name") == first_name and item.get("args") == first_args
+                for item in recent
+            ):
+                loops.append({
+                    "tool": first_name,
+                    "args": first_args,
+                    "count": self._LOOP_DETECTION_WINDOW,
+                    "warning": f"loop detected: {first_name} called {self._LOOP_DETECTION_WINDOW}x with same args",
+                })
+
+        # 热路径：最近 20 条事件中最频繁的连续工具对
+        hot_paths = []
+        if len(tool_events) >= 2:
+            window = tool_events[-20:]
+            pair_counts = {}
+            for i in range(len(window) - 1):
+                a = window[i].get("name", "?")
+                b = window[i + 1].get("name", "?")
+                pair = f"{a} → {b}"
+                pair_counts[pair] = pair_counts.get(pair, 0) + 1
+            for pair, count in sorted(pair_counts.items(), key=lambda x: -x[1])[:3]:
+                if count >= 2:
+                    hot_paths.append({"pair": pair, "count": count})
+
+        # 失败率突增
+        failure_alerts = []
+        metrics = self.tool_metrics()
+        for name, m in metrics.items():
+            calls = m["calls"]
+            failed = m["failed"]
+            if calls >= 3 and failed / calls >= self._FAILURE_RATE_ALERT:
+                failure_alerts.append({
+                    "tool": name,
+                    "failure_rate": f"{failed / calls:.0%}",
+                    "calls": calls,
+                    "warning": f"{name} has {failed}/{calls} failures ({failed / calls:.0%})",
+                })
+
+        return {
+            "loops": loops,
+            "hot_paths": hot_paths,
+            "failure_alerts": failure_alerts,
+        }
+
+    def session_token_estimate(self):
+        """估算当前 session 的 token 消耗。"""
+        total_chars = 0
+        for item in self.session.get("history", []):
+            content = str(item.get("content", ""))
+            total_chars += len(content)
+        estimated_tokens = self._estimate_tokens("x" * total_chars) if total_chars else 0
+        return {
+            "history_items": len(self.session.get("history", [])),
+            "total_chars": total_chars,
+            "estimated_tokens": estimated_tokens,
+        }
+
+    def last_compaction_event(self):
+        """获取最近一次 context overflow 自动压缩事件。"""
+        for item in reversed(self.session.get("history", [])):
+            if item.get("role") == "system" and item.get("kind") == "compact_summary":
+                return {
+                    "trigger": item.get("trigger", "unknown"),
+                    "content_preview": str(item.get("content", ""))[:200],
+                    "created_at": item.get("created_at", ""),
+                }
+        return None
+
+    def render_tool_metrics(self):
+        """渲染 tool metrics 为可读文本（含模式分析）。"""
+        metrics = self.tool_metrics()
+        patterns = self.tool_call_patterns()
+        token_info = self.session_token_estimate()
+
+        if not metrics:
+            return "Tool Metrics:\n- no tool calls recorded"
+
+        lines = ["Tool Metrics:", f"{'Tool':<15} {'Calls':>6} {'OK':>6} {'Fail':>6} {'Rate':>8} {'Avg(ms)':>8}"]
+        lines.append("-" * 55)
+        for name, m in metrics.items():
+            alert = " ⚠️" if m["failed"] >= 3 and m["calls"] > 0 and m["failed"] / m["calls"] >= 0.5 else ""
+            lines.append(
+                f"{name:<15} {m['calls']:>6} {m['ok']:>6} {m['failed']:>6} {m['success_rate']:>8} {m['avg_ms']:>8}{alert}"
+            )
+
+        # Token 消耗
+        lines.append("")
+        lines.append(f"Session: {token_info['history_items']} items, ~{token_info['estimated_tokens']} tokens")
+
+        # 最近压缩事件
+        compaction = self.last_compaction_event()
+        if compaction:
+            lines.append(f"Last compaction: {compaction['trigger']} at {compaction['created_at']}")
+
+        # 循环警告
+        if patterns["loops"]:
+            lines.append("")
+            for loop in patterns["loops"]:
+                lines.append(f"🔴 LOOP: {loop['warning']}")
+
+        # 失败率警告
+        if patterns["failure_alerts"]:
+            lines.append("")
+            for alert in patterns["failure_alerts"]:
+                lines.append(f"⚠️ ALERT: {alert['warning']}")
+
+        # 热路径
+        if patterns["hot_paths"]:
+            lines.append("")
+            lines.append("Hot paths:")
+            for hp in patterns["hot_paths"]:
+                lines.append(f"  {hp['pair']} (×{hp['count']})")
+
+        return "\n".join(lines)
+
+    def save_metrics_snapshot(self):
+        """将当前 session 的 metrics 快照写入 .repo-harness/metrics/。"""
+        metrics_dir = self.root / ".repo-harness" / "metrics"
+        metrics_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        session_id = self.session.get("id", "unknown")
+        snapshot = {
+            "session_id": session_id,
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+            "tool_metrics": self.tool_metrics(),
+            "tool_patterns": self.tool_call_patterns(),
+            "token_estimate": self.session_token_estimate(),
+        }
+        path = metrics_dir / f"{timestamp}_{session_id}.json"
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", delete=False,
+            dir=str(metrics_dir), prefix=f"{timestamp}_{session_id}.", suffix=".tmp",
+        ) as handle:
+            handle.write(json.dumps(snapshot, indent=2, sort_keys=True, ensure_ascii=False))
+            tmp_path = Path(handle.name)
+        tmp_path.replace(path)
+        return path
+
     def remember_candidate(self, text):
         original_text = str(text or "").strip()
         if not original_text:
@@ -802,10 +989,25 @@ class RepoHarness:
             "secret_env_names": names,
         }
 
+    # 常见 secret 格式的正则模式（捕获非标准环境变量名的 secret）
+    _SECRET_REGEX_PATTERNS = [
+        re.compile(r"(sk-[a-zA-Z0-9]{20,})"),                    # OpenAI-style keys
+        re.compile(r"(sk_live_[a-zA-Z0-9]{20,})"),               # Stripe live keys
+        re.compile(r"(sk_test_[a-zA-Z0-9]{20,})"),               # Stripe test keys
+        re.compile(r"(AKIA[0-9A-Z]{16})"),                       # AWS access key
+        re.compile(r"(ghp_[a-zA-Z0-9]{36})"),                    # GitHub personal token
+        re.compile(r"(gho_[a-zA-Z0-9]{36})"),                    # GitHub OAuth token
+        re.compile(r"(Bearer\s+[a-zA-Z0-9._\-]{20,})", re.IGNORECASE),  # Bearer token
+        re.compile(r"(eyJ[a-zA-Z0-9._\-]{20,}\.[a-zA-Z0-9._\-]{20,})"),  # JWT
+    ]
+
     def redact_text(self, text):
         text = str(text)
         for _, value in sorted(self.detected_secret_env_items(), key=lambda item: len(item[1]), reverse=True):
             text = text.replace(value, REDACTED_VALUE)
+        # regex 后处理：捕获非标准 env 命名的 secret
+        for pattern in self._SECRET_REGEX_PATTERNS:
+            text = pattern.sub(REDACTED_VALUE, text)
         return text
 
     def redact_artifact(self, value, key=None):
@@ -825,6 +1027,22 @@ class RepoHarness:
             return redacted
         return value
 
+    # PATH 中不应包含的目录模式（临时目录、可写目录等）
+    _SUSPICIOUS_PATH_PATTERNS = ("/tmp", "/var/tmp", "/temp", "AppData\\Local\\Temp", "AppData/Local/Temp")
+
+    @staticmethod
+    def _sanitize_path(path_value: str) -> str:
+        """过滤 PATH 中的可疑目录（临时目录、空路径等）。"""
+        separator = ";" if os.name == "nt" else ":"
+        parts = [p.strip() for p in path_value.split(separator) if p.strip()]
+        safe = []
+        for part in parts:
+            normalized = part.replace("\\", "/").lower()
+            if any(suspicious.lower() in normalized for suspicious in RepoHarness._SUSPICIOUS_PATH_PATTERNS):
+                continue
+            safe.append(part)
+        return separator.join(safe)
+
     def shell_env(self):
         env = {
             name: os.environ[name]
@@ -836,7 +1054,9 @@ class RepoHarness:
                 env[name] = os.environ[name]
         env["PWD"] = str(self.root)
         if "PATH" not in env and os.environ.get("PATH"):
-            env["PATH"] = os.environ["PATH"]
+            env["PATH"] = self._sanitize_path(os.environ["PATH"])
+        elif "PATH" in env:
+            env["PATH"] = self._sanitize_path(env["PATH"])
         return env
 
     def prompt_metadata(self, user_message, prompt):
@@ -902,8 +1122,12 @@ class RepoHarness:
             return "checkpoint"
         return "runtime"
 
+    # 单次快照最多扫描的文件数，防止大仓库 rglob 卡死
+    _SNAPSHOT_MAX_FILES = 5000
+
     def capture_workspace_snapshot(self):
         snapshot = {}
+        file_count = 0
         for path in self.root.rglob("*"):
             try:
                 relative_parts = path.relative_to(self.root).parts
@@ -917,6 +1141,9 @@ class RepoHarness:
                 snapshot[path.relative_to(self.root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
             except Exception:
                 continue
+            file_count += 1
+            if file_count >= self._SNAPSHOT_MAX_FILES:
+                break
         return snapshot
 
     @staticmethod
@@ -1033,9 +1260,6 @@ class RepoHarness:
         except OSError:
             return False
         return end >= line_count
-
-    def note_tool(self, name, args, result):
-        self.update_memory_after_tool(name, args, result)
 
     def record_process_note_for_tool(self, name, metadata):
         status = str(metadata.get("tool_status", "")).strip()
@@ -1567,7 +1791,7 @@ class RepoHarness:
         resolved = path.resolve()
         # 所有文件类工具都被锚定在 workspace root 之下。
         # 这样既能防住 "../" 逃逸，也能防住符号链接解析后跳出仓库。
-        if os.path.commonpath([str(self.root), str(resolved)]) != str(self.root):
+        if not resolved.is_relative_to(self.root):
             raise ValueError(f"path escapes workspace: {raw_path}")
         return resolved
 

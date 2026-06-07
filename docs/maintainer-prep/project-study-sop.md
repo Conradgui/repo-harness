@@ -50,3 +50,26 @@ uv run pytest tests -q --basetemp C:\tmp\rh-test
 uv run ruff check .
 git diff --check
 ```
+
+## v6 新增能力速查
+
+- **安全**：沙箱默认 `best_effort`；`run_shell` 危险命令黑名单；bubblewrap `--unshare-net`；`search` 防 ReDoS；evaluator verifier 白名单；secret regex 脱敏；session 持久化前脱敏；PATH 清理；TOCTOU 修复；`.env` 在 `.gitignore`；TOML 配置覆盖警告；`Path.is_relative_to()`；依赖版本上限。
+- **稳定性**：所有工具加 `OSError`/`TimeoutExpired` 捕获；`SessionStore`/`RunStore`/`DurableMemoryStore` 原子写入；memory 损坏检测；context 预检自动压缩；滑动窗口重复调用守卫；`WorkerManager` TOCTOU 修复 + worker 超时。
+- **可观测性**：`/metrics` 命令（工具统计、循环检测、热路径、失败率告警、token 消耗）；metrics 快照持久化。
+- **编排**：`parallel()`、`pipeline()`、`dag()`、worker 间消息队列。
+- **Auto Issue Fix**：5 stage 流水线 + 失败重试 + prompt injection 防护。
+
+## 隐藏行为速查（维护者必读）
+
+完整列表见 [architecture/agent-harness-v1-overview.md](../architecture/agent-harness-v1-overview.md) "运行时隐式行为"节。以下为调试时最容易踩坑的 10 项：
+
+1. **Context overflow 自动压缩**：prompt 超限时静默压缩 history，用户无感知。
+2. **Memory self-iteration 自动触发**：每次 turn 结束后自动推候选到 Review Queue。
+3. **Tool Policy 隐式拒绝**：fresh read 要求、shell 搜索拦截、滑动窗口重复检测。
+4. **delegate 强制只读**：子 agent 不能写文件、不能审批、不能再 delegate。
+5. **run_shell bash 优先**：Windows 上也优先用 Git Bash，fallback 到 shell=True。
+6. **search rg fallback**：rg 不可用时自动用 Python 遍历。
+7. **Session 损坏降级**：JSON 解析失败返回空 session，不崩溃。
+8. **被吞掉的异常**：6 处 `except Exception` 静默处理（见架构文档表格）。
+9. **`/quit` 等价 `/exit`**：帮助文本只提到 `/exit`。
+10. **`--trust-session`**：跳过所有 risky 工具审批，自动化场景用。

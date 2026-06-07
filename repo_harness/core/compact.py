@@ -1,9 +1,16 @@
-"""History compaction manager for the runtime split."""
+"""History compaction manager for the runtime split.
+
+Deprecated: CompactManager is no longer used by the runtime.
+The runtime uses RepoHarness.compact_history() directly.
+This class is kept for backward compatibility and will be removed in a future version.
+"""
 
 from ..workspace import clip, now
 
 
 class CompactManager:
+    """Deprecated: use RepoHarness.compact_history() instead."""
+
     def __init__(self, runtime):
         self.runtime = runtime
 

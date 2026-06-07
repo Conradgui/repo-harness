@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import os
+import shlex
 import subprocess
 from pathlib import Path
 
+from ..tools import check_dangerous_command
 from .config import CommandResult
 from .security import redact_text, require_ok, run_command
+
+_is_windows = os.name == "nt"
 
 IGNORED_DIFF_PREFIXES = (".git/", ".repo-harness/", ".venv/", "venv/", "node_modules/")
 IGNORED_DIFF_SUFFIXES = (".pyc",)
@@ -26,15 +31,49 @@ def infer_test_commands(repo_root: Path) -> tuple[str, ...]:
 
 
 def run_shell_command(command: str, cwd: Path, timeout: int = 600) -> CommandResult:
-    completed = subprocess.run(
-        command,
-        cwd=str(cwd),
-        text=True,
-        capture_output=True,
-        shell=True,
-        timeout=timeout,
-        check=False,
-    )
+    # 危险命令黑名单检查
+    block_reason = check_dangerous_command(command)
+    if block_reason:
+        return CommandResult(
+            args=(command,),
+            cwd=str(cwd.resolve()),
+            returncode=-1,
+            stdout="",
+            stderr=block_reason,
+        )
+    # POSIX 环境下优先用 shlex.split 避免 shell=True；
+    # Windows 下 shlex.split 行为不同，直接用 shell=True。
+    if not _is_windows:
+        try:
+            argv = shlex.split(command)
+            completed = subprocess.run(
+                argv,
+                cwd=str(cwd),
+                text=True,
+                capture_output=True,
+                timeout=timeout,
+                check=False,
+            )
+        except (ValueError, FileNotFoundError):
+            completed = subprocess.run(
+                command,
+                cwd=str(cwd),
+                text=True,
+                capture_output=True,
+                shell=True,
+                timeout=timeout,
+                check=False,
+            )
+    else:
+        completed = subprocess.run(
+            command,
+            cwd=str(cwd),
+            text=True,
+            capture_output=True,
+            shell=True,
+            timeout=timeout,
+            check=False,
+        )
     return CommandResult(
         args=(command,),
         cwd=str(cwd.resolve()),

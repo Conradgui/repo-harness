@@ -152,12 +152,6 @@ def _workspace_config_path(args, workspace):
     return Path(workspace.repo_root) / CONFIG_FILE_NAME
 
 
-def _int_value(value, fallback):
-    if value is None or value == "":
-        return fallback
-    return int(value)
-
-
 def _arg_was_explicit(args, name):
     marker = f"_{name}_explicit"
     if hasattr(args, marker):
@@ -246,7 +240,7 @@ def _resolve_sandbox(args, data, env):
     filesystem = sandbox_data.get("filesystem", {})
     if not isinstance(filesystem, dict):
         filesystem = {}
-    mode = sandbox_data.get("mode", "off")
+    mode = sandbox_data.get("mode", "best_effort")
     backend = sandbox_data.get("backend", "native")
     if env.get("REPO_HARNESS_SANDBOX"):
         mode = env["REPO_HARNESS_SANDBOX"]
@@ -270,6 +264,16 @@ def _resolve_sandbox(args, data, env):
 def resolve_runtime_config(args, workspace):
     global_data, global_config_path = _load_toml(_global_config_path() or "")
     project_data, project_config_path = _load_toml(_workspace_config_path(args, workspace))
+    # 安全警告：项目级配置覆盖 base_url 或 provider 可能是恶意的
+    if project_data and project_config_path:
+        for key in ("base_url", "provider"):
+            if key in project_data:
+                import sys
+                print(
+                    f"[repo-harness] WARNING: project config {project_config_path} overrides {key!r} "
+                    f"to {project_data[key]!r}; verify this is intentional",
+                    file=sys.stderr,
+                )
     data = _merge_config(global_data, project_data)
     env = _effective_env(workspace)
     provider = _provider_from_sources(args, data, env)

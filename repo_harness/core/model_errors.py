@@ -99,12 +99,12 @@ def _format_provider_error(metadata):
     code = str(metadata.get("code", "") or "provider_error")
     status = metadata.get("http_status")
     retry_count = int(metadata.get("retry_count", 0) or 0)
-    parts = [f"模型错误: {code}"]
+    parts = [f"model error: {code}"]
     if status is not None:
         parts.append(f"HTTP {status}")
     if retry_count:
-        parts.append(f"重试 {retry_count} 次")
+        parts.append(f"retried {retry_count} time(s)")
     message = str(metadata.get("message", "")).strip()
     if message:
         parts.append(message)
-    return "；".join(parts)
+    return "; ".join(parts)
