@@ -80,6 +80,7 @@ HELP_DETAILS = textwrap.dedent(
     /model [name]  Show or change the current runtime model only.
     /history  Show compact session history.
     /context  Show context usage estimates.
+    /metrics  Show per-tool call statistics (success rate, avg duration).
     /compact  Manually compact session history.
     /working-memory  Show working memory.
     /memory_pack  Export, import, inspect, or validate memory packs.
@@ -682,6 +683,9 @@ def handle_repl_command(agent, user_input, *, interactive=False, input_func=inpu
         return True, False, _format_history(agent)
     if user_input == "/context":
         return True, False, _format_context(agent)
+    if user_input == "/metrics":
+        snapshot_path = agent.save_metrics_snapshot()
+        return True, False, agent.render_tool_metrics() + f"\n\nSnapshot saved: {snapshot_path}"
     if user_input == "/working-memory":
         return True, False, "Working memory:\n" + agent.memory_text()
     if user_input == "/compact":
@@ -1287,9 +1291,10 @@ def main(argv=None):
 
     args = build_arg_parser().parse_args(raw_argv)
 
-    # --tui 已废弃，自动降级为 --repl 并提示用户
+    # --tui is deprecated; keep it as a compatibility alias for --repl.
     if getattr(args, "tui", False):
         import warnings
+
         warnings.warn(
             "--tui is deprecated and has been removed. Use --repl instead. "
             "Falling back to interactive REPL mode.",
@@ -1328,8 +1333,9 @@ def main(argv=None):
             history=FileHistory(str(_pt_history_file)),
             completer=_pt_completer,
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        import logging
+        logging.getLogger("repo_harness").debug("prompt_toolkit init failed, falling back to input(): %s", exc)
 
     def _read_input(prompt_text):
         if _pt_session is not None:

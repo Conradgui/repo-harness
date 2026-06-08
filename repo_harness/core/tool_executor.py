@@ -2,6 +2,7 @@
 
 import re
 
+from ..tools import _normalize_tool_args
 from ..workspace import clip
 
 INLINE_TOOL_OUTPUT_LIMIT = 1000
@@ -199,33 +200,6 @@ def _permission_error(agent, tool, decision):
     if decision.reason in {"approval_denied", "tool_not_allowed"}:
         return f"error: approval denied for {name}"
     return f"error: {decision.reason}"
-
-
-def _normalize_tool_args(name, args):
-    args = dict(args or {})
-    if name == "agent":
-        if "description" in args and "task" not in args:
-            args["task"] = args["description"]
-        if "prompt" in args and "task" not in args:
-            args["task"] = args["prompt"]
-        if "subagent_type" in args and "type" not in args:
-            args["type"] = args["subagent_type"]
-        if "write_scope" in args and "scope" not in args:
-            args["scope"] = args["write_scope"]
-    if name == "todo_add":
-        if "content" in args and "text" not in args:
-            args["text"] = args["content"]
-    if name == "todo_update":
-        if "todo_id" in args and "id" not in args:
-            args["id"] = args["todo_id"]
-        if "content" in args and "text" not in args:
-            args["text"] = args["content"]
-    if name in {"send_message", "task_stop"}:
-        if "task_id" in args and "id" not in args:
-            args["id"] = args["task_id"]
-        if "to" in args and "id" not in args:
-            args["id"] = args["to"]
-    return args
 
 
 def _metadata(

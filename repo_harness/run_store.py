@@ -75,10 +75,18 @@ class RunStore:
         return path
 
     def load_task_state(self, task_id):
-        return json.loads(self.task_state_path(task_id).read_text(encoding="utf-8"))
+        path = self.task_state_path(task_id)
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            return {"task_id": task_id, "_load_error": str(exc)}
 
     def load_report(self, task_id):
-        return json.loads(self.report_path(task_id).read_text(encoding="utf-8"))
+        path = self.report_path(task_id)
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            return {"task_id": task_id, "_load_error": str(exc)}
 
     def _write_json_atomic(self, path, payload):
         # 原子写：先写临时文件，再 replace。

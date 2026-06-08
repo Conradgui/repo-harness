@@ -14,6 +14,23 @@
 
 ## 兼容性记录
 
+### 2026-06-03：v6 安全加固 Windows 适配
+
+#### 变更
+
+- `runtime.path()` 路径逃逸检查从 `os.path.commonpath()` 改为 `Path.is_relative_to()`，Windows 大小写不敏感场景更安全。
+- `shell_env()` 新增 `_sanitize_path()` 过滤 PATH 中的临时目录（`AppData\Local\Temp` 等），防止 PATH 注入攻击。
+- `SessionStore.save()` 改为原子写入（`tempfile + os.replace`），Windows 上避免写入中断导致文件损坏。
+- `run_shell` 捕获 `subprocess.TimeoutExpired` 返回结构化错误（原为 raw traceback，Windows 上中文乱码）。
+- sandbox 默认 `best_effort`，Windows 上 bubblewrap 不可用时回退并输出 stderr 警告。
+
+#### 验证命令
+
+```powershell
+uv run pytest tests/test_sandbox_runner.py tests/test_sandbox_config.py tests/test_dangerous_commands.py -q
+uv run pytest tests/test_repo_harness.py -q -k "run_shell"
+```
+
 ### 2026-05-19：最终版 shell 与 sandbox 合同
 
 #### 当前策略

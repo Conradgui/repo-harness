@@ -4,9 +4,9 @@
 
 本文件为维护者和评审者提供可审查快照。它不替代 README；它说明当前版本应该如何被验证、哪些工件可作为证据、哪些治理边界不能被绕过。
 
-## 2026-05-30：v5 动态上下文预算与代码质量提升
+## 2026-06-03：v6 安全加固、稳定性提升、可观测性与多 Agent 编排
 
-本快照覆盖 v5 版本，包含 v3 能力完善、v4 代码清理与安全加固、以及 v5 动态上下文预算：
+本快照覆盖 v6 版本，包含 v3-v5 全部能力 + v6 安全加固（16 项）、稳定性提升（27 项）、可观测性和多 Agent 编排：
 
 - provider config：全局 config、项目 config、项目 `.env`、CLI/env/config/default 优先级。
 - Chat Completions-compatible provider：MiMo 等 `/chat/completions` 后端必须走 `chat-completions`，不能误用 `openai` Responses API provider。
@@ -100,3 +100,8 @@ rg -n "<未完成或过期阶段措辞>" README.md docs
 - Auto Issue Fix live 发布：commit、push、draft PR 前必须有 `--confirm-maintainer-access` 或等价维护权限确认。
 - Evidence 分层：`formal-report-summary.md` 给用户先读，`pr-body.md` 给维护者，`run-record.md` / JSON / reviews / trace 用于审计。
 - 架构边界：Auto Issue Fix 拆分后的 config、github_backend、security、workspace、reviewer、evidence 模块不得重新互相耦合成单体。
+- **v6 安全**：沙箱默认 `best_effort`；`run_shell` 危险命令黑名单拦截；bubblewrap `--unshare-net`；`search` `--fixed-strings`；evaluator verifier 白名单；secret regex 脱敏；session 持久化脱敏；PATH 清理；TOCTOU 修复；`.env` 在 `.gitignore`；TOML 覆盖警告；`Path.is_relative_to()`；依赖版本上限。
+- **v6 稳定性**：所有工具 `OSError`/`TimeoutExpired` 捕获；`SessionStore`/`RunStore`/`DurableMemoryStore` 原子写入；memory 损坏检测；context 预检自动压缩；滑动窗口重复调用守卫；`WorkerManager` TOCTOU + worker 超时。
+- **v6 可观测性**：`/metrics` 命令展示工具统计、循环检测、热路径、失败率告警、token 消耗；metrics 快照持久化到 `.repo-harness/metrics/`。
+- **v6 编排**：`WorkerManager` 新增 `parallel()`、`pipeline()`、`dag()`、worker 间消息队列；worker 默认最大 30 步。
+- **v6 Auto Issue Fix**：5 stage 流水线 + 失败重试 + `_sanitize_for_prompt()` prompt injection 防护。

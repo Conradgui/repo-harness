@@ -137,10 +137,25 @@ def _now_in_timezone(timezone_name):
     return datetime.now(ZoneInfo(timezone_name)).strftime("%Y-%m-%dT%H:%M:%S%z")
 
 
+_VERIFIER_ALLOWED_PREFIXES = (
+    "python3 -c ",
+    "python -c ",
+    "pytest",
+    "node -e ",
+    "grep",
+    "rg",
+    "cat",
+    "diff",
+    "test ",
+    "[ ",
+)
+
+
 def _run_verifier(command, cwd):
     command = str(command).strip()
-    if command.startswith("python3 -c "):
-        script = command[len("python3 -c "):].strip()
+    if command.startswith("python3 -c ") or command.startswith("python -c "):
+        prefix = "python3 -c " if command.startswith("python3 -c ") else "python -c "
+        script = command[len(prefix):].strip()
         if len(script) >= 2 and script[0] == script[-1] and script[0] in {'"', "'"}:
             script = script[1:-1]
         return subprocess.run(
@@ -148,6 +163,14 @@ def _run_verifier(command, cwd):
             cwd=cwd,
             capture_output=True,
             text=True,
+        )
+    # 白名单检查：只允许已知安全的 verifier 命令前缀
+    if not any(command.startswith(prefix) for prefix in _VERIFIER_ALLOWED_PREFIXES):
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=-1,
+            stdout="",
+            stderr=f"verifier command not in allowlist: {command[:80]}",
         )
     return subprocess.run(
         command,

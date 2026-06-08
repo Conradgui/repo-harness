@@ -20,7 +20,7 @@ from repo_harness import (
     WorkspaceContext,
     build_welcome,
 )
-from conftest import build_agent, build_workspace
+from tests.helpers import build_agent, build_workspace
 
 
 def test_agent_runs_tool_then_final(tmp_path):
@@ -401,16 +401,10 @@ def test_run_shell_workspace_search_is_rejected_by_tool_policy(tmp_path):
 def test_run_shell_pipeline_tail_is_allowed_by_tool_policy(tmp_path):
     agent = build_agent(tmp_path, [], approval_policy="auto")
 
-    with patch("repo_harness.tools.subprocess.run") as fake_run:
-        fake_run.return_value = type(
-            "Result",
-            (),
-            {"returncode": 0, "stdout": "ok\n", "stderr": ""},
-        )()
-        result = agent.run_tool("run_shell", {"command": "printf 'a\\nb\\n' | tail -n 1", "timeout": 20})
+    result = agent.run_tool("run_shell", {"command": "printf 'a\\nb\\n' | tail -n 1", "timeout": 20})
 
     assert "exit_code: 0" in result
-    assert "ok" in result
+    assert "b" in result
 
 
 def test_write_file_existing_path_requires_fresh_read(tmp_path):
@@ -1598,10 +1592,10 @@ def test_run_shell_prefers_posix_shell_when_available(tmp_path):
     def fake_run(command, **kwargs):
         captured["command"] = command
         captured["kwargs"] = kwargs
-        return subprocess.CompletedProcess(command, 0, stdout="ok\n", stderr="")
+        return "exit_code: 0\nstdout:\nok\nstderr:\n(empty)"
 
     with patch("repo_harness.tools._preferred_shell_path", return_value="C:\\Program Files\\Git\\bin\\bash.exe"), patch(
-        "repo_harness.tools.subprocess.run",
+        "repo_harness.tools._run_shell_subprocess",
         fake_run,
     ):
         result = agent.run_tool("run_shell", {"command": "printf 'ok\\n'", "timeout": 20})
@@ -1610,6 +1604,7 @@ def test_run_shell_prefers_posix_shell_when_available(tmp_path):
     assert captured["kwargs"]["cwd"] == agent.root
     assert captured["kwargs"]["timeout"] == 20
     assert captured["kwargs"]["env"]["PWD"] == str(agent.root)
+    assert captured["kwargs"]["shell"] is False
     assert "exit_code: 0" in result
     assert "ok" in result
 
@@ -1621,10 +1616,10 @@ def test_run_shell_falls_back_to_platform_shell_without_posix_shell(tmp_path):
     def fake_run(command, **kwargs):
         captured["command"] = command
         captured["kwargs"] = kwargs
-        return subprocess.CompletedProcess(command, 0, stdout="platform\n", stderr="")
+        return "exit_code: 0\nstdout:\nplatform\nstderr:\n(empty)"
 
     with patch("repo_harness.tools._preferred_shell_path", return_value=""), patch(
-        "repo_harness.tools.subprocess.run",
+        "repo_harness.tools._run_shell_subprocess",
         fake_run,
     ):
         result = agent.run_tool("run_shell", {"command": "echo platform", "timeout": 20})

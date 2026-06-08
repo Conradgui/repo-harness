@@ -9,6 +9,7 @@ import ast
 import configparser
 import hashlib
 import json
+import tempfile
 from datetime import datetime
 import re
 from pathlib import Path
@@ -79,6 +80,7 @@ class DurableMemoryStore:
         self.root = Path(root)
         self.index_path = self.root / "MEMORY.md"
         self.topics_dir = self.root / "topics"
+        self._corruption_warnings: list[str] = []
 
     def topic_slugs(self):
         return [topic["topic"] for topic in self.load_index()]
@@ -86,7 +88,15 @@ class DurableMemoryStore:
     def load_index(self):
         if not self.index_path.exists():
             return []
-        lines = self.index_path.read_text(encoding="utf-8").splitlines()
+        try:
+            raw_text = self.index_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            self._corruption_warnings.append(f"MEMORY.md read error: {exc}")
+            return []
+        if not raw_text.strip():
+            self._corruption_warnings.append("MEMORY.md is empty (possible truncation)")
+            return []
+        lines = raw_text.splitlines()
         topics = []
         current = None
         for raw in lines:
@@ -116,7 +126,15 @@ class DurableMemoryStore:
         path = self.topics_dir / f"{topic}.md"
         if not path.exists():
             return []
-        lines = path.read_text(encoding="utf-8").splitlines()
+        try:
+            raw_text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            self._corruption_warnings.append(f"topic {topic} read error: {exc}")
+            return []
+        lines = raw_text.splitlines()
+        if not lines:
+            self._corruption_warnings.append(f"topic {topic} file is empty (possible truncation)")
+            return []
         notes = []
         capture = False
         updated_at = ""
@@ -184,6 +202,22 @@ class DurableMemoryStore:
         ranked.sort(key=lambda item: item["_sort_key"], reverse=True)
         return [_public_explanation(item) for item in ranked[:limit]]
 
+    @staticmethod
+    def _write_text_atomic(path, content):
+        """原子写入文本：先写临时文件，再 os.replace。"""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            delete=False,
+            dir=str(path.parent),
+            prefix=path.name + ".",
+            suffix=".tmp",
+        ) as handle:
+            handle.write(content)
+            tmp_path = Path(handle.name)
+        tmp_path.replace(path)
+
     def _write_index(self, topics):
         self.root.mkdir(parents=True, exist_ok=True)
         self.topics_dir.mkdir(parents=True, exist_ok=True)
@@ -192,7 +226,7 @@ class DurableMemoryStore:
             lines.append(f"- [{topic['topic']}](topics/{topic['topic']}.md): {topic['title']}")
             lines.append(f"  - summary: {topic['summary']}")
             lines.append(f"  - tags: {', '.join(topic['tags'])}")
-        self.index_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+        self._write_text_atomic(self.index_path, "\n".join(lines).rstrip() + "\n")
 
     def _write_topic(self, topic, notes):
         self.topics_dir.mkdir(parents=True, exist_ok=True)
@@ -209,7 +243,10 @@ class DurableMemoryStore:
         ]
         for note in notes:
             lines.append(f"- {note}")
-        (self.topics_dir / f"{topic}.md").write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+        self._write_text_atomic(
+            self.topics_dir / f"{topic}.md",
+            "\n".join(lines).rstrip() + "\n",
+        )
 
     def promote(self, promotions):
         if not promotions:
@@ -512,6 +549,12 @@ def _note_match_parts(note, query_tokens):
 
 
 def _kind_score(kind):
+    """给不同类型的笔记一个基础分数加成。durable > episodic。"""
+    kind = str(kind or "").strip().lower()
+    if kind == "durable":
+        return 500
+    if kind == "episodic":
+        return 100
     return 0
 
 

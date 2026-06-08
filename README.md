@@ -1,10 +1,24 @@
 # RepoHarness
 
-> **v0.1.0** | Python 3.10+ | MIT License
+> **v0.2.0** | Python 3.10+ | MIT License
 
 RepoHarness 是一个运行在本地仓库里的轻量 coding agent。它通过受约束工具读取文件、修改文件、运行命令，并把会话、运行工件、记忆和审计信息保存在 `.repo-harness/` 下。
 
 RepoHarness 面向需要在本地仓库中可控使用 AI agent 的工程场景：把上下文治理、权限控制、记忆审查、证据留存和 issue 修复流程放进同一套运行边界。Agent 可以执行实际工作，维护者也能持续追踪它读了什么、改了什么、为什么这么做，以及失败时留下了哪些证据。
+
+## v6 版本迭代
+
+v6 聚焦安全加固、稳定性提升、可观测性和多 Agent 编排能力：
+
+| 类别 | 变更 |
+| --- | --- |
+| 安全加固（16 项） | 沙箱默认改为 `best_effort`；`run_shell` 危险命令黑名单；bubblewrap 加 `--unshare-net` 网络隔离；`search` 防 ReDoS（`--fixed-strings` + 长度限制）；evaluator verifier 命令白名单；secret 脱敏增强（regex 后处理 sk-/AKIA/JWT 等）；session 持久化前自动脱敏；PATH 清理；TOCTOU 竞态修复；`.env` 加入 `.gitignore`；恶意 TOML 配置加载警告；路径逃逸改用 `Path.is_relative_to()`；依赖版本上限 |
+| 稳定性提升（27 项） | 所有工具层加 `OSError`/`TimeoutExpired` 错误捕获；`SessionStore`/`RunStore`/`DurableMemoryStore` 原子写入；memory 文件损坏检测；context window 预检自动压缩；重复调用守卫改为滑动窗口；`WorkerManager` TOCTOU 修复 + worker 超时；history item 安全访问；错误信息统一英文；死代码清理 |
+| 可观测性 | 新增 `/metrics` 命令：工具调用统计（成功率/平均耗时）、循环调用检测、热路径分析、失败率突增告警、session token 消耗估算；metrics 快照自动保存到 `.repo-harness/metrics/` |
+| 多 Agent 编排 | `WorkerManager` 新增 `parallel()`（并行执行）、`pipeline()`（串行输出传递）、`dag()`（依赖关系并行）、`post_message()`/`read_messages()`（worker 间消息队列）；auto-issue-fix 重构为 5 stage 流水线 + 失败重试 |
+| Auto Issue Fix 重构 | 流程拆分为 Analyze → Clone+Baseline → Fix（可重试）→ Review → Commit+Push+PR；review gate 阻塞时不重试，仅测试失败时重试；每个 attempt 的日志独立保存 |
+
+详细变更记录见 [changelog-draft.md](docs/maintainer-prep/changelog-draft.md)。
 
 ## v5 版本迭代
 
@@ -51,11 +65,13 @@ v4 是与 v3 同等重要的版本迭代，聚焦代码清理、安全加固、�
 
 | 能力 | 面向的问题 | RepoHarness 的处理方式 |
 | --- | --- | --- |
-| 本地受控 agent runtime | Agent 需要读写仓库和运行命令，但不能失控执行。 | 统一经过 tool executor、permission gate、tool policy 和 sandbox。 |
+| 本地受控 agent runtime | Agent 需要读写仓库和运行命令，但不能失控执行。 | 统一经过 tool executor、permission gate、tool policy 和 sandbox。沙箱默认 `best_effort`，危险命令黑名单自动拦截。 |
 | Provider 配置闭环 | 不同模型厂商 endpoint、协议和 key 管理容易混乱。 | 提供 provider setup / probe / doctor，并只保存环境变量名，不写入 secret。 |
-| Memory governance | 长期记忆如果自动写入，会污染后续推理。 | 所有 durable memory 必须先进入 Review Queue，再由人 accept/edit。 |
+| Memory governance | 长期记忆如果自动写入，会污染后续推理。 | 所有 durable memory 必须先进入 Review Queue，再由人 accept/edit。原子写入 + 损坏检测。 |
 | Explainable retrieval | 记忆命中如果不可解释，很难审计。 | 保留 score breakdown 和 selected explanations，支持 `/memory_explain`。 |
-| Auto Issue Fix | AI 修 issue 需要真实执行能力，也需要证据和门禁。 | 支持 dry-run、review-gated、draft-auto、自动审查门、fallback evidence 和 draft PR。 |
+| Auto Issue Fix | AI 修 issue 需要真实执行能力，也需要证据和门禁。 | 5 stage 流水线（Analyze→Clone→Fix→Review→Commit）+ 失败重试 + 自动审查门 + draft PR。 |
+| 多 Agent 编排 | 复杂任务需要并行执行和依赖管理。 | `parallel()` 并行、`pipeline()` 串行传递、`dag()` 依赖关系并行、worker 间消息队列。 |
+| 可观测性 | Agent 行为不可见，难以调试和优化。 | `/metrics` 命令展示工具统计、循环检测、热路径、失败率告警、token 消耗；快照自动持久化。 |
 | Claude Code Skill 兼容 | 不同 agent 平台的 skill 生态割裂。 | 自动从 `~/.claude/skills/` 发现 SKILL.md，工具名称自动映射。 |
 | Release evidence | 关键路径需要可复现验证。 | 通过 scripted provider、dogfood、focused tests 和 release evidence 验证关键路径。 |
 
@@ -66,6 +82,34 @@ candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
 ```
 
 完整新手流程见 [docs/getting-started.md](docs/getting-started.md)。
+
+## 验证与证据索引
+
+RepoHarness 的证据分两层：仓库内保留可复现的验证入口；真实 API 原始输出、面试流程图和一次性过程材料保留在本地 evidence pack，不默认提交到公开仓库。
+
+| 证据类型 | 仓库内入口 | 用途 |
+| --- | --- | --- |
+| 架构图 / 运行流程 | [架构概览](docs/architecture/agent-harness-v1-overview.md)、[review pack](docs/review-pack/README.md) | 说明 CLI → runtime → model → tools → session events → evidence 的主链路，以及 Auto Issue Fix 的 5 stage 流程。 |
+| 用户主要路径 | [getting started](docs/getting-started.md)、本 README 的 Auto Issue Fix 与 Memory Pack 章节 | 展示 provider onboarding、REPL、memory review、worker、Auto Issue Fix 和 evidence 生成路径。 |
+| 安全与质量测试 | `tests/unit/`、`tests/test_dangerous_commands.py`、`tests/test_safety_invariants.py` | 覆盖路径逃逸、危险命令、secret 脱敏、sandbox、tool policy 和错误传播。 |
+| 真实 provider 集成 | `tests/integration/test_api_integration.py` | DeepSeek / MIMO API key 存在时运行；无 key 时自动 skip，不作为 CI 默认 live 调用。 |
+| Benchmark harness | `tests/benchmark/`、`tests/test_benchmark_evaluator.py` | 对比 Tool Runner 和裸模型 baseline，评分维度包括完整性、可审计性、稳定性、可控性和 UX。 |
+| 本地面试证据包 | `RepoHarness-evidence-pack-<date>/02_codex_rerun_complete_evidence/` | 保存手册重跑的 phase manifests、流程图源文件、真实 API 报告、Benchmark 原始 JSON/Markdown 和面试材料；分享前需要脱敏复核。 |
+
+Benchmark 需要显式提供本地 fixture 和 provider key，不会默认触发真实 API：
+
+```powershell
+$env:REPO_HARNESS_BENCHMARK_REPO="C:\path\to\rich"
+$env:DEEPSEEK_API_KEY="<your-key>"
+uv run python tests/benchmark/run_benchmark.py --provider deepseek --output-dir <evidence_dir>
+```
+
+维护者提交 PR 前推荐运行：
+
+```bash
+uv run pytest tests/test_benchmark_evaluator.py tests/test_dangerous_commands.py tests/test_worker_orchestration.py tests/unit tests/integration -q
+uv run pytest -q
+```
 
 ## 安装
 
@@ -253,12 +297,16 @@ RepoHarness 的工具执行统一经过 core executor、permission gate、tool p
 
 - `approval_policy="ask"` 对同一 risky tool 只触发一次审批。
 - shell 普通搜索/读取会被拦截，鼓励使用结构化 `read_file` / `search`。
-- 修改既有文件前需要 fresh read；重复工具调用会进入 guard。
+- `run_shell` 内置危险命令黑名单（`rm -rf /`、`curl | sh`、`shutdown`、`kill -9 -1` 等），自动拦截。
+- `search` 默认使用 `--fixed-strings` 字面匹配，防止 ReDoS 攻击；pattern 长度限制 200 字符。
+- 修改既有文件前需要 fresh read；重复工具调用改为滑动窗口检测（最近 5 条中出现 3 次相同调用）。
 - 多 tool-call 按模型输出顺序执行，partial failure 会进入 trace。
 - `excluded_commands` 使用前导空格规范化和 shell 元字符检测（`$(`、`` ` ``、`\`、`${`）防止绕过 sandbox。
+- bubblewrap 沙箱默认启用 `--unshare-net` 网络隔离。
 - Token 估算支持 CJK 文本感知（中文字符约 1.5 token/字，ASCII 约 0.25 token/字符）。
+- Context window 预检：prompt 超限时自动压缩 history 并重建 prompt。
 
-Sandbox 支持：
+Sandbox 默认为 `best_effort`（有 bubblewrap 就用，没有则回退并记录警告）：
 
 ```text
 off | best_effort | read_only | required
@@ -285,6 +333,7 @@ REPL 基于 `rich` 库提供增强的终端交互体验：
 - `/help`：查看命令。
 - `/plan <topic>`、`/plan-exit`、`/mode`：进入/退出 plan mode。
 - `/usage`、`/model [name]`、`/history`、`/context`、`/compact`、`/working-memory`：查看运行状态。
+- `/metrics`：查看工具调用统计（成功率、平均耗时、循环检测、热路径、token 消耗），快照自动保存到 `.repo-harness/metrics/`。
 - `/skills`、`/skill <name> [args]`：发现并调用 skills。
 - `/auto-issue-fix [args]`：进入 Auto Issue Fix；在普通 REPL 中不带参数会启动引导式输入，显式加 `--dry-run` 才只生成预演证据。
 - `/agents`、`/subagent explore <task>`、`/subagent worker --scope <path> <task>`：启动受限 worker。
@@ -330,7 +379,7 @@ Your prompt here using $ARGUMENTS.
 
 `allowed_tools` 会同时影响 prompt 中展示的工具列表和实际 permission gate。skill 可提供 prompt、参数替换、fork/model override 和事件记录，但不能绕过 Review Queue 写 durable memory。
 
-## Workers
+## Workers 和编排
 
 Worker 是 session-scoped 子任务：
 
@@ -338,6 +387,14 @@ Worker 是 session-scoped 子任务：
 - Write worker 必须指定 `write_scope`。
 - 支持后台生命周期、continue、stop、shutdown、running send guard、notifications 和 worker artifacts。
 - Worker 继承 provider config、tool policy、sandbox 和 memory governance。
+- Worker 默认最大 30 步，防止僵尸线程。
+
+编排原语（通过 `WorkerManager` API 调用）：
+
+- `parallel(tasks)`：并行执行多个 worker，等待全部完成，返回结构化结果。
+- `pipeline(stages)`：串行执行，前一个输出通过 `{input}` 传给下一个；stage 失败时后续标记为 skipped。
+- `dag(tasks)`：支持依赖关系的并行执行（拓扑排序 + 批次并行 + 失败阻断下游）。
+- `post_message(channel, msg)` / `read_messages(channel)`：worker 间消息队列。
 
 示例：
 
@@ -352,6 +409,8 @@ Worker 是 session-scoped 子任务：
 Auto Issue Fix 将 GitHub issue、隔离工作区、RepoHarness 修复 turn、测试验证、自动审查门、证据包和 draft PR 串成一条可复盘的维护链路。它强调的不是"自动制造 PR"，而是在真实仓库中保留授权、审查、阻断和交接边界。
 
 `repo-harness auto-issue-fix` 是本版本的重要能力更新。默认不传 `--dry-run` 时进入真实执行：读取 GitHub issue、隔离 clone、创建分支、调用 RepoHarness 修复、运行测试、执行自动审查门、commit、push，并创建 draft PR。传入 `--dry-run` 时只生成预演证据，不执行 GitHub 副作用。
+
+v6 重构为 5 stage 流水线：Analyze（issue 发现）→ Clone+Baseline（克隆 + 基线测试）→ Fix（agent 修复，可重试）→ Review（测试 + diff + 审查门）→ Commit+Push+PR。review gate 阻塞时不重试，仅测试失败时自动重试（默认最多 2 次）。每个 attempt 的日志和 patch 独立保存。
 
 ```bash
 repo-harness auto-issue-fix --repo owner/name --issue 123 --mode draft-auto --test-command "python -m pytest -q" --confirm-maintainer-access
@@ -416,6 +475,8 @@ uv run pytest tests -q --basetemp C:\tmp\rh-test
 uv run ruff check .
 git diff --check
 ```
+
+当前测试规模：398 passed，覆盖安全、工具、引擎、记忆、编排、auto-issue-fix、provider、skills、workers 等全部模块。
 
 ## Memory Pack 和可解释记忆
 
