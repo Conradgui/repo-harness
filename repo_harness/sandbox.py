@@ -1,10 +1,10 @@
 """Run_shell sandbox controls for RepoHarness."""
 
-from dataclasses import dataclass
 import fnmatch
 import shutil
 import subprocess
 import textwrap
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -126,6 +126,7 @@ class SandboxRunner:
             errors="replace",
             timeout=timeout,
             env=agent.shell_env(),
+            check=False,
         )
         return format_completed_process(result)
 

@@ -8,19 +8,27 @@ that RepoHarness should read at runtime.
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
 import json
 import os
 import re
 import sys
-from pathlib import Path
 import urllib.parse
+from dataclasses import dataclass
+from pathlib import Path
 
 from .config import CONFIG_FILE_NAME, DEFAULT_PROVIDER_PROFILES, resolve_runtime_config
-from .models import AnthropicCompatibleModelClient, ChatCompletionsCompatibleModelClient, OllamaModelClient, OpenAICompatibleModelClient
-from .provider_registry import PROVIDER_REGISTRY, provider_choices, provider_endpoint_hints
+from .models import (
+    AnthropicCompatibleModelClient,
+    ChatCompletionsCompatibleModelClient,
+    OllamaModelClient,
+    OpenAICompatibleModelClient,
+)
+from .provider_registry import (
+    PROVIDER_REGISTRY,
+    provider_choices,
+    provider_endpoint_hints,
+)
 from .workspace import WorkspaceContext
-
 
 PROVIDER_ENDPOINT_HINTS = provider_endpoint_hints()
 ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")

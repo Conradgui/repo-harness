@@ -14,6 +14,7 @@ data and renders it.
 
 from __future__ import annotations
 
+import contextlib
 import json
 from pathlib import Path
 
@@ -84,10 +85,10 @@ class ReplDisplay:
         """Stop thinking spinner if running."""
         status = getattr(self, "_status", None)
         if status is not None:
-            try:
+            # A spinner that refuses to stop is cosmetic; clearing the handle
+            # matters more than the failure.
+            with contextlib.suppress(Exception):
                 status.stop()
-            except Exception:
-                pass
             self._status = None
 
     # ── Tool Call / Result ───────────────────────────────────────────

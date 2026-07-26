@@ -1,37 +1,43 @@
-﻿"""Agent 运行时核心逻辑。
+"""Agent 运行时核心逻辑。
 
 RepoHarness 就是包在模型外面的控制循环：负责组 prompt、解析模型输出、
 校验并执行工具、写 trace、更新工作记忆，以及在合适的时候停下来。
 """
 
+import hashlib
 import json
 import os
 import re
 import textwrap
 import uuid
-import hashlib
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 
 from . import memory as memorylib
+from . import runtime_evidence
+from . import skills as skillslib
+from . import tools as toolkit
 from .context_manager import ContextManager
+from .core import tool_executor as core_tool_executor
 from .core.engine import Engine
 from .core.session_events import SessionEventBus
-from .core import tool_executor as core_tool_executor
 from .core.tool_profiles import build_tool_profiles
+from .features import skills_runtime
 from .permissions import PermissionChecker
 from .plan_mode import PlanModeManager
-from . import runtime_evidence
 from .run_store import RunStore
 from .sandbox import SandboxConfig, SandboxRunner
-from . import skills as skillslib
-from .features import skills_runtime
 from .todo_ledger import TodoLedger
-from . import tools as toolkit
 from .tool_policy import ToolPolicy
 from .worker_manager import WorkerManager
-from .workspace import IGNORED_PATH_NAMES, MAX_HISTORY, WorkspaceContext, clip, now
+from .workspace import (
+    IGNORED_PATH_NAMES,
+    MAX_HISTORY,
+    WorkspaceContext,
+    clip,
+    id_timestamp,
+    now,
+)
 
 SENSITIVE_ENV_NAME_MARKERS = ("API_KEY", "TOKEN", "SECRET", "PASSWORD")
 REDACTED_VALUE = "<redacted>"
@@ -119,7 +125,7 @@ class RepoHarness:
         self.sandbox_config = sandbox_config or SandboxConfig()
         self.sandbox_runner = SandboxRunner(self.sandbox_config)
         self.session = session or {
-            "id": datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6],
+            "id": id_timestamp() + "-" + uuid.uuid4().hex[:6],
             "created_at": now(),
             "workspace_root": workspace.repo_root,
             "history": [],
@@ -150,7 +156,7 @@ class RepoHarness:
         self.prefix_state = self.build_prefix()
         self.prefix = self.prefix_state.text
         # 根据模型和 provider 动态计算 context budget
-        from .context_manager import detect_context_window, compute_budgets
+        from .context_manager import compute_budgets, detect_context_window
         _provider_name = self._infer_provider_name(model_client)
         _ctx_window = detect_context_window(
             str(getattr(model_client, "model", "")),
@@ -764,7 +770,10 @@ class RepoHarness:
     @staticmethod
     def looks_sensitive_env_name(name):
         upper = str(name).upper()
-        return any(upper == marker or upper.endswith(marker) or upper.endswith(f"_{marker}") for marker in SENSITIVE_ENV_NAME_MARKERS)
+        return any(
+            upper == marker or upper.endswith((marker, f"_{marker}"))
+            for marker in SENSITIVE_ENV_NAME_MARKERS
+        )
 
     def is_secret_env_name(self, name):
         upper = str(name).upper()
@@ -1292,11 +1301,11 @@ class RepoHarness:
 
     @staticmethod
     def new_task_id():
-        return "task_" + datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
+        return "task_" + id_timestamp() + "-" + uuid.uuid4().hex[:6]
 
     @staticmethod
     def new_run_id():
-        return "run_" + datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
+        return "run_" + id_timestamp() + "-" + uuid.uuid4().hex[:6]
 
     def build_report(self, task_state):
         # report 是一次运行的最终摘要；
@@ -1336,9 +1345,8 @@ class RepoHarness:
     def validate_tool(self, name, args):
         """把通用工具校验和 runtime 级额外约束串起来。"""
         toolkit.validate_tool(self, name, args)
-        if name == "delegate":
-            if self.depth >= self.max_depth:
-                raise ValueError("delegate depth exceeded")
+        if name == "delegate" and self.depth >= self.max_depth:
+            raise ValueError("delegate depth exceeded")
 
     def tool_list_files(self, args):
         return toolkit.tool_list_files(self, args)

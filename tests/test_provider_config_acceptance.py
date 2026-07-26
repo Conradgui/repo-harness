@@ -1,23 +1,24 @@
 import json
 import os
-import pytest
 import subprocess
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import pytest
+
 from repo_harness import WorkspaceContext
 from repo_harness.config import resolve_runtime_config
+from repo_harness.provider_registry import PROVIDER_REGISTRY, provider_names
 from repo_harness.provider_setup import (
+    ProviderDoctorResult,
     build_provider_setup_toml,
     classify_provider_error,
     detect_provider_from_base_url,
     probe_provider_endpoint,
     provider_doctor,
-    ProviderDoctorResult,
     write_provider_config,
 )
-from repo_harness.provider_registry import PROVIDER_REGISTRY, provider_names
 
 
 def _args(tmp_path, **overrides):

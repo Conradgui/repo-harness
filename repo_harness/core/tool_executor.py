@@ -201,30 +201,31 @@ def _permission_error(agent, tool, decision):
     return f"error: {decision.reason}"
 
 
+_ID_ALIASES = (("task_id", "id"), ("to", "id"))
+
+# Models reach for argument names they have seen on neighbouring products, so a
+# handful of spellings arrive for the same field. Each entry maps an accepted
+# alias to the argument the tool actually declares. Order matters: the first
+# alias present wins, and a value the model spelled correctly is never replaced.
+_ARG_ALIASES = {
+    "agent": (
+        ("description", "task"),
+        ("prompt", "task"),
+        ("subagent_type", "type"),
+        ("write_scope", "scope"),
+    ),
+    "todo_add": (("content", "text"),),
+    "todo_update": (("todo_id", "id"), ("content", "text")),
+    "send_message": _ID_ALIASES,
+    "task_stop": _ID_ALIASES,
+}
+
+
 def _normalize_tool_args(name, args):
     args = dict(args or {})
-    if name == "agent":
-        if "description" in args and "task" not in args:
-            args["task"] = args["description"]
-        if "prompt" in args and "task" not in args:
-            args["task"] = args["prompt"]
-        if "subagent_type" in args and "type" not in args:
-            args["type"] = args["subagent_type"]
-        if "write_scope" in args and "scope" not in args:
-            args["scope"] = args["write_scope"]
-    if name == "todo_add":
-        if "content" in args and "text" not in args:
-            args["text"] = args["content"]
-    if name == "todo_update":
-        if "todo_id" in args and "id" not in args:
-            args["id"] = args["todo_id"]
-        if "content" in args and "text" not in args:
-            args["text"] = args["content"]
-    if name in {"send_message", "task_stop"}:
-        if "task_id" in args and "id" not in args:
-            args["id"] = args["task_id"]
-        if "to" in args and "id" not in args:
-            args["id"] = args["to"]
+    for alias, canonical in _ARG_ALIASES.get(name, ()):
+        if alias in args and canonical not in args:
+            args[canonical] = args[alias]
     return args
 
 

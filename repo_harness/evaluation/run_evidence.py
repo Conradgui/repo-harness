@@ -1,14 +1,14 @@
 """Structured run evidence for RepoHarness scenario gates."""
 
-from dataclasses import asdict, dataclass
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import threading
+from dataclasses import asdict, dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 from ..models import FakeModelClient
 from ..runtime import RepoHarness

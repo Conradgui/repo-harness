@@ -13,9 +13,9 @@ IGNORED_DIFF_SUFFIXES = (".pyc",)
 
 
 def infer_test_commands(repo_root: Path) -> tuple[str, ...]:
-    if (repo_root / "pyproject.toml").exists() or (repo_root / "pytest.ini").exists():
-        if (repo_root / "tests").exists():
-            return ("python -m pytest -q",)
+    has_python_config = (repo_root / "pyproject.toml").exists() or (repo_root / "pytest.ini").exists()
+    if has_python_config and (repo_root / "tests").exists():
+        return ("python -m pytest -q",)
     if (repo_root / "package.json").exists():
         return ("npm test",)
     if (repo_root / "go.mod").exists():

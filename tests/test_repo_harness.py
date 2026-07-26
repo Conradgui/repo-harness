@@ -1,5 +1,5 @@
-﻿import os
-import json
+﻿import json
+import os
 import subprocess
 import sys
 import urllib.error
@@ -7,20 +7,21 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
+from conftest import build_agent, build_workspace
+
 import repo_harness as harness_pkg
-from repo_harness import cli as mini_cli
 from repo_harness import (
     AnthropicCompatibleModelClient,
     ChatCompletionsCompatibleModelClient,
     FakeModelClient,
-    RepoHarness,
     OllamaModelClient,
     OpenAICompatibleModelClient,
+    RepoHarness,
     SessionStore,
     WorkspaceContext,
     build_welcome,
 )
-from conftest import build_agent, build_workspace
+from repo_harness import cli as mini_cli
 
 
 def test_agent_runs_tool_then_final(tmp_path):
@@ -811,10 +812,10 @@ def test_openai_compatible_client_extracts_text_from_event_stream():
 
         def read(self):
             return (
-                'data: {"type":"response.created","response":{"id":"resp_1","output":[]}}\n'
-                'data: {"type":"response.completed","response":{"output":[{"content":[{"text":"<final>stream ok</final>"}]}]}}\n'
-                "data: [DONE]\n"
-            ).encode("utf-8")
+                b'data: {"type":"response.created","response":{"id":"resp_1","output":[]}}\n'
+                b'data: {"type":"response.completed","response":{"output":[{"content":[{"text":"<final>stream ok</final>"}]}]}}\n'
+                b"data: [DONE]\n"
+            )
 
     client = OpenAICompatibleModelClient(
         model="right.codes/codex-mini",
@@ -842,14 +843,14 @@ def test_openai_compatible_client_extracts_text_from_event_stream_deltas():
 
         def read(self):
             return (
-                'event: response.output_text.delta\n'
-                'data: {"type":"response.output_text.delta","delta":"<final>"}\n'
-                'event: response.output_text.delta\n'
-                'data: {"type":"response.output_text.delta","delta":"OK"}\n'
-                'event: response.output_text.done\n'
-                'data: {"type":"response.output_text.done","text":"<final>OK</final>"}\n'
-                "data: [DONE]\n"
-            ).encode("utf-8")
+                b'event: response.output_text.delta\n'
+                b'data: {"type":"response.output_text.delta","delta":"<final>"}\n'
+                b'event: response.output_text.delta\n'
+                b'data: {"type":"response.output_text.delta","delta":"OK"}\n'
+                b'event: response.output_text.done\n'
+                b'data: {"type":"response.output_text.done","text":"<final>OK</final>"}\n'
+                b"data: [DONE]\n"
+            )
 
     client = OpenAICompatibleModelClient(
         model="right.codes/codex-mini",
@@ -995,13 +996,12 @@ def test_build_agent_uses_openai_provider_and_model_override(tmp_path):
             "OPENAI_MODEL": "env-model",
         },
         clear=False,
-    ):
-        with patch(
-            "repo_harness.cli.OllamaModelClient",
-            side_effect=AssertionError("ollama client should not be used"),
-        ), patch("repo_harness.cli.OpenAICompatibleModelClient") as mock_openai:
-            fake_client = mock_openai.return_value
-            agent = harness_pkg.build_agent(args)
+    ), patch(
+        "repo_harness.cli.OllamaModelClient",
+        side_effect=AssertionError("ollama client should not be used"),
+    ), patch("repo_harness.cli.OpenAICompatibleModelClient") as mock_openai:
+        fake_client = mock_openai.return_value
+        agent = harness_pkg.build_agent(args)
 
     mock_openai.assert_called_once()
     assert mock_openai.call_args.kwargs["model"] == "override-model"
@@ -1194,16 +1194,15 @@ def test_build_agent_uses_anthropic_provider_and_openai_key_fallback(tmp_path):
             "OPENAI_API_KEY": "sk-openai-fallback",
         },
         clear=True,
-    ):
-        with patch(
-            "repo_harness.cli.OllamaModelClient",
-            side_effect=AssertionError("ollama client should not be used"),
-        ), patch(
-            "repo_harness.cli.OpenAICompatibleModelClient",
-            side_effect=AssertionError("openai client should not be used"),
-        ), patch("repo_harness.cli.AnthropicCompatibleModelClient") as mock_anthropic:
-            fake_client = mock_anthropic.return_value
-            agent = harness_pkg.build_agent(args)
+    ), patch(
+        "repo_harness.cli.OllamaModelClient",
+        side_effect=AssertionError("ollama client should not be used"),
+    ), patch(
+        "repo_harness.cli.OpenAICompatibleModelClient",
+        side_effect=AssertionError("openai client should not be used"),
+    ), patch("repo_harness.cli.AnthropicCompatibleModelClient") as mock_anthropic:
+        fake_client = mock_anthropic.return_value
+        agent = harness_pkg.build_agent(args)
 
     mock_anthropic.assert_called_once()
     assert mock_anthropic.call_args.kwargs["model"] == "claude-sonnet-4-5-20250929"
@@ -1237,13 +1236,12 @@ def test_build_agent_uses_openai_provider_by_default(tmp_path):
             "OPENAI_API_KEY": "sk-test",
         },
         clear=False,
-    ):
-        with patch(
-            "repo_harness.cli.OllamaModelClient",
-            side_effect=AssertionError("ollama client should not be used"),
-        ), patch("repo_harness.cli.OpenAICompatibleModelClient") as mock_openai:
-            fake_client = mock_openai.return_value
-            agent = harness_pkg.build_agent(args)
+    ), patch(
+        "repo_harness.cli.OllamaModelClient",
+        side_effect=AssertionError("ollama client should not be used"),
+    ), patch("repo_harness.cli.OpenAICompatibleModelClient") as mock_openai:
+        fake_client = mock_openai.return_value
+        agent = harness_pkg.build_agent(args)
 
     mock_openai.assert_called_once()
     assert mock_openai.call_args.kwargs["model"] == "gpt-5.4"
@@ -2802,6 +2800,7 @@ def test_module_execution_help_works():
         text=True,
         encoding="utf-8",
         errors="replace",
+        check=False,
     )
 
     assert result.returncode == 0
@@ -2816,6 +2815,7 @@ def test_removed_legacy_module_execution_is_not_supported():
         text=True,
         encoding="utf-8",
         errors="replace",
+        check=False,
     )
 
     assert result.returncode != 0

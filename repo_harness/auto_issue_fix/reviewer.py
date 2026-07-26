@@ -4,10 +4,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .config import AUTO_REVIEW_STAGES, AutoIssueFixConfig, AutoIssueFixIssue, AutoIssueFixReviewGate
+from .config import (
+    AUTO_REVIEW_STAGES,
+    AutoIssueFixConfig,
+    AutoIssueFixIssue,
+    AutoIssueFixReviewGate,
+)
 from .evidence import write_evidence_file, write_json_evidence
 from .github_backend import GhCliBackend
 from .security import normalize_repo
+
 
 def build_rule_review_gates(
     config: AutoIssueFixConfig,

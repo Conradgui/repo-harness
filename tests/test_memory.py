@@ -446,7 +446,12 @@ def test_durable_promotion_subject_key_ignores_joined_retrieval_tokens(tmp_path)
 
 
 def test_memory_organize_queues_candidates_without_writing_topics(tmp_path):
-    from repo_harness import FakeModelClient, RepoHarness, SessionStore, WorkspaceContext
+    from repo_harness import (
+        FakeModelClient,
+        RepoHarness,
+        SessionStore,
+        WorkspaceContext,
+    )
 
     (tmp_path / "README.md").write_text("demo\n", encoding="utf-8")
     agent = RepoHarness(

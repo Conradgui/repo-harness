@@ -1,7 +1,7 @@
 """Runtime configuration loading for RepoHarness."""
 
-from dataclasses import dataclass, field
 import os
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .provider_registry import (
@@ -167,7 +167,7 @@ def _arg_was_explicit(args, name):
 
 def _provider_from_sources(args, data, env):
     if _arg_was_explicit(args, "provider"):
-        provider = str(getattr(args, "provider")).strip()
+        provider = str(args.provider).strip()
     elif env.get("REPO_HARNESS_PROVIDER"):
         provider = env["REPO_HARNESS_PROVIDER"].strip()
     elif data.get("provider"):
@@ -198,7 +198,7 @@ def _resolve_profile(args, data, provider, env):
     if env.get("REPO_HARNESS_MODEL"):
         profile["model"] = env["REPO_HARNESS_MODEL"]
     if _arg_was_explicit(args, "model") and getattr(args, "model", None):
-        profile["model"] = getattr(args, "model")
+        profile["model"] = args.model
 
     provider_base_env = PROVIDER_BASE_URL_ENV.get(provider, "")
     if provider_base_env and env.get(provider_base_env):
@@ -206,7 +206,7 @@ def _resolve_profile(args, data, provider, env):
     if env.get("REPO_HARNESS_BASE_URL"):
         profile["base_url"] = env["REPO_HARNESS_BASE_URL"]
     if _arg_was_explicit(args, "base_url") and getattr(args, "base_url", None):
-        profile["base_url"] = getattr(args, "base_url")
+        profile["base_url"] = args.base_url
 
     return ProviderProfile(
         name=provider,
@@ -219,7 +219,7 @@ def _resolve_profile(args, data, provider, env):
 
 def _resolve_max_steps(args, data, env):
     if _arg_was_explicit(args, "max_steps") and getattr(args, "max_steps", None) is not None:
-        return int(getattr(args, "max_steps"))
+        return int(args.max_steps)
     if env.get("REPO_HARNESS_MAX_STEPS"):
         return int(env["REPO_HARNESS_MAX_STEPS"])
     if data.get("max_steps") is not None:
@@ -229,7 +229,7 @@ def _resolve_max_steps(args, data, env):
 
 def _resolve_max_new_tokens(args, data, provider, env):
     if _arg_was_explicit(args, "max_new_tokens") and getattr(args, "max_new_tokens", None) is not None:
-        return int(getattr(args, "max_new_tokens"))
+        return int(args.max_new_tokens)
     if env.get("REPO_HARNESS_MAX_NEW_TOKENS"):
         return int(env["REPO_HARNESS_MAX_NEW_TOKENS"])
     if data.get("max_new_tokens") is not None:
@@ -253,9 +253,9 @@ def _resolve_sandbox(args, data, env):
     if env.get("REPO_HARNESS_SANDBOX_BACKEND"):
         backend = env["REPO_HARNESS_SANDBOX_BACKEND"]
     if getattr(args, "sandbox", None):
-        mode = getattr(args, "sandbox")
+        mode = args.sandbox
     if getattr(args, "sandbox_backend", None):
-        backend = getattr(args, "sandbox_backend")
+        backend = args.sandbox_backend
     return SandboxConfig(
         mode=str(mode).strip(),
         backend=str(backend).strip(),

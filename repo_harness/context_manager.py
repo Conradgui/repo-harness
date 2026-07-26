@@ -11,7 +11,6 @@ from dataclasses import dataclass
 
 from . import skills as skillslib
 
-
 DEFAULT_TOTAL_BUDGET = 12000
 DEFAULT_SECTION_BUDGETS = {
     "prefix": 3600,
@@ -403,7 +402,7 @@ class ContextManager:
                 break
             per_note_budget -= 1
 
-        if len(rendered) > budget and budget > 0:
+        if len(rendered) > budget > 0:
             rendered = _tail_clip(raw, budget)
             rendered_notes = [rendered]
 
@@ -476,7 +475,7 @@ class ContextManager:
                     rendered_entries = smaller_entries
         rendered = "\n".join(["Transcript:", *rendered_entries])
 
-        if len(rendered) > budget and budget > 0:
+        if len(rendered) > budget > 0:
             rendered = _tail_clip(raw, budget)
 
         return SectionRender(

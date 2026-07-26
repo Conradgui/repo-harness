@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import sys
 from argparse import Namespace
 from pathlib import Path
-import sys
 
 from repo_harness.config import resolve_runtime_config
 
-from .config import AutoIssueFixConfig, AutoIssueFixIssue, AutoIssueFixReviewGate, AutoIssueFixRunRecord, LiveRunContext
+from .config import (
+    AutoIssueFixConfig,
+    AutoIssueFixIssue,
+    AutoIssueFixReviewGate,
+    AutoIssueFixRunRecord,
+    LiveRunContext,
+)
 from .evidence import (
     build_preview_review_gates,
     default_evidence_dir,
@@ -23,7 +29,13 @@ from .evidence import (
 from .github_backend import GhCliBackend
 from .reviewer import build_rule_review_gates, discover_issue
 from .security import maintainer_trust_block_reason, require_ok, run_command
-from .workspace import changed_paths, git_diff, infer_test_commands, run_test_commands, scan_diff_gate
+from .workspace import (
+    changed_paths,
+    git_diff,
+    infer_test_commands,
+    run_test_commands,
+    scan_diff_gate,
+)
 
 
 def _build_auto_issue_fix_model_client(config: AutoIssueFixConfig, workspace_root: Path | None = None):

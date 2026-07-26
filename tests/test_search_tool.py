@@ -12,8 +12,8 @@ handed to ripgrep. A test that skips on the developer's machine is not a test.
 import subprocess
 
 import pytest
-
 from conftest import build_agent
+
 from repo_harness import tools
 from repo_harness.tools import tool_search
 

@@ -1,5 +1,5 @@
-import json
 import importlib
+import json
 import os
 import shutil
 import subprocess
@@ -16,12 +16,12 @@ from repo_harness.auto_issue_fix import (
     classify_github_error,
     handle_auto_issue_fix_repl_command,
     maintainer_trust_block_reason,
+    redact_text,
     render_evidence_templates,
     review_gates_block_reason,
     run_auto_issue_fix,
-    redact_text,
-    write_evidence,
     run_test_commands,
+    write_evidence,
 )
 from repo_harness.auto_issue_fix.runner import _build_auto_issue_fix_model_client
 from repo_harness.auto_issue_fix.workspace import changed_paths, git_diff

@@ -7,11 +7,10 @@ runtime 只关心一件事：给我一个 prompt，我拿回一段文本。
 
 import json
 import time
-from http.client import RemoteDisconnected
 import urllib.error
 import urllib.parse
 import urllib.request
-
+from http.client import RemoteDisconnected
 
 RETRYABLE_HTTP_CODES = {408, 409, 425, 429, 500, 502, 503, 504}
 

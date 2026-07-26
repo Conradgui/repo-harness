@@ -97,11 +97,11 @@ def _model_override(agent, model):
         return
     sentinel = object()
     previous = getattr(agent.model_client, "model", sentinel)
-    setattr(agent.model_client, "model", model)
+    agent.model_client.model = model
     try:
         yield
     finally:
         if previous is sentinel:
             delattr(agent.model_client, "model")
         else:
-            setattr(agent.model_client, "model", previous)
+            agent.model_client.model = previous

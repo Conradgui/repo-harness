@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
 SKILL_FILE_CREATION_GUIDE = """When creating RepoHarness skill files at .repo-harness/skills/<name>/SKILL.md or skills/<name>/SKILL.md, use frontmatter:
@@ -125,7 +125,7 @@ def load_skill_file(path, source):
     name = str(metadata.get("name") or default_name).strip().lstrip("/")
     if not name:
         return None
-    default_disable = False if "context" in metadata else True
+    default_disable = "context" not in metadata
     return Skill(
         name=name,
         description=_string(metadata.get("description")),

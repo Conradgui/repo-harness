@@ -1,5 +1,9 @@
 ﻿from repo_harness import FakeModelClient, RepoHarness, SessionStore, WorkspaceContext
-from repo_harness.context_manager import ContextManager, detect_context_window, compute_budgets
+from repo_harness.context_manager import (
+    ContextManager,
+    compute_budgets,
+    detect_context_window,
+)
 
 
 def build_workspace(tmp_path):

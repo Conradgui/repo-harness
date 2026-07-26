@@ -4,7 +4,6 @@ import json
 import re
 from pathlib import Path
 
-
 ROUTE_PATTERN = re.compile(r"(?<![A-Za-z0-9_])/(?:api/)?[A-Za-z0-9_./{}:-]+")
 
 
