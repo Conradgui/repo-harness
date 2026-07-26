@@ -30,6 +30,8 @@ def run_shell_command(command: str, cwd: Path, timeout: int = 600) -> CommandRes
         command,
         cwd=str(cwd),
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         shell=True,
         timeout=timeout,

@@ -61,8 +61,8 @@ class FakeGhBackend:
 
     def ensure_fork_remote(self, cwd):
         fork = self.tmp_path / "fork.git"
-        subprocess.run(["git", "init", "--bare", str(fork)], check=True, capture_output=True, text=True)
-        subprocess.run(["git", "remote", "add", "fork", str(fork)], cwd=cwd, check=True, capture_output=True, text=True)
+        subprocess.run(["git", "init", "--bare", str(fork)], check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        subprocess.run(["git", "remote", "add", "fork", str(fork)], cwd=cwd, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
 
     def current_user(self):
         return "example-user"
@@ -89,11 +89,11 @@ def make_fixture_repo(tmp_path):
         "import sys\nfrom bug import value\nsys.exit(0 if value() == 22 else 1)\n",
         encoding="utf-8",
     )
-    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
     subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
     subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, check=True)
-    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True, text=True)
-    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
     return repo
 
 
@@ -321,7 +321,7 @@ def test_auto_issue_fix_cli_dry_run_writes_standard_evidence_files(tmp_path):
         "--dry-run",
     ]
 
-    completed = subprocess.run(command, cwd=os.getcwd(), env=env, text=True, capture_output=True, timeout=30, check=False)
+    completed = subprocess.run(command, cwd=os.getcwd(), env=env, text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=30, check=False)
 
     assert completed.returncode == 0, completed.stderr
     assert "Auto Issue Fix safe preview complete" in completed.stdout
@@ -894,7 +894,7 @@ def test_auto_issue_fix_live_blocks_without_maintainer_access_confirmation(tmp_p
 def test_auto_issue_fix_live_model_client_uses_workspace_provider_config(tmp_path, monkeypatch):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    subprocess.run(["git", "init"], cwd=workspace, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "init"], cwd=workspace, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
     (workspace / ".repo-harness.toml").write_text(
         "\n".join(
             [
@@ -921,7 +921,7 @@ def test_auto_issue_fix_live_model_client_uses_workspace_provider_config(tmp_pat
 def test_auto_issue_fix_live_model_client_uses_deepseek_registry_defaults(tmp_path, monkeypatch):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    subprocess.run(["git", "init"], cwd=workspace, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "init"], cwd=workspace, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
     (workspace / ".repo-harness.toml").write_text('provider = "deepseek"\n', encoding="utf-8")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-secret")
 
@@ -935,9 +935,9 @@ def test_auto_issue_fix_live_model_client_uses_deepseek_registry_defaults(tmp_pa
 def test_auto_issue_fix_diff_helpers_include_staged_changes(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
-    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
     (repo / "staged.txt").write_text("staged\n", encoding="utf-8")
-    subprocess.run(["git", "add", "staged.txt"], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "add", "staged.txt"], cwd=repo, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
 
     assert changed_paths(repo) == ("staged.txt",)
     diff = git_diff(repo)
@@ -948,12 +948,12 @@ def test_auto_issue_fix_diff_helpers_include_staged_changes(tmp_path):
 def test_auto_issue_fix_diff_helpers_include_untracked_changes(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
-    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
     subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
     subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, check=True)
     (repo / "README.md").write_text("# Repo\n", encoding="utf-8")
-    subprocess.run(["git", "add", "README.md"], cwd=repo, check=True, capture_output=True, text=True)
-    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "add", "README.md"], cwd=repo, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
     (repo / "new_file.py").write_text("VALUE = 1\n", encoding="utf-8")
 
     assert changed_paths(repo) == ("new_file.py",)

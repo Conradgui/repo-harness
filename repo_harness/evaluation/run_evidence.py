@@ -85,6 +85,8 @@ class RunEvidence:
             command,
             input="/help\n/exit\n",
             text=True,
+            encoding="utf-8",
+            errors="replace",
             cwd=str(self.repo_root),
             env=env,
             capture_output=True,
@@ -140,6 +142,8 @@ class RunEvidence:
             completed = subprocess.run(
                 command,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 cwd=str(self.repo_root),
                 env=self._subprocess_env(),
                 capture_output=True,

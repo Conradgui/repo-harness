@@ -77,6 +77,8 @@ def run_command(args, cwd: Path | str | None = None, timeout: int = 300) -> Comm
         [str(item) for item in args],
         cwd=str(cwd) if cwd else None,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         timeout=timeout,
         check=False,

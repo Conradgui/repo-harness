@@ -42,7 +42,7 @@ def _args(tmp_path, **overrides):
 
 
 def _init_workspace_repo(tmp_path):
-    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
     return tmp_path
 
 
@@ -186,7 +186,7 @@ def test_public_cli_uses_mock_openai_provider_without_live_key(tmp_path):
             "auto",
             "run mock provider task",
         ]
-        completed = subprocess.run(command, cwd=os.getcwd(), env=env, text=True, capture_output=True, timeout=60, check=False)
+        completed = subprocess.run(command, cwd=os.getcwd(), env=env, text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=60, check=False)
     finally:
         server.shutdown()
         server.server_close()
@@ -234,6 +234,8 @@ def test_provider_setup_requires_provider_for_ambiguous_version_root(tmp_path):
         cwd=tmp_path,
         env=env,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         timeout=30,
         check=False,
@@ -365,6 +367,8 @@ def test_provider_cli_probe_write_updates_config_with_detected_provider(tmp_path
             cwd=tmp_path,
             env=env,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             capture_output=True,
             timeout=30,
             check=False,
@@ -401,6 +405,8 @@ def test_provider_cli_probe_rejects_secret_like_api_key_env(tmp_path):
         cwd=tmp_path,
         env=env,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         timeout=30,
         check=False,
@@ -636,6 +642,8 @@ def test_provider_cli_setup_and_doctor_do_not_write_secret_values(tmp_path):
         cwd=tmp_path,
         env=env,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         timeout=30,
         check=False,
@@ -651,6 +659,8 @@ def test_provider_cli_setup_and_doctor_do_not_write_secret_values(tmp_path):
         cwd=tmp_path,
         env=env,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         timeout=30,
         check=False,
@@ -663,7 +673,7 @@ def test_provider_cli_setup_and_doctor_do_not_write_secret_values(tmp_path):
 
 
 def test_provider_cli_setup_from_subdirectory_writes_repo_root_config(tmp_path):
-    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
     subdir = tmp_path / "nested"
     subdir.mkdir()
     env = dict(os.environ)
@@ -686,6 +696,8 @@ def test_provider_cli_setup_from_subdirectory_writes_repo_root_config(tmp_path):
         cwd=subdir,
         env=env,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         timeout=30,
         check=False,
@@ -718,6 +730,8 @@ def test_provider_setup_rejects_secret_like_api_key_env(tmp_path):
         cwd=tmp_path,
         env=env,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         timeout=30,
         check=False,

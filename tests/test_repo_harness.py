@@ -3109,6 +3109,8 @@ def test_module_execution_help_works():
         [sys.executable, "-m", "repo_harness", "--help"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
 
     assert result.returncode == 0
@@ -3121,6 +3123,8 @@ def test_removed_legacy_module_execution_is_not_supported():
         [sys.executable, "-m", removed_module, "--help"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
 
     assert result.returncode != 0

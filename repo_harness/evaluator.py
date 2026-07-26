@@ -121,6 +121,8 @@ def _git_value(args, fallback="", cwd=None):
             cwd=cwd or Path.cwd(),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=True,
             timeout=5,
         )
@@ -148,6 +150,8 @@ def _run_verifier(command, cwd):
             cwd=cwd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
     return subprocess.run(
         command,
@@ -155,6 +159,8 @@ def _run_verifier(command, cwd):
         shell=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
 
 
