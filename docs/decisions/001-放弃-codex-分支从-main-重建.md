@@ -31,7 +31,9 @@
 | 3 | `permissions.py:35` | 权限检查第一行无条件 deny |
 | 4 | `auto_issue_fix/runner.py:167` | `_block_on_phase0` |
 
-用同一个权限探针在两个分支上跑同一组场景：`main` 允许 2/6，codex 分支允许 **0/6**。该分支上的 agent 无法修改任何文件。
+用 `scripts/permission_probe.py` 在两个分支上跑同一组场景（7 种配置 × 2 个写工具 = 14 个）：`rebuild/trunk` 允许 **6/14**，codex 分支允许 **0/14**，且 14 个全部以 `file_mutation_disabled` 拒绝。该分支上的 agent 无法修改任何文件。
+
+> 复现时必须把 `PYTHONPATH` 钉到被测 worktree，否则 editable 安装会把 `repo_harness` 解析回当前工作树，探针会静默地测错分支。探针会打印它实际加载的模块路径。
 
 **分支测试是红的**：15 failed / 728 passed，其中 10 个是该分支自己引入的。最新 commit `2d62a8c` 就引入了 3 个。
 
@@ -60,8 +62,8 @@ main 的权限分层完好、写入实现完整、测试基本可用。代价是
 
 对 51 个 commit 做了完整依赖图分析和 dry-run cherry-pick 实测，结论是 cherry-pick 不可行：
 
-- 分支底座 `8eaf1d5` 是一个 15,376 行的巨型 commit，重写了 `tests/conftest.py`，所有后续测试类 commit 都依赖它
-- 保留它 = 一次性吞下 15,000 行，与瘦身目标直接冲突
+- 分支底座 `8eaf1d5` 是一个 **57 文件 / +4,461 行**的 commit，重写了 `tests/conftest.py`，所有后续测试类 commit 都依赖它
+- 保留它 = 吞下整条测试基建依赖链，而这条链服务的正是要被丢弃的封锁机制
 - 丢弃它 = 后续 commit 全部无法 cherry-pick
 
 因此把 rg 参数注入修复以补丁形式直接打到 main 上。
