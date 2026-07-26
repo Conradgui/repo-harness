@@ -12,8 +12,8 @@ the child process the parent's full environment.
 """
 
 import pytest
-
 from conftest import build_agent
+
 from repo_harness import tools
 
 

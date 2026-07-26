@@ -11,6 +11,8 @@ Step 3 of the decomposition moves persistence into this seam. These are the
 tests that will catch a regression when it does.
 """
 
+from pathlib import Path
+
 import pytest
 
 from repo_harness import memory as memorylib
@@ -235,9 +237,9 @@ class TestRuntimeSeam:
         assert "durable-promotion" in calls.origins
 
     def test_coordinator_does_not_import_the_runtime(self):
-        import repo_harness.core.memory_coordinator as module
+        from repo_harness.core import memory_coordinator as module
 
-        source = open(module.__file__, encoding="utf-8").read()
+        source = Path(module.__file__).read_text(encoding="utf-8")
         # A back-reference would make the dependency circular and undo the point
         # of the extraction.
         assert "from ..runtime" not in source
