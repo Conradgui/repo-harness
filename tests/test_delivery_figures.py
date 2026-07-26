@@ -16,6 +16,7 @@ number becomes load-bearing; a number without one is prose and is not checked.
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -29,8 +30,10 @@ MARKER = re.compile(r"<!--\s*measure:([a-z_]+)\s*-->\s*\*{0,2}([\d,]+)")
 
 @pytest.fixture(scope="module")
 def measured():
+    # sys.executable, not a hard-coded .venv path -- a worktree whose virtualenv
+    # is named anything else would otherwise error rather than measure.
     result = subprocess.run(
-        [str(REPO_ROOT / ".venv" / "Scripts" / "python.exe"), "scripts/measure.py"],
+        [sys.executable, "scripts/measure.py"],
         cwd=REPO_ROOT, capture_output=True, text=True,
         encoding="utf-8", errors="replace", check=False,
     )
@@ -40,8 +43,10 @@ def measured():
 
 
 def _marked_documents():
+    # Every tracked markdown file, not only docs/ -- a marker in README.md
+    # would otherwise be silently unchecked.
     listed = subprocess.run(
-        ["git", "ls-files", "-z", "docs/*.md"],
+        ["git", "ls-files", "-z", "*.md"],
         cwd=REPO_ROOT, capture_output=True, text=True,
         encoding="utf-8", errors="replace", check=True,
     ).stdout

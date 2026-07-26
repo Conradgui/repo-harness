@@ -237,6 +237,38 @@ class TestShellSandboxGate:
         assert decision.decision == "deny", f"{smuggled!r} was exempted from the sandbox"
         assert decision.reason == "sandbox_read_only"
 
+    @pytest.mark.parametrize(
+        "legitimate",
+        [
+            "git log --grep=#42",
+            "git log --format=%h (%an)",
+            "git log --author=someone!",
+        ],
+    )
+    def test_the_deny_set_also_rejects_harmless_punctuation(self, tmp_path, legitimate):
+        """A deliberate over-rejection, recorded so it is a decision and not a surprise.
+
+        The deny set works on single characters, so a read-only command whose
+        arguments merely contain # ! ( ) { } is refused too. That errs toward
+        sandboxing rather than exempting, which is the safe direction, but it
+        means a user cannot whitelist every read-only git invocation. Tokenising
+        the command would fix it; a substring blacklist is what let the escapes
+        through in the first place, so the simpler rule is kept until there is a
+        reason to take on a parser.
+        """
+        from repo_harness.sandbox import SandboxConfig
+
+        agent = build_agent(
+            tmp_path,
+            [],
+            approval_policy="auto",
+            sandbox_config=SandboxConfig(mode="read_only", excluded_commands=("git log*",)),
+        )
+
+        assert agent.permission_checker.check(
+            "run_shell", {"command": legitimate}
+        ).decision == "deny"
+
     def test_a_plain_exempted_command_still_passes(self, tmp_path):
         from repo_harness.sandbox import SandboxConfig
 
