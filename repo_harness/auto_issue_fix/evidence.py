@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import re
-import time
 from dataclasses import asdict
 from pathlib import Path
+from uuid import uuid4
 
+from ..workspace import id_timestamp
 from .config import (
     AUTO_REVIEW_STAGES,
     AUTO_REVIEW_VERDICTS,
@@ -56,7 +57,10 @@ def portable_path(path: str, placeholder: str, include_local_paths: bool = False
 
 
 def default_run_id() -> str:
-    return "auto_issue_fix_" + time.strftime("%Y%m%d_%H%M%S")
+    # Same contract as the session, task and run ids in runtime.py: a UTC stamp
+    # so ordering survives a DST fall-back, and a random suffix so two runs
+    # started in the same second do not land in the same evidence directory.
+    return "auto_issue_fix_" + id_timestamp() + "_" + uuid4().hex[:6]
 
 
 def default_evidence_dir(workspace_root: Path, run_id: str) -> Path:

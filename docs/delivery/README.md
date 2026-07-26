@@ -20,7 +20,7 @@ uv run ruff check .
 uv run pytest tests/ -q
 ```
 
-预期 `All checks passed` 与 `364 passed, 1 skipped`。
+预期 `All checks passed`，测试全绿。
 
 ## 数字从哪来
 

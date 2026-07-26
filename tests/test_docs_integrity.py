@@ -9,6 +9,7 @@ resolves, and the entry points a reader is told to use actually exist.
 """
 
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -17,14 +18,24 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 MARKDOWN_LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 
-SKIP_DIRS = {".git", "__pycache__", ".venv", "node_modules", ".pytest_cache"}
-
 
 def _markdown_files():
-    for path in sorted(REPO_ROOT.rglob("*.md")):
-        if any(part in SKIP_DIRS for part in path.relative_to(REPO_ROOT).parts):
-            continue
-        yield path
+    """Tracked markdown only.
+
+    An rglob here would also collect files under gitignored directories, which
+    makes the number of collected tests a property of the developer's working
+    tree rather than of the repository -- a local scratch directory silently
+    changes the suite size, and any "N passed" figure written down is then
+    wrong on every other machine.
+    """
+    # -z keeps non-ASCII paths verbatim; without it git octal-escapes them and
+    # wraps the whole name in quotes, so every Chinese filename here breaks.
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", "*.md"],
+        cwd=REPO_ROOT, capture_output=True, text=True,
+        encoding="utf-8", errors="replace", check=True,
+    ).stdout
+    return [REPO_ROOT / name for name in sorted(listed.split("\0")) if name.strip()]
 
 
 def _internal_targets(path):
