@@ -255,7 +255,7 @@ RepoHarness 的工具执行统一经过 core executor、permission gate、tool p
 - shell 普通搜索/读取会被拦截，鼓励使用结构化 `read_file` / `search`。
 - 修改既有文件前需要 fresh read；重复工具调用会进入 guard。
 - 多 tool-call 按模型输出顺序执行，partial failure 会进入 trace。
-- `excluded_commands` 的豁免只对不含任何 shell 控制字符的命令生效——`;`、`&`、`|`、`<`、`>`、`$`、反引号、`\`、`(`、`)`、`{`、`}`、`!`、`#`、`%`、`^` 与换行都会取消豁免。早先的版本只匹配 `$(`、`${`、反引号和 `\` 四种拼写，`git status; rm -rf x` 会被豁免并无沙箱执行。
+- `read_only` 模式下不执行任何 shell 命令，`excluded_commands` 在该模式下不提供豁免（[ADR-007](docs/decisions/007-read-only-不再有豁免.md)）。豁免只在 `best_effort` 下生效，那个模式本就不承诺隔离。
 - Token 估算支持 CJK 文本感知（中文字符约 1.5 token/字，ASCII 约 0.25 token/字符）。
 
 Sandbox 支持：

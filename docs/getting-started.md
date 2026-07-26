@@ -427,7 +427,7 @@ Worker 支持后台生命周期、continue、stop、shutdown、running send guar
 
 ```bash
 uv run python -m repo_harness --help
-uv run pytest tests/test_run_evidence.py tests/test_business_scenario_dogfood.py -q
+uv run pytest tests/test_business_scenario_dogfood.py -q
 ```
 
 Business dogfood 默认 fake/scripted provider，场景为：

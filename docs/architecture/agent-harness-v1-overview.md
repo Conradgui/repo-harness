@@ -49,7 +49,7 @@ CLI 显式参数 > process env / 项目 .env > 项目 .repo-harness.toml > 全�
 - 多 tool-call 按顺序执行，partial failure 写入 trace。
 - 长 shell 输出会裁剪展示，并把完整输出写入 run artifact。
 
-Sandbox 支持 `off`、`best_effort`、`read_only`、`required`。`required` 在后端不可用时 fail closed；Windows fallback 写入明确 metadata。v4 修复了 `excluded_commands` 可通过 shell 元字符（`$(`、`` ` ``、`\`、`${`）绕过的安全漏洞。
+Sandbox 支持 `off`、`best_effort`、`read_only`、`required`。`required` 在后端不可用时 fail closed；Windows fallback 写入明确 metadata。`read_only` 下不执行任何 shell 命令，`excluded_commands` 在该模式下不提供豁免——过滤命令字符串无法保证「只做一件事」，见 ADR-007。
 
 ## Skills、Workers 和 REPL
 

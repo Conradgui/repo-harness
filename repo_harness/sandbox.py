@@ -23,21 +23,18 @@ class SandboxConfig:
         return self.mode != "off"
 
 
-# An exempted command runs with shell=True and no isolation, so the exemption
-# may only apply to a command that can do exactly one thing. Anything either
-# shell would read as control -- chaining, redirection, substitution, grouping,
-# escaping, or a second line -- disqualifies it.
+SANDBOX_MODES = frozenset({"off", "read_only", "best_effort", "required"})
+
+# This filter is a convenience, not a security boundary. ADR-007 records why:
+# deciding from a command string that it can only do one thing is not
+# achievable -- three rounds of filtering were each defeated, most recently by
+# `git status/../whoami`, which contains no shell metacharacter and still runs
+# an arbitrary program through git's dashed-external dispatch.
 #
-# This is deliberately a deny set over single characters rather than over
-# operator spellings: matching "$(" missed "; rm -rf x", "&& rm -rf x",
-# "| tee /etc/passwd" and a bare newline, all of which were exempted and ran
-# unsandboxed against an ordinary `excluded_commands = ("git status*",)`.
-#
-# The set covers both shells this runs under, because shell=True means cmd.exe
-# on Windows and sh elsewhere. `%` is here for cmd.exe: it expands %VAR% and
-# then re-parses the result, so `git status %X%` with X set to "& echo hi" runs
-# the second command. `^` is cmd.exe's escape character, the counterpart of the
-# backslash below.
+# It survives only under best_effort, where the user has already opted out of
+# guaranteed isolation. read_only no longer consults it at all. What remains
+# here catches the obvious cases on both shells (shell=True means cmd.exe on
+# Windows and sh elsewhere), and nothing more should be claimed for it.
 SHELL_CONTROL_CHARACTERS = frozenset(";&|<>$`\\(){}!#%^\n\r")
 
 
@@ -53,6 +50,11 @@ class SandboxRunner:
     def run(self, agent, command, timeout, runner):
         mode = str(self.config.mode or "off").strip()
         backend = str(self.config.backend or "native").strip()
+        # Validate before anything else. A misspelled mode used to fall through
+        # to the exemption, so `READ_ONLY` in a config file silently became
+        # "run it unsandboxed" -- the opposite of what was written.
+        if mode not in SANDBOX_MODES:
+            raise RuntimeError(f"unsupported sandbox mode: {mode}")
         if mode == "off":
             return None
         # read_only is checked before the exemption: under this mode nothing
@@ -62,8 +64,6 @@ class SandboxRunner:
             raise RuntimeError("sandbox read_only blocks run_shell")
         if mode != "required" and self._command_is_excluded(command):
             return None
-        if mode not in {"best_effort", "required"}:
-            raise RuntimeError(f"unsupported sandbox mode: {mode}")
         unavailable = self._backend_unavailable(backend)
         if unavailable:
             if hasattr(agent, "emit_session_event"):

@@ -33,18 +33,73 @@ def test_sandbox_read_only_blocks_run_shell_before_subprocess(tmp_path):
     assert agent._last_tool_result_metadata["tool_status"] == "rejected"
 
 
-def test_sandbox_runner_raises_on_read_only_mode(tmp_path):
-    """The runner keeps its own guard for callers that bypass the permission layer."""
+def _must_not_run(command, timeout):
+    raise AssertionError(f"the command must not reach the platform runner: {command!r}")
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo hi",
+        "git status",                # matches the exclusion pattern exactly
+        "git status/../whoami",      # git dashed-external dispatch
+        "git status; rm -rf x",
+    ],
+)
+def test_sandbox_runner_raises_on_read_only_mode(tmp_path, command):
+    """read_only refuses before the exemption is consulted.
+
+    excluded_commands is configured here on purpose. Without it this test
+    passes under either ordering, and the ordering is the whole point: the
+    exemption used to come first, so `git status/../whoami` ran unsandboxed.
+    See ADR-007.
+    """
     from repo_harness.sandbox import SandboxRunner
 
-    runner = SandboxRunner(SandboxConfig(mode="read_only", backend="native"))
-    agent = build_agent(tmp_path, SandboxConfig(mode="read_only", backend="native"))
-
-    def should_not_run(command, timeout):
-        raise AssertionError("the command must not reach the platform runner")
+    config = SandboxConfig(
+        mode="read_only", backend="native", excluded_commands=("git status*",)
+    )
+    runner = SandboxRunner(config)
+    agent = build_agent(tmp_path, config)
 
     with pytest.raises(RuntimeError, match="sandbox read_only blocks run_shell"):
-        runner.run(agent, "echo hi", 20, should_not_run)
+        runner.run(agent, command, 20, _must_not_run)
+
+
+@pytest.mark.parametrize("mode", ["READ_ONLY", "Read_Only", "readonly", "typo"])
+def test_a_misspelled_mode_fails_closed(tmp_path, mode):
+    """A config typo must not silently become "run it unsandboxed".
+
+    Mode validation used to happen after the exemption, so `READ_ONLY` in a
+    config file fell through to the matcher and an exempted command ran on the
+    host -- the opposite of what the file said.
+    """
+    from repo_harness.sandbox import SandboxRunner
+
+    runner = SandboxRunner(
+        SandboxConfig(mode=mode, backend="native", excluded_commands=("git status*",))
+    )
+    agent = build_agent(tmp_path, SandboxConfig(mode="off"))
+
+    with pytest.raises(RuntimeError, match="unsupported sandbox mode"):
+        runner.run(agent, "git status", 20, _must_not_run)
+
+
+def test_auto_issue_fix_honours_the_repository_sandbox_declaration(tmp_path):
+    """A cloned repository's own sandbox settings must reach its agent.
+
+    Auto Issue Fix builds a RepoHarness directly rather than through the CLI.
+    It used to omit sandbox_config entirely, so the agent fell back to mode
+    "off" and a clone declaring read_only had every command run unsandboxed.
+    """
+    from repo_harness.config import sandbox_config_for_directory
+
+    (tmp_path / ".repo-harness.toml").write_text(
+        '[sandbox]\nmode = "read_only"\n', encoding="utf-8"
+    )
+
+    assert sandbox_config_for_directory(tmp_path).mode == "read_only"
+    assert sandbox_config_for_directory(tmp_path / "nonexistent").mode == "off"
 
 
 def test_sandbox_config_resolves_from_repo_harness_toml(tmp_path):

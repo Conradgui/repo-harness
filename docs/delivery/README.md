@@ -39,7 +39,7 @@ python scripts/permission_probe.py       # 写入权限矩阵
 ## 提交列表
 
 ```bash
-git log --oneline origin/main..rebuild/trunk
+git log --oneline origin/main..HEAD
 ```
 
 每个提交自包含，可单独 revert。
