@@ -15,6 +15,14 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 MARKER = re.compile(r"(<!--\s*measure:([a-z_]+)\s*-->\s*\*{0,2})([\d,]+)")
 
+# `<!-- delta:source_lines -->−2,606（−15.2%）` -- the change against origin/main.
+# Generated too, because a marked cell beside a hand-written delta is how the
+# summary table went arithmetically false twice: the value updated, the
+# difference next to it did not.
+DELTA = re.compile(r"(<!--\s*delta:([a-z_]+)(:pct)?\s*-->\s*)[−+\-][\d,]+(（[−+\-][\d.]+%）)?")
+
+BASELINE_REF = "origin/main"
+
 
 def _tracked_markdown():
     listed = subprocess.run(
@@ -26,11 +34,34 @@ def _tracked_markdown():
     return [path for path in paths if path.is_file()]
 
 
-def main():
-    measured = json.loads(subprocess.run(
-        [sys.executable, "scripts/measure.py"], cwd=REPO,
-        capture_output=True, text=True, encoding="utf-8", check=True,
+def _measure(ref=None):
+    args = [sys.executable, "scripts/measure.py"] + ([ref] if ref else [])
+    return json.loads(subprocess.run(
+        args, cwd=REPO, capture_output=True, text=True, encoding="utf-8", check=True,
     ).stdout)
+
+
+def _delta_text(key, with_pct, measured, baseline):
+    if key not in measured or key not in baseline:
+        return None
+    change = measured[key] - baseline[key]
+    sign = "+" if change > 0 else "−"
+    body = f"{sign}{abs(change):,}"
+    if with_pct and baseline[key]:
+        body += f"（{sign}{abs(change) / baseline[key] * 100:.1f}%）"
+    return body
+
+
+def main():
+    # The report renders deltas with U+2212, which a cp936 console cannot encode.
+    # Same class of defect this project documents: the output is UTF-8 and the
+    # stream assumes the system locale.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+    measured = _measure()
+    baseline = _measure(BASELINE_REF)
 
     changed = 0
     for path in _tracked_markdown():
@@ -47,7 +78,17 @@ def main():
                 updates.append(f"  {label}  {key}: {old} -> {new}")
             return prefix + new
 
-        updated = MARKER.sub(replace, text)
+        def replace_delta(match, updates=updates, label=label):
+            prefix, key, pct, _tail = match.groups()
+            new = _delta_text(key, bool(pct), measured, baseline)
+            if new is None:
+                return match.group(0)
+            old = match.group(0)[len(prefix):]
+            if new != old:
+                updates.append(f"  {label}  Δ{key}: {old} -> {new}")
+            return prefix + new
+
+        updated = DELTA.sub(replace_delta, MARKER.sub(replace, text))
         if updated != text:
             path.write_text(updated, encoding="utf-8")
             print("\n".join(updates))

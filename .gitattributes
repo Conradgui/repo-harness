@@ -1,0 +1,16 @@
+# Normalise line endings on the way in. A commit once mixed 300+ bare CRs into
+# two Python files, which doubled their apparent length, inflated the measured
+# line count by 615, and turned a 15-line change into a 574-line diff with no
+# usable blame.
+* text=auto
+
+# These are read as bytes or line-by-line by tooling that assumes LF.
+*.py text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+
+*.png binary
+*.jpg binary
+*.zip binary

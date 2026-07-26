@@ -28,6 +28,19 @@ MARKER = re.compile(r"<!--\s*measure:([a-z_]+)\s*-->\s*\*{0,2}([\d,]+)")
 
 
 @pytest.fixture(scope="module")
+def baseline():
+    """origin/main, the single before-baseline the delivery documents quote."""
+    result = subprocess.run(
+        [sys.executable, "scripts/measure.py", "origin/main"],
+        cwd=REPO_ROOT, capture_output=True, text=True,
+        encoding="utf-8", errors="replace", check=False,
+    )
+    if result.returncode != 0:
+        pytest.skip(f"baseline unavailable: {result.stderr.strip()[:200]}")
+    return json.loads(result.stdout)
+
+
+@pytest.fixture(scope="module")
 def measured():
     # sys.executable, not a hard-coded .venv path -- a worktree whose virtualenv
     # is named anything else would otherwise error rather than measure.
@@ -86,3 +99,41 @@ def test_every_measure_marker_names_a_real_key(measured):
     unknown = {key for _, key, _ in CLAIMS if key not in measured}
 
     assert unknown == set(), f"markers reference keys measure.py does not emit: {sorted(unknown)}"
+
+
+DELTA = re.compile(r"<!--\s*delta:([a-z_]+)(:pct)?\s*-->\s*([−+\-])([\d,]+)")
+
+
+def _delta_claims():
+    for path, text in _marked_documents():
+        doc = path.relative_to(REPO_ROOT).as_posix()
+        for key, pct, sign, raw in DELTA.findall(text):
+            yield doc, key, bool(pct), sign, int(raw.replace(",", ""))
+
+
+DELTA_CLAIMS = list(_delta_claims())
+
+
+@pytest.mark.skipif(not DELTA_CLAIMS, reason="no deltas are registered yet")
+@pytest.mark.parametrize(
+    "doc,key,_pct,sign,claimed",
+    DELTA_CLAIMS,
+    ids=[f"{d}:Δ{k}" for d, k, _, _, _ in DELTA_CLAIMS],
+)
+def test_registered_delta_matches_the_measured_change(
+    doc, key, _pct, sign, claimed, measured, baseline
+):
+    """A generated value beside a hand-written difference is how the summary
+    table went arithmetically false twice. The difference is checked too."""
+    assert key in measured and key in baseline, f"{doc} references unknown key {key}"
+
+    change = measured[key] - baseline[key]
+    expected_sign = "+" if change > 0 else "−"
+
+    assert sign == expected_sign, (
+        f"{doc} states Δ{key} as {sign}, measured change is {change:+}"
+    )
+    assert abs(change) == claimed, (
+        f"{doc} states Δ{key}={claimed:,}, measured {abs(change):,}. "
+        f"Run scripts/sync_figures.py."
+    )
