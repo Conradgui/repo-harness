@@ -20,7 +20,7 @@ from . import tools as toolkit
 from .context_manager import ContextManager
 from .core import tool_executor as core_tool_executor
 from .core.engine import Engine
-from .core.memory_coordinator import DURABLE_MEMORY_LINE_PATTERNS, MemoryCoordinator
+from .core.memory_coordinator import MemoryCoordinator
 from .core.memory_outcome import MemoryOutcome
 from .core.session_events import SessionEventBus
 from .core.tool_profiles import build_tool_profiles
@@ -131,6 +131,21 @@ class RepoHarness:
             workspace_root=self.root,
         )
         self.session["memory"] = self.memory.to_dict()
+        # 协作者必须在 evaluate_resume_state() 之前就位——后者会调 invalidate_stale_memory。
+        self.current_task_state = None
+        self.memory_outcome = MemoryOutcome()
+        self.memory_coordinator = MemoryCoordinator(
+            self.memory,
+            self.memory_outcome,
+            persist=self._persist_memory,
+            sync=lambda: self.session.__setitem__("memory", self.memory.to_dict()),
+            source_context=lambda origin: {
+                "session_id": self.session.get("id", ""),
+                "run_id": self.current_task_state.run_id if self.current_task_state else "",
+                "task_id": self.current_task_state.task_id if self.current_task_state else "",
+                "origin": origin,
+            },
+        )
         self.todo_ledger = TodoLedger(self)
         self.worker_manager = WorkerManager(self)
         self.skills = skillslib.discover_skills(self.root, user_home=self._safe_user_home())
@@ -163,7 +178,6 @@ class RepoHarness:
         )
         self.resume_state = self.evaluate_resume_state()
         self.session_path = self.session_store.save(self.session)
-        self.current_task_state = None
         self.current_run_id = ""
         self.current_turn_id = ""
         self._trusted_tools = set()
@@ -172,19 +186,6 @@ class RepoHarness:
         self.abort_requested = False
         self.last_prompt_metadata = {}
         self.last_completion_metadata = {}
-        self.memory_outcome = MemoryOutcome()
-        self.memory_coordinator = MemoryCoordinator(
-            self.memory,
-            self.memory_outcome,
-            persist=self._persist_memory,
-            sync=lambda: self.session.__setitem__("memory", self.memory.to_dict()),
-            source_context=lambda origin: {
-                "session_id": self.session.get("id", ""),
-                "run_id": self.current_task_state.run_id if self.current_task_state else "",
-                "task_id": self.current_task_state.task_id if self.current_task_state else "",
-                "origin": origin,
-            },
-        )
         self._last_tool_result_metadata = {}
         self._run_changed_paths = []
         self.runtime_reminders = []
@@ -288,10 +289,10 @@ class RepoHarness:
             return None
         return state.get("items", {}).get(checkpoint_id)
 
+    def remember_candidate(self, text):
+        return self.memory_coordinator.remember_candidate(text)
     def invalidate_stale_memory(self):
-        invalidated = self.memory.invalidate_stale_file_summaries()
-        self.session["memory"] = self.memory.to_dict()
-        return invalidated
+        return self.memory_coordinator.invalidate_stale_memory()
 
     def evaluate_resume_state(self):
         previous_resume_state = dict(self.session.get("resume_state", {}) or {})
@@ -585,35 +586,6 @@ class RepoHarness:
         return "\n".join(
             ["Agents:", *[f"- {item['id']} [{item['status']}] {item['description']}" for item in items]]
         )
-
-    def remember_candidate(self, text):
-        original_text = str(text or "").strip()
-        if not original_text:
-            return {"status": "usage", "record": {}, "reason": "empty"}
-        topic = "user-preferences"
-        note_text = original_text
-        for candidate_topic, pattern in DURABLE_MEMORY_LINE_PATTERNS:
-            match = pattern.match(original_text)
-            if match:
-                topic = candidate_topic
-                note_text = match.group(1).strip()
-                break
-        reason = self.reject_durable_reason(note_text)
-        if reason:
-            return {"status": "rejected", "record": {}, "reason": reason}
-        queued = self.memory.enqueue_durable_reviews(
-            [(topic, note_text)],
-            source={
-                "session_id": self.session.get("id", ""),
-                "run_id": self.current_task_state.run_id if self.current_task_state is not None else "",
-                "task_id": self.current_task_state.task_id if self.current_task_state is not None else "",
-                "origin": "user-remember",
-            },
-        )
-        self._persist_memory()
-        if not queued:
-            return {"status": "duplicate", "record": {}, "reason": "duplicate"}
-        return {"status": "queued", "record": dict(queued[0]), "reason": ""}
 
     def history_text(self):
         history = self.session["history"]

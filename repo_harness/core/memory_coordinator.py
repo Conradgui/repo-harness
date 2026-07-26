@@ -264,3 +264,30 @@ class MemoryCoordinator:
             "self_iteration_review_queued": queued,
             "self_iteration_rejections": rejections,
         }
+    def remember_candidate(self, text):
+        original_text = str(text or "").strip()
+        if not original_text:
+            return {"status": "usage", "record": {}, "reason": "empty"}
+        topic = "user-preferences"
+        note_text = original_text
+        for candidate_topic, pattern in DURABLE_MEMORY_LINE_PATTERNS:
+            match = pattern.match(original_text)
+            if match:
+                topic = candidate_topic
+                note_text = match.group(1).strip()
+                break
+        reason = self.reject_durable_reason(note_text)
+        if reason:
+            return {"status": "rejected", "record": {}, "reason": reason}
+        queued = self.memory.enqueue_durable_reviews(
+            [(topic, note_text)],
+            source=self._source_context("user-remember"),
+        )
+        self._persist()
+        if not queued:
+            return {"status": "duplicate", "record": {}, "reason": "duplicate"}
+        return {"status": "queued", "record": dict(queued[0]), "reason": ""}
+    def invalidate_stale_memory(self):
+        invalidated = self.memory.invalidate_stale_file_summaries()
+        self._sync()
+        return invalidated
