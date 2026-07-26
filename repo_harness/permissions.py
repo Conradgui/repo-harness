@@ -44,6 +44,15 @@ class PermissionChecker:
 
         if getattr(self.runtime, "runtime_mode", "default") == "plan":
             return self._check_plan(tool, args, profile_name)
+        if tool.name == "run_shell" and self._sandbox_mode() == "read_only":
+            # SandboxRunner raises for this too, which reaches the model as a
+            # generic tool failure. Deciding it here instead means the refusal
+            # carries a reason and shows up in the permission matrix.
+            return PermissionDecision.deny(
+                "sandbox_read_only",
+                "sandbox_guard",
+                profile=profile_name,
+            )
         if tool.name in {"write_file", "patch_file"} and getattr(self.runtime, "write_scope", ()):
             return self._check_write_scope(tool, args, profile_name)
         if tool.read_only:
@@ -56,6 +65,10 @@ class PermissionChecker:
         if approval_policy == "never":
             return PermissionDecision.deny("approval_denied", "approval_denied", profile=profile_name)
         return PermissionDecision.allow("approval_required", profile=profile_name)
+
+    def _sandbox_mode(self):
+        config = getattr(self.runtime, "sandbox_config", None)
+        return str(getattr(config, "mode", "") or "").strip()
 
     def _tool(self, tool_or_name):
         if hasattr(tool_or_name, "name"):

@@ -45,6 +45,18 @@ SCENARIOS = (
     ("plan mode", {"runtime_mode": "plan", "active_plan_path": "plan.md"}),
 )
 
+# run_shell is governed by the sandbox mode rather than by write_scope.
+SHELL_SCENARIOS = (
+    ("sandbox off", {"sandbox_mode": "off"}),
+    ("sandbox read_only", {"sandbox_mode": "read_only"}),
+    ("sandbox best_effort", {"sandbox_mode": "best_effort"}),
+)
+
+
+class ProbeSandbox:
+    def __init__(self, mode):
+        self.mode = mode
+
 
 class ProbeRuntime:
     """Minimal stand-in exposing only what PermissionChecker reads."""
@@ -59,6 +71,7 @@ class ProbeRuntime:
         self.read_only = kw.get("read_only", False)
         self.approval_policy = kw.get("approval_policy", "ask")
         self.active_plan_path = kw.get("active_plan_path", "")
+        self.sandbox_config = ProbeSandbox(kw.get("sandbox_mode", "off"))
 
     def path(self, raw):
         return (self.root / str(raw)).resolve()
@@ -77,6 +90,11 @@ def main():
             checker = PermissionChecker(ProbeRuntime(root, **kwargs))
             decision = checker.check(tool, {"path": "src/app.py"})
             rows.append((f"{label} / {tool}", decision.decision, decision.reason))
+
+    for label, kwargs in SHELL_SCENARIOS:
+        checker = PermissionChecker(ProbeRuntime(root, approval_policy="auto", **kwargs))
+        decision = checker.check("run_shell", {"command": "echo hi"})
+        rows.append((f"{label} / run_shell", decision.decision, decision.reason))
 
     width = max(len(r[0]) for r in rows)
     print(f"{'scenario'.ljust(width)}  decision  reason")

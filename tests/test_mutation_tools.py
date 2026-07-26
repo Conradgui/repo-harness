@@ -139,6 +139,56 @@ class TestRunShellValidation:
             tools.tool_run_shell(agent, {"command": "echo hi", "timeout": timeout})
 
 
+class TestShellSandboxGate:
+    """read_only sandbox mode is a permission decision, not only a raise.
+
+    SandboxRunner also raises for this, which reaches the model as a generic
+    tool failure. Deciding it in PermissionChecker means the refusal carries a
+    reason and appears in the permission matrix alongside every other gate.
+    """
+
+    @pytest.mark.parametrize("mode", ["off", "best_effort"])
+    def test_shell_is_allowed_when_the_sandbox_does_not_block_it(self, tmp_path, mode):
+        from repo_harness.sandbox import SandboxConfig
+
+        agent = build_agent(
+            tmp_path, [], approval_policy="auto", sandbox_config=SandboxConfig(mode=mode)
+        )
+
+        decision = agent.permission_checker.check("run_shell", {"command": "echo hi"})
+
+        assert decision.decision == "allow"
+
+    def test_read_only_mode_denies_shell_with_a_reason(self, tmp_path):
+        from repo_harness.sandbox import SandboxConfig
+
+        agent = build_agent(
+            tmp_path,
+            [],
+            approval_policy="auto",
+            sandbox_config=SandboxConfig(mode="read_only"),
+        )
+
+        decision = agent.permission_checker.check("run_shell", {"command": "echo hi"})
+
+        assert decision.decision == "deny"
+        assert decision.reason == "sandbox_read_only"
+        assert decision.security_event_type == "sandbox_guard"
+
+    def test_read_only_mode_does_not_block_reading(self, tmp_path):
+        from repo_harness.sandbox import SandboxConfig
+
+        agent = build_agent(
+            tmp_path,
+            [],
+            approval_policy="auto",
+            sandbox_config=SandboxConfig(mode="read_only"),
+        )
+
+        assert agent.permission_checker.check("read_file", {"path": "README.md"}).decision == "allow"
+        assert agent.permission_checker.check("search", {"pattern": "x"}).decision == "allow"
+
+
 class TestShellEnvironment:
     """The child process must not inherit the parent's environment wholesale."""
 
