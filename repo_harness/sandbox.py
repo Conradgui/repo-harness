@@ -53,10 +53,15 @@ class SandboxRunner:
     def run(self, agent, command, timeout, runner):
         mode = str(self.config.mode or "off").strip()
         backend = str(self.config.backend or "native").strip()
-        if mode == "off" or (mode != "required" and self._command_is_excluded(command)):
+        if mode == "off":
             return None
+        # read_only is checked before the exemption: under this mode nothing
+        # runs, which is what the mode name says. The exemption used to come
+        # first, and no amount of filtering made that safe -- see ADR-007.
         if mode == "read_only":
             raise RuntimeError("sandbox read_only blocks run_shell")
+        if mode != "required" and self._command_is_excluded(command):
+            return None
         if mode not in {"best_effort", "required"}:
             raise RuntimeError(f"unsupported sandbox mode: {mode}")
         unavailable = self._backend_unavailable(backend)

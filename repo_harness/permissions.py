@@ -67,20 +67,18 @@ class PermissionChecker:
         return PermissionDecision.allow("approval_required", profile=profile_name)
 
     def _shell_blocked_by_sandbox(self, args):
-        """Mirror SandboxRunner's read_only decision, exemptions included.
+        """read_only means no shell command runs. There is no exemption.
 
-        The runner lets a command through when it matches `excluded_commands`,
-        even under read_only -- that is user configuration saying "sandbox
-        everything except these". Deciding read_only here without honouring the
-        exemption would silently remove a working escape hatch, so the check
-        delegates to the runner's own matcher rather than reimplementing it.
+        `excluded_commands` used to bypass this, which made the refusal depend
+        on being able to tell from a command string that it can only do one
+        thing. Three rounds of filtering were each defeated -- most recently by
+        `git status/../whoami`, which contains no shell metacharacter at all and
+        still runs an arbitrary program through git's dashed-external dispatch.
+        See ADR-007.
         """
+        del args
         config = getattr(self.runtime, "sandbox_config", None)
-        if str(getattr(config, "mode", "") or "").strip() != "read_only":
-            return False
-        runner = getattr(self.runtime, "sandbox_runner", None)
-        excluded = getattr(runner, "_command_is_excluded", None)
-        return not (excluded is not None and excluded(str(args.get("command", ""))))
+        return str(getattr(config, "mode", "") or "").strip() == "read_only"
 
     def _tool(self, tool_or_name):
         if hasattr(tool_or_name, "name"):

@@ -354,7 +354,7 @@ uv run repo-harness --sandbox required --sandbox-backend bubblewrap
 
 `required` 模式在后端不可用时 fail closed。Windows fallback 会写入不可用 metadata，而不是伪装为完整隔离。
 
-`excluded_commands` 使用前导空格规范化和 shell 元字符检测（`$(`、`` ` ``、`\`、`${`）防止绕过 sandbox。
+`read_only` 模式下不执行任何 shell 命令，`excluded_commands` 在该模式下不再提供豁免（见 ADR-007）。
 
 ## 7. Skills
 

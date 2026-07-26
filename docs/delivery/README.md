@@ -1,6 +1,6 @@
 # 交付文档
 
-分支 `rebuild/trunk` 的完整交付材料。
+分支 `release/optimized-v1` 的完整交付材料。
 
 | 文档 | 内容 |
 |---|---|
@@ -9,12 +9,12 @@
 | [03-面试资料包.md](03-面试资料包.md) | 岗位定位、能力证据、高频追问、简历条目 |
 | [04-后续路线图.md](04-后续路线图.md) | 未完成项的方案与优先级 |
 
-决策记录见 [docs/decisions/](../decisions/README.md)。架构与用户流程图为在线文档，见交付报告首节引用。
+决策记录见 [docs/decisions/](../decisions/README.md)。
 
 ## 快速验证
 
 ```bash
-git checkout rebuild/trunk
+git checkout release/optimized-v1
 uv sync
 uv run ruff check .
 uv run pytest tests/ -q
