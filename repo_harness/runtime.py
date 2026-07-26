@@ -20,6 +20,7 @@ from . import tools as toolkit
 from .context_manager import ContextManager
 from .core import tool_executor as core_tool_executor
 from .core.engine import Engine
+from .core.memory_outcome import MemoryOutcome
 from .core.session_events import SessionEventBus
 from .core.tool_profiles import build_tool_profiles
 from .features import skills_runtime
@@ -184,13 +185,7 @@ class RepoHarness:
         self.abort_requested = False
         self.last_prompt_metadata = {}
         self.last_completion_metadata = {}
-        self.last_durable_promotions = []
-        self.last_durable_review_queued = []
-        self.last_durable_rejections = []
-        self.last_durable_superseded = []
-        self.last_episodic_compactions = []
-        self.last_self_iteration_review_queued = []
-        self.last_self_iteration_rejections = []
+        self.memory_outcome = MemoryOutcome()
         self._last_tool_result_metadata = {}
         self._run_changed_paths = []
         self.runtime_reminders = []
@@ -641,9 +636,7 @@ class RepoHarness:
 
     def memory_self_iteration_status(self):
         return {
-            "episodic_compactions": list(self.last_episodic_compactions),
-            "self_iteration_review_queued": list(self.last_self_iteration_review_queued),
-            "self_iteration_rejections": list(self.last_self_iteration_rejections),
+            **self.memory_outcome.self_iteration_dict(),
             "pending_review_count": len(self.memory_review_pending()),
         }
 
@@ -1143,10 +1136,7 @@ class RepoHarness:
         queued_records = self.memory.enqueue_durable_reviews(promotions, source=self.durable_review_source())
         queued = [f"{record['topic']}: {record['text']}" for record in queued_records]
         self._persist_memory()
-        self.last_durable_promotions = []
-        self.last_durable_review_queued = queued
-        self.last_durable_rejections = rejections
-        self.last_durable_superseded = []
+        self.memory_outcome.record_durable_pass(queued=queued, rejections=rejections)
         return [], rejections, [], queued
 
     def self_iteration_source(self):
@@ -1227,9 +1217,9 @@ class RepoHarness:
         queued_records = self.memory.enqueue_durable_reviews(promotions, source=self.self_iteration_source())
         queued = [f"{record['topic']}: {record['text']}" for record in queued_records]
         compactions = self._compact_episodic_notes()
-        self.last_episodic_compactions = compactions
-        self.last_self_iteration_review_queued = queued
-        self.last_self_iteration_rejections = rejections
+        self.memory_outcome.record_self_iteration_pass(
+            compactions=compactions, queued=queued, rejections=rejections
+        )
         if compactions or queued:
             self._persist_memory()
         return {
@@ -1323,13 +1313,7 @@ class RepoHarness:
             "resume_status": task_state.resume_status,
             "task_state": task_state.to_dict(),
             "prompt_metadata": self.last_prompt_metadata,
-            "durable_promotions": list(self.last_durable_promotions),
-            "durable_review_queued": list(self.last_durable_review_queued),
-            "durable_rejections": list(self.last_durable_rejections),
-            "durable_superseded": list(self.last_durable_superseded),
-            "episodic_compactions": list(self.last_episodic_compactions),
-            "self_iteration_review_queued": list(self.last_self_iteration_review_queued),
-            "self_iteration_rejections": list(self.last_self_iteration_rejections),
+            **self.memory_outcome.report_dict(),
             "todos": self.todo_ledger.to_dict(),
             "todo_changes": list(getattr(task_state, "todo_changes", []) or self.session.get("todo_changes", [])),
             "workers": self.worker_manager.to_dict(),
