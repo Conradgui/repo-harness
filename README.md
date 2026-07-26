@@ -454,10 +454,41 @@ RepoHarness 记忆系统继续以"可迁移、可审核、可解释"为核心。
 
 ## 项目文档
 
-- [新手指南](docs/getting-started.md)
+**入门**
+
+- [新手指南](docs/getting-started.md) — 从安装到跑通第一个任务
 - [架构概览](docs/architecture/agent-harness-v1-overview.md)
-- [更新日志](docs/maintainer-prep/changelog-draft.md)
+
+**工程决策与约束**
+
+- [决策记录（ADR）](docs/decisions/README.md) — 为什么这么做，以及后来证明对不对
+- [交付文档](docs/delivery/README.md) — 本轮优化的完整记录、测试资料与后续路线图
+
+**功能方案**
+
 - [Auto Issue Fix 产品方案](docs/auto-issue-fix-product-plan.md)
 - [Auto Issue Fix 实现计划](docs/auto-issue-fix-implementation-plan.md)
+
+**维护者**
+
+- [更新日志](docs/maintainer-prep/changelog-draft.md)
 - [维护者文档入口](docs/maintainer-prep/README.md)
 - [Review Pack](docs/review-pack/README.md)
+
+## 工程约定
+
+三条长期生效的约束，来自一次技术债治理的复盘（完整背景见 [ADR-001](docs/decisions/001-放弃-codex-分支从-main-重建.md)）：
+
+| 约定 | 含义 |
+|---|---|
+| [ADR-002](docs/decisions/002-安全边界用开关而非删除实现.md) | 安全边界用配置开关表达，**不删除实现**。删掉的能力找不回来，关掉的随时能开 |
+| [ADR-003](docs/decisions/003-测试只测行为.md) | 测试断言行为，不断言行数、文档措辞或文件形状。会 skip 的测试等于没测 |
+| [ADR-006](docs/decisions/006-交付数字必须可复现.md) | 文档里的每个数字都要能由一条命令复算 |
+
+代码质量门禁：
+
+```bash
+uv run ruff check .        # 规则集在 pyproject.toml 显式声明，预期 0 error
+uv run pytest tests/ -q    # 预期全绿
+python scripts/measure.py  # 产出所有交付文档引用的量化指标
+```
