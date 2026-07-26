@@ -35,7 +35,7 @@ A 只是把问题推迟到下次升级。**没有配置的 lint 等于把规则�
 
 198 → 0。修复过程分三类：
 
-- **54 处自动修复**：导入排序、`getattr(x, "const")` → `x.const`、链式比较
+- **大部分可自动修复**：导入排序、`getattr(x, "const")` → `x.const`、链式比较
 - **7 处显式化**：`subprocess.run` 补 `check=False`。这些调用点都手动检查返回码（rg 无匹配时退出码为 1 是正常情况，`run_shell` 要让 agent 看到失败命令而不是崩溃），所以 `check=False` 是既有语义，只是从未写出来
 - **若干处真实改进**：`False if x in y else True` → `x not in y`；`_normalize_tool_args` 的五段近似重复改成声明式表格
 

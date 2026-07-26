@@ -1,9 +1,8 @@
 """The figures in the delivery documents must match scripts/measure.py.
 
-ADR-006 says every delivered number comes from a command. Four stage-gate
-reviews have now found the same defect anyway: a figure written correctly once
-and never regenerated when the commit that invalidated it landed. Gates 1-4
-returned 14, 9, 10 and 6 findings, most of them this.
+ADR-006 says every delivered number comes from a command. Every stage-gate
+review so far has found the same defect anyway: a figure written correctly once
+and never regenerated when the commit that invalidated it landed.
 
 The rule was enforced by a reviewer noticing. This enforces it.
 

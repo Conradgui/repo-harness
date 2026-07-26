@@ -24,15 +24,21 @@ class SandboxConfig:
 
 
 # An exempted command runs with shell=True and no isolation, so the exemption
-# may only apply to a command that can do exactly one thing. Anything the shell
-# would read as control -- chaining, redirection, substitution, grouping,
+# may only apply to a command that can do exactly one thing. Anything either
+# shell would read as control -- chaining, redirection, substitution, grouping,
 # escaping, or a second line -- disqualifies it.
 #
 # This is deliberately a deny set over single characters rather than over
 # operator spellings: matching "$(" missed "; rm -rf x", "&& rm -rf x",
 # "| tee /etc/passwd" and a bare newline, all of which were exempted and ran
 # unsandboxed against an ordinary `excluded_commands = ("git status*",)`.
-SHELL_CONTROL_CHARACTERS = frozenset(";&|<>$`\\(){}!#\n\r")
+#
+# The set covers both shells this runs under, because shell=True means cmd.exe
+# on Windows and sh elsewhere. `%` is here for cmd.exe: it expands %VAR% and
+# then re-parses the result, so `git status %X%` with X set to "& echo hi" runs
+# the second command. `^` is cmd.exe's escape character, the counterpart of the
+# backslash below.
+SHELL_CONTROL_CHARACTERS = frozenset(";&|<>$`\\(){}!#%^\n\r")
 
 
 def _has_shell_control_character(command):
