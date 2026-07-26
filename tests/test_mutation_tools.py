@@ -175,6 +175,50 @@ class TestShellSandboxGate:
         assert decision.reason == "sandbox_read_only"
         assert decision.security_event_type == "sandbox_guard"
 
+    def test_excluded_commands_stay_exempt_under_read_only(self, tmp_path):
+        """SandboxRunner lets excluded commands through even in read_only mode.
+
+        That is user configuration saying "sandbox everything except these".
+        Deciding read_only in the permission layer must honour it, or the
+        refactor silently removes a working escape hatch.
+        """
+        from repo_harness.sandbox import SandboxConfig
+
+        agent = build_agent(
+            tmp_path,
+            [],
+            approval_policy="auto",
+            sandbox_config=SandboxConfig(
+                mode="read_only", excluded_commands=("git status",)
+            ),
+        )
+
+        exempt = agent.permission_checker.check("run_shell", {"command": "git status"})
+        other = agent.permission_checker.check("run_shell", {"command": "rm -rf ."})
+
+        assert exempt.decision == "allow"
+        assert other.decision == "deny"
+        assert other.reason == "sandbox_read_only"
+
+    def test_metacharacters_defeat_the_exemption(self, tmp_path):
+        """The runner refuses to exempt a command that can spawn a subshell."""
+        from repo_harness.sandbox import SandboxConfig
+
+        agent = build_agent(
+            tmp_path,
+            [],
+            approval_policy="auto",
+            sandbox_config=SandboxConfig(
+                mode="read_only", excluded_commands=("git status",)
+            ),
+        )
+
+        smuggled = agent.permission_checker.check(
+            "run_shell", {"command": "git status $(rm -rf .)"}
+        )
+
+        assert smuggled.decision == "deny"
+
     def test_read_only_mode_does_not_block_reading(self, tmp_path):
         from repo_harness.sandbox import SandboxConfig
 

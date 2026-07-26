@@ -984,24 +984,6 @@ class RepoHarness:
         if self.current_task_state is not None:
             self.current_task_state.runtime_reminders = list(self.runtime_reminders)
 
-    def durable_review_source(self):
-        task_state = self.current_task_state
-        return {
-            "session_id": self.session.get("id", ""),
-            "run_id": task_state.run_id if task_state is not None else "",
-            "task_id": task_state.task_id if task_state is not None else "",
-            "origin": "durable-promotion",
-        }
-
-    def self_iteration_source(self):
-        task_state = self.current_task_state
-        return {
-            "session_id": self.session.get("id", ""),
-            "run_id": task_state.run_id if task_state is not None else "",
-            "task_id": task_state.task_id if task_state is not None else "",
-            "origin": "memory-self-iteration",
-        }
-
     def ask(self, user_message):
         """执行一次完整的 agent 回合，直到产出最终答案或命中停止条件。
 

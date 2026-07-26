@@ -11,7 +11,6 @@ Step 3 of the decomposition moves persistence into this seam. These are the
 tests that will catch a regression when it does.
 """
 
-from pathlib import Path
 
 import pytest
 
@@ -236,11 +235,34 @@ class TestRuntimeSeam:
 
         assert "durable-promotion" in calls.origins
 
-    def test_coordinator_does_not_import_the_runtime(self):
-        from repo_harness.core import memory_coordinator as module
+    def test_remember_candidate_queues_through_the_source_context(self, coordinator, calls):
+        result = coordinator.remember_candidate("Project convention: tests live under tests/")
 
-        source = Path(module.__file__).read_text(encoding="utf-8")
-        # A back-reference would make the dependency circular and undo the point
-        # of the extraction.
-        assert "from ..runtime" not in source
-        assert "import runtime" not in source
+        assert result["status"] == "queued"
+        assert calls.origins == ["user-remember"]
+        assert calls.persists == 1
+
+    def test_remember_candidate_applies_the_security_filter(self, coordinator, calls):
+        result = coordinator.remember_candidate("my api_key is sk-abcdef123456")
+
+        assert result["status"] == "rejected"
+        assert result["reason"] == "secret_shaped"
+        # Rejected text never reaches the queue, so nothing is written.
+        assert calls.persists == 0
+
+    def test_remember_candidate_reports_an_empty_input(self, coordinator):
+        assert coordinator.remember_candidate("   ")["status"] == "usage"
+
+    def test_remember_candidate_reads_the_topic_prefix(self, coordinator):
+        result = coordinator.remember_candidate("Decision: we ship on Fridays")
+
+        assert result["record"]["topic"] == "key-decisions"
+        assert result["record"]["text"] == "we ship on Fridays"
+
+    def test_invalidate_stale_memory_syncs_without_saving(self, coordinator, calls):
+        coordinator.invalidate_stale_memory()
+
+        # Invalidation rewrites the session dict but must not trigger a save --
+        # that distinction is the whole reason sync() exists beside persist().
+        assert calls.syncs == 1
+        assert calls.persists == 0

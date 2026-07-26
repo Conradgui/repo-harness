@@ -44,7 +44,7 @@ class PermissionChecker:
 
         if getattr(self.runtime, "runtime_mode", "default") == "plan":
             return self._check_plan(tool, args, profile_name)
-        if tool.name == "run_shell" and self._sandbox_mode() == "read_only":
+        if tool.name == "run_shell" and self._shell_blocked_by_sandbox(args):
             # SandboxRunner raises for this too, which reaches the model as a
             # generic tool failure. Deciding it here instead means the refusal
             # carries a reason and shows up in the permission matrix.
@@ -66,9 +66,21 @@ class PermissionChecker:
             return PermissionDecision.deny("approval_denied", "approval_denied", profile=profile_name)
         return PermissionDecision.allow("approval_required", profile=profile_name)
 
-    def _sandbox_mode(self):
+    def _shell_blocked_by_sandbox(self, args):
+        """Mirror SandboxRunner's read_only decision, exemptions included.
+
+        The runner lets a command through when it matches `excluded_commands`,
+        even under read_only -- that is user configuration saying "sandbox
+        everything except these". Deciding read_only here without honouring the
+        exemption would silently remove a working escape hatch, so the check
+        delegates to the runner's own matcher rather than reimplementing it.
+        """
         config = getattr(self.runtime, "sandbox_config", None)
-        return str(getattr(config, "mode", "") or "").strip()
+        if str(getattr(config, "mode", "") or "").strip() != "read_only":
+            return False
+        runner = getattr(self.runtime, "sandbox_runner", None)
+        excluded = getattr(runner, "_command_is_excluded", None)
+        return not (excluded is not None and excluded(str(args.get("command", ""))))
 
     def _tool(self, tool_or_name):
         if hasattr(tool_or_name, "name"):

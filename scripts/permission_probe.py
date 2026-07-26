@@ -102,9 +102,16 @@ def main():
     for label, decision, reason in rows:
         print(f"{label.ljust(width)}  {decision:8}  {reason}")
 
-    allowed = [r for r in rows if r[1] == "allow"]
-    print(f"\nwrite allowed in {len(allowed)} of {len(rows)} scenarios")
-    return 0 if allowed else 1
+    write_rows = rows[: len(SCENARIOS) * len(TOOLS)]
+    shell_rows = rows[len(SCENARIOS) * len(TOOLS):]
+    write_allowed = [r for r in write_rows if r[1] == "allow"]
+    shell_allowed = [r for r in shell_rows if r[1] == "allow"]
+
+    print(f"\nwrite allowed in {len(write_allowed)} of {len(write_rows)} scenarios")
+    print(f"shell allowed in {len(shell_allowed)} of {len(shell_rows)} scenarios")
+    # A branch where nothing can be written is not a coding agent -- that is the
+    # condition this probe exists to detect.
+    return 0 if write_allowed else 1
 
 
 if __name__ == "__main__":
