@@ -289,10 +289,20 @@ def tool_search(agent, args):
         raise ValueError("pattern must not be empty")
     path = agent.path(args.get("path", "."))
 
+    # smart-case：pattern 含大写时区分大小写，否则忽略。两条搜索路径共用这个判断，
+    # 保证装没装 rg 的结果一致。
+    case_sensitive = any(character.isupper() for character in pattern)
+
     if shutil.which("rg"):
         # 优先用 rg，因为搜索会非常频繁，搜索延迟会直接影响 agent 控制循环。
+        # --fixed-strings 让 pattern 按字面匹配，语义与下面的 Python fallback 对齐，
+        # 同时避免模型构造的正则触发 ReDoS。
+        # -- 终止选项解析，否则以 - 开头的 pattern 会被 rg 当成选项执行。
         result = subprocess.run(
-            ["rg", "-n", "--smart-case", "--max-count", "200", pattern, str(path)],
+            [
+                "rg", "-n", "--smart-case", "--fixed-strings", "--max-count", "200",
+                "--", pattern, str(path),
+            ],
             cwd=agent.root,
             capture_output=True,
             text=True,
@@ -301,6 +311,7 @@ def tool_search(agent, args):
         )
         return result.stdout.strip() or result.stderr.strip() or "(no matches)"
 
+    needle = pattern if case_sensitive else pattern.lower()
     matches = []
     files = [path] if path.is_file() else [
         item for item in path.rglob("*")
@@ -308,7 +319,8 @@ def tool_search(agent, args):
     ]
     for file_path in files:
         for number, line in enumerate(file_path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1):
-            if pattern.lower() in line.lower():
+            haystack = line if case_sensitive else line.lower()
+            if needle in haystack:
                 matches.append(f"{file_path.relative_to(agent.root)}:{number}:{line}")
                 if len(matches) >= 200:
                     return "\n".join(matches)
