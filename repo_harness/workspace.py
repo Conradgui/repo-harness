@@ -11,6 +11,7 @@ import textwrap
 from datetime import datetime, timezone
 from pathlib import Path
 
+REDACTED_VALUE = "<redacted>"
 MAX_TOOL_OUTPUT = 4000
 MAX_HISTORY = 12000
 # 这些文件最可能直接影响 agent 的行动方式。
