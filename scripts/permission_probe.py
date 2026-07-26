@@ -7,15 +7,20 @@ it. The claim was originally made from an uncommitted script, which made the
 single most load-bearing figure in the delivery package the least
 reproducible thing in the repository.
 
-To compare two refs, use a worktree and pin PYTHONPATH to it:
+To compare two refs, run it from a worktree with the editable install disabled:
 
     git worktree add --detach /tmp/other <ref>
     cp scripts/permission_probe.py /tmp/other/scripts/
-    PYTHONPATH=/tmp/other python scripts/permission_probe.py
+    cd /tmp/other
+    python -E -s scripts/permission_probe.py     # -s skips site-packages hooks
 
-Without PYTHONPATH the editable install resolves `repo_harness` back to the
-main working tree, and the probe silently measures the branch you are already
-on. It reports the module path it loaded so this is visible; check it.
+PYTHONPATH alone is not enough. The editable install registers a MetaPathFinder
+via a .pth file, which runs before sys.path is consulted and resolves
+`repo_harness` back to the main working tree regardless of PYTHONPATH. A run
+that looks correct then silently measures the branch you are already on.
+
+The probe prints the module path it loaded as its first line. **Read it.** If it
+does not point inside the worktree, the numbers below it are meaningless.
 
 Exit code is 0 if at least one scenario allows a write, 1 if none do -- so a
 branch where the agent cannot write anything fails the probe outright.
@@ -80,7 +85,16 @@ class ProbeRuntime:
 def main():
     import repo_harness
 
-    print(f"repo_harness loaded from: {repo_harness.__file__}\n")
+    loaded = Path(repo_harness.__file__).resolve()
+    here = Path(__file__).resolve().parents[1]
+    print(f"repo_harness loaded from: {loaded}")
+    if here not in loaded.parents:
+        print(
+            f"WARNING: that is outside {here} -- an editable install has "
+            "redirected the import and these results describe another tree.\n"
+        )
+    else:
+        print()
     root = Path(tempfile.mkdtemp(prefix="rh-probe-"))
     (root / "src").mkdir(exist_ok=True)
 

@@ -23,6 +23,22 @@ class SandboxConfig:
         return self.mode != "off"
 
 
+# An exempted command runs with shell=True and no isolation, so the exemption
+# may only apply to a command that can do exactly one thing. Anything the shell
+# would read as control -- chaining, redirection, substitution, grouping,
+# escaping, or a second line -- disqualifies it.
+#
+# This is deliberately a deny set over single characters rather than over
+# operator spellings: matching "$(" missed "; rm -rf x", "&& rm -rf x",
+# "| tee /etc/passwd" and a bare newline, all of which were exempted and ran
+# unsandboxed against an ordinary `excluded_commands = ("git status*",)`.
+SHELL_CONTROL_CHARACTERS = frozenset(";&|<>$`\\(){}!#\n\r")
+
+
+def _has_shell_control_character(command):
+    return any(character in SHELL_CONTROL_CHARACTERS for character in str(command))
+
+
 class SandboxRunner:
     def __init__(self, config=None):
         self.config = config or SandboxConfig()
@@ -70,9 +86,7 @@ class SandboxRunner:
     def _command_is_excluded(self, command):
         excluded = getattr(self.config, "excluded_commands", ()) or ()
         command = str(command or "").strip()
-        # 防止 shell 元字符绕过：如果命令包含子 shell 或变量展开，不跳过 sandbox
-        shell_metacharacters = ("$(", "${", "`", "\\")
-        if any(mc in command for mc in shell_metacharacters):
+        if _has_shell_control_character(command):
             return False
         return any(fnmatch.fnmatch(command, str(item)) for item in excluded)
 

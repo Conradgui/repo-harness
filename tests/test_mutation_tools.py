@@ -200,8 +200,27 @@ class TestShellSandboxGate:
         assert other.decision == "deny"
         assert other.reason == "sandbox_read_only"
 
-    def test_metacharacters_defeat_the_exemption(self, tmp_path):
-        """The runner refuses to exempt a command that can spawn a subshell."""
+    # An exempted command runs with shell=True and no isolation, so anything the
+    # shell reads as control has to disqualify it. The guard used to match only
+    # "$(", "${", backtick and backslash, which let every one of these through.
+    @pytest.mark.parametrize(
+        "smuggled",
+        [
+            "git status; rm -rf x",
+            "git status && rm -rf x",
+            "git status || rm -rf x",
+            "git status | tee /etc/passwd",
+            "git status > /etc/passwd",
+            "git status < /etc/passwd",
+            "git status & rm -rf x",
+            "git status\nrm -rf x",
+            "git status $(rm -rf x)",
+            "git status `rm -rf x`",
+            "git status ${HOME}",
+            "git status # rm -rf x",
+        ],
+    )
+    def test_control_characters_defeat_the_exemption(self, tmp_path, smuggled):
         from repo_harness.sandbox import SandboxConfig
 
         agent = build_agent(
@@ -209,15 +228,33 @@ class TestShellSandboxGate:
             [],
             approval_policy="auto",
             sandbox_config=SandboxConfig(
-                mode="read_only", excluded_commands=("git status",)
+                mode="read_only", excluded_commands=("git status*",)
             ),
         )
 
-        smuggled = agent.permission_checker.check(
-            "run_shell", {"command": "git status $(rm -rf .)"}
+        decision = agent.permission_checker.check("run_shell", {"command": smuggled})
+
+        assert decision.decision == "deny", f"{smuggled!r} was exempted from the sandbox"
+        assert decision.reason == "sandbox_read_only"
+
+    def test_a_plain_exempted_command_still_passes(self, tmp_path):
+        from repo_harness.sandbox import SandboxConfig
+
+        agent = build_agent(
+            tmp_path,
+            [],
+            approval_policy="auto",
+            sandbox_config=SandboxConfig(
+                mode="read_only", excluded_commands=("git status*",)
+            ),
         )
 
-        assert smuggled.decision == "deny"
+        assert (
+            agent.permission_checker.check(
+                "run_shell", {"command": "git status --short"}
+            ).decision
+            == "allow"
+        )
 
     def test_read_only_mode_does_not_block_reading(self, tmp_path):
         from repo_harness.sandbox import SandboxConfig
