@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RepoHarness 项目综合审查报告（更新版）</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --card: #1e293b;
+    --border: #334155;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --accent: #6366f1;
+    --accent-light: #818cf8;
+    --green: #22c55e;
+    --green-bg: #052e16;
+    --yellow: #eab308;
+    --yellow-bg: #422006;
+    --orange: #f97316;
+    --orange-bg: #431407;
+    --red: #ef4444;
+    --red-bg: #450a0a;
+    --blue: #3b82f6;
+    --blue-bg: #172554;
+    --purple: #a855f7;
+    --purple-bg: #3b0764;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 24px;
+  }
+  .report-header {
+    max-width: 1400px;
+    margin: 0 auto 32px;
+    padding: 32px;
+    background: linear-gradient(135deg, #1e293b 0%, #312e81 100%);
+    border-radius: 16px;
+    border: 1px solid var(--border);
+  }
+  .report-header h1 {
+    font-size: 28px;
+    margin-bottom: 8px;
+    background: linear-gradient(90deg, #818cf8, #c084fc);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .report-header .subtitle { color: var(--text-dim); font-size: 15px; }
+  .report-meta {
+    display: flex; gap: 24px; margin-top: 20px; flex-wrap: wrap;
+  }
+  .meta-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 14px;
+    background: rgba(99, 102, 241, 0.15);
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    border-radius: 20px; font-size: 13px; color: var(--accent-light);
+  }
+  .meta-chip.green { background: rgba(34,197,94,0.15); border-color: rgba(34,197,94,0.3); color: var(--green); }
+  .meta-chip.yellow { background: rgba(234,179,8,0.15); border-color: rgba(234,179,8,0.3); color: var(--yellow); }
+  .section { max-width: 1400px; margin: 0 auto 32px; }
+  .section-title {
+    display: flex; align-items: center; gap: 12px;
+    font-size: 22px; font-weight: 700; margin-bottom: 20px;
+    padding-bottom: 12px; border-bottom: 2px solid var(--border);
+  }
+  .section-title .num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 36px; height: 36px; background: var(--accent);
+    border-radius: 10px; font-size: 18px; color: white;
+  }
+  /* Progress summary */
+  .progress-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px; margin-bottom: 24px;
+  }
+  .progress-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px; text-align: center;
+  }
+  .progress-value {
+    font-size: 32px; font-weight: 700;
+  }
+  .progress-value.green { color: var(--green); }
+  .progress-value.blue { color: var(--blue); }
+  .progress-value.yellow { color: var(--yellow); }
+  .progress-value.red { color: var(--red); }
+  .progress-label { font-size: 13px; color: var(--text-dim); margin-top: 6px; }
+  /* Before/After comparison */
+  .compare-table {
+    width: 100%; border-collapse: collapse; margin-bottom: 24px; font-size: 14px;
+  }
+  .compare-table th, .compare-table td {
+    padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border);
+  }
+  .compare-table th {
+    color: var(--accent-light); font-weight: 600; font-size: 12px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .compare-table .delta { font-weight: 600; }
+  .compare-table .delta.good { color: var(--green); }
+  .compare-table .delta.neutral { color: var(--text-dim); }
+  /* Kanban */
+  .kanban {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+    gap: 20px;
+  }
+  .kanban-col {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; overflow: hidden;
+  }
+  .kanban-col-header {
+    padding: 14px 18px; font-weight: 600; font-size: 15px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+  }
+  .kanban-col-body { padding: 16px; }
+  .layer-card {
+    background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px; margin-bottom: 12px;
+    transition: background 0.2s;
+  }
+  .layer-card:hover { background: rgba(15, 23, 42, 0.9); }
+  .layer-card:last-child { margin-bottom: 0; }
+  .layer-name { font-weight: 600; font-size: 14px; color: var(--accent-light); margin-bottom: 4px; }
+  .layer-desc { font-size: 13px; color: var(--text-dim); }
+  .layer-file {
+    font-family: "SF Mono", "Fira Code", Consolas, monospace;
+    font-size: 12px; color: var(--green); margin-top: 4px;
+  }
+  .layer-card.new-module { border-color: var(--green); background: rgba(34,197,94,0.05); }
+  .layer-card.new-module .layer-name { color: var(--green); }
+  .layer-card.new-module::before {
+    content: "NEW"; display: inline-block; font-size: 10px; font-weight: 700;
+    background: var(--green); color: var(--bg); padding: 2px 6px; border-radius: 4px;
+    margin-bottom: 6px;
+  }
+  /* Flow */
+  .flow-container { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 12px; }
+  .flow-step {
+    flex: 0 0 280px; background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 18px; position: relative;
+  }
+  .flow-step::after {
+    content: "→"; position: absolute; right: -22px; top: 50%;
+    transform: translateY(-50%); color: var(--accent); font-size: 24px; z-index: 1;
+  }
+  .flow-step:last-child::after { display: none; }
+  .flow-num {
+    display: inline-block; width: 28px; height: 28px; line-height: 28px;
+    text-align: center; background: var(--accent); color: white;
+    border-radius: 8px; font-size: 14px; font-weight: 700; margin-bottom: 10px;
+  }
+  .flow-title { font-weight: 600; font-size: 15px; margin-bottom: 8px; }
+  .flow-detail { font-size: 13px; color: var(--text-dim); }
+  .flow-cmd {
+    font-family: "SF Mono", "Fira Code", Consolas, monospace; font-size: 12px;
+    color: var(--green); background: rgba(34, 197, 94, 0.1);
+    padding: 4px 8px; border-radius: 6px; margin-top: 8px; display: inline-block;
+  }
+  /* Issue board */
+  .issue-board {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(440px, 1fr));
+    gap: 16px;
+  }
+  .issue-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-left: 4px solid var(--accent); border-radius: 10px; padding: 16px;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .issue-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+  .issue-card.status-fixed { border-left-color: var(--green); opacity: 0.85; }
+  .issue-card.status-partial { border-left-color: var(--yellow); }
+  .issue-card.status-constraint { border-left-color: var(--text-dim); opacity: 0.7; }
+  .issue-card.status-retained { border-left-color: var(--blue); opacity: 0.85; }
+  .issue-card.sev-high { border-left-color: var(--red); }
+  .issue-card.sev-high.status-fixed { border-left-color: var(--green); }
+  .issue-card.sev-high.status-partial { border-left-color: var(--yellow); }
+  .issue-card.sev-high.status-constraint { border-left-color: var(--text-dim); }
+  .issue-card.sev-medium.status-fixed { border-left-color: var(--green); }
+  .issue-card.sev-medium.status-partial { border-left-color: var(--yellow); }
+  .issue-card.sev-medium.status-constraint { border-left-color: var(--text-dim); }
+  .issue-card.sev-low.status-fixed { border-left-color: var(--green); }
+  .issue-card.sev-low.status-constraint { border-left-color: var(--text-dim); }
+  .issue-card.sev-info.status-fixed { border-left-color: var(--green); }
+  .issue-header {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    margin-bottom: 10px; gap: 10px;
+  }
+  .issue-title { font-weight: 600; font-size: 15px; flex: 1; }
+  .issue-title.done { text-decoration: line-through; text-decoration-color: var(--green); text-decoration-thickness: 2px; }
+  .issue-badges { display: flex; gap: 6px; flex-shrink: 0; flex-wrap: wrap; }
+  .badge {
+    padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; white-space: nowrap;
+  }
+  .badge-high { background: var(--red-bg); color: var(--red); border: 1px solid rgba(239,68,68,0.3); }
+  .badge-medium { background: var(--orange-bg); color: var(--orange); border: 1px solid rgba(249,115,22,0.3); }
+  .badge-low { background: var(--yellow-bg); color: var(--yellow); border: 1px solid rgba(234,179,8,0.3); }
+  .badge-info { background: var(--blue-bg); color: var(--blue); border: 1px solid rgba(59,130,246,0.3); }
+  .badge-cat { background: rgba(168,85,247,0.15); color: var(--purple); border: 1px solid rgba(168,85,247,0.3); }
+  .badge-fixed { background: var(--green-bg); color: var(--green); border: 1px solid rgba(34,197,94,0.3); }
+  .badge-partial { background: var(--yellow-bg); color: var(--yellow); border: 1px solid rgba(234,179,8,0.3); }
+  .badge-constraint { background: rgba(100,116,139,0.15); color: var(--text-dim); border: 1px solid rgba(100,116,139,0.3); }
+  .badge-retained { background: var(--blue-bg); color: var(--blue); border: 1px solid rgba(59,130,246,0.3); }
+  .issue-loc {
+    font-family: "SF Mono", "Fira Code", Consolas, monospace; font-size: 12px;
+    color: var(--green); background: rgba(15, 23, 42, 0.8);
+    padding: 6px 10px; border-radius: 6px; margin-bottom: 8px; border: 1px solid var(--border);
+  }
+  .issue-desc { font-size: 13px; color: var(--text-dim); }
+  .issue-desc code {
+    font-family: "SF Mono", "Fira Code", Consolas, monospace;
+    background: rgba(99, 102, 241, 0.15); padding: 1px 5px;
+    border-radius: 4px; font-size: 12px; color: var(--accent-light);
+  }
+  .issue-fix {
+    margin-top: 10px; padding: 10px 12px; border-radius: 8px;
+    font-size: 13px; background: var(--green-bg); border: 1px solid rgba(34,197,94,0.2);
+  }
+  .issue-fix strong { color: var(--green); }
+  .issue-fix.partial { background: var(--yellow-bg); border-color: rgba(234,179,8,0.2); }
+  .issue-fix.partial strong { color: var(--yellow); }
+  .issue-fix.constraint { background: rgba(100,116,139,0.1); border-color: rgba(100,116,139,0.2); }
+  .issue-fix.constraint strong { color: var(--text-dim); }
+  /* Filter */
+  .filter-bar { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+  .filter-btn {
+    padding: 8px 18px; background: var(--card); border: 1px solid var(--border);
+    border-radius: 20px; color: var(--text-dim); cursor: pointer; font-size: 13px;
+    transition: all 0.2s;
+  }
+  .filter-btn:hover { border-color: var(--accent); color: var(--text); }
+  .filter-btn.active { background: var(--accent); border-color: var(--accent); color: white; }
+  .issue-card.hidden { display: none; }
+  /* Stats */
+  .stats-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 16px; margin-bottom: 24px;
+  }
+  .stat-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 18px; text-align: center;
+  }
+  .stat-value {
+    font-size: 28px; font-weight: 700;
+    background: linear-gradient(90deg, var(--accent-light), var(--purple));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .stat-value.green { background: var(--green); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .stat-label { font-size: 13px; color: var(--text-dim); margin-top: 4px; }
+  /* Note box */
+  .note-box {
+    background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3);
+    border-radius: 10px; padding: 14px 18px; margin-top: 16px;
+    font-size: 13px; color: var(--text-dim);
+  }
+  .note-box strong { color: var(--blue); }
+  .note-box.green { background: rgba(34,197,94,0.1); border-color: rgba(34,197,94,0.3); }
+  .note-box.green strong { color: var(--green); }
+  /* Memory flow */
+  .memory-flow {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px; margin-top: 16px;
+  }
+  .memory-flow-title { font-weight: 600; margin-bottom: 12px; font-size: 15px; }
+  .memory-chain {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px;
+  }
+  .memory-node {
+    padding: 8px 16px; background: rgba(99, 102, 241, 0.15);
+    border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 8px;
+    color: var(--accent-light); font-weight: 500;
+  }
+  .memory-arrow { color: var(--text-dim); font-size: 18px; }
+  /* Provider table */
+  .provider-table {
+    width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px;
+  }
+  .provider-table th, .provider-table td {
+    padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border);
+  }
+  .provider-table th {
+    color: var(--accent-light); font-weight: 600; font-size: 12px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .provider-table td code {
+    font-family: "SF Mono", "Fira Code", Consolas, monospace; color: var(--green); font-size: 12px;
+  }
+  .report-footer {
+    max-width: 1400px; margin: 32px auto 0; padding: 20px; text-align: center;
+    color: var(--text-dim); font-size: 13px; border-top: 1px solid var(--border);
+  }
+</style>
+</head>
+<body>
+
+<!-- ========== Header ========== -->
+<div class="report-header">
+  <h1>RepoHarness 项目综合审查报告</h1>
+  <div class="subtitle">本地 coding agent runtime · 三轮迭代 + 安全加固后的完整状态 · 19 项问题逐一跟踪 · 含端到端功能流程验证</div>
+  <div class="report-meta">
+    <span class="meta-chip">分支: release/optimized-v1</span>
+    <span class="meta-chip green">499 passed, 1 skipped</span>
+    <span class="meta-chip">ruff 1 error (working tree)</span>
+    <span class="meta-chip">源码 14,531 行 / 73 文件</span>
+    <span class="meta-chip">测试 9,369 行 / 38 文件</span>
+    <span class="meta-chip yellow">Runtime 1,115 类体 / 1,196 物理行 (原 1,249)</span>
+  </div>
+</div>
+
+<!-- ========== Progress Summary ========== -->
+<div class="section">
+  <div class="section-title">
+    <span class="num">0</span>
+    修复进展总览
+  </div>
+
+  <div class="progress-grid">
+    <div class="progress-card">
+      <div class="progress-value green">12</div>
+      <div class="progress-label">已完整修复</div>
+    </div>
+    <div class="progress-card">
+      <div class="progress-value yellow">0</div>
+      <div class="progress-label">部分修复 / 持续推进</div>
+    </div>
+    <div class="progress-card">
+      <div class="progress-value red">3</div>
+      <div class="progress-label">设计约束 / 不可消除</div>
+    </div>
+    <div class="progress-card">
+      <div class="progress-value blue">2</div>
+      <div class="progress-label">确认合理 / 保留</div>
+    </div>
+    <div class="progress-card">
+      <div class="progress-value green">2</div>
+      <div class="progress-label">已完成 (历史/流程)</div>
+    </div>
+  </div>
+
+  <table class="compare-table">
+    <thead>
+      <tr>
+        <th>指标</th>
+        <th>初始基线</th>
+        <th>第一轮后</th>
+        <th>第二轮后（当前）</th>
+        <th>总变化</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>测试通过数</td>
+        <td>463</td>
+        <td>473</td>
+        <td><strong>499</strong></td>
+        <td class="delta good">+36</td>
+      </tr>
+      <tr>
+        <td>Runtime 类行数 (类体)</td>
+        <td>1,249</td>
+        <td>1,247</td>
+        <td><strong>1,115</strong></td>
+        <td class="delta good">−132</td>
+      </tr>
+      <tr>
+        <td>源码行数</td>
+        <td>14,602</td>
+        <td>14,642</td>
+        <td><strong>14,531</strong></td>
+        <td class="delta good">−111</td>
+      </tr>
+      <tr>
+        <td>测试行数</td>
+        <td>9,083</td>
+        <td>9,187</td>
+        <td><strong>9,369</strong></td>
+        <td class="delta good">+286</td>
+      </tr>
+      <tr>
+        <td>ruff 错误</td>
+        <td>0</td>
+        <td>0</td>
+        <td><strong>1 (working tree)</strong></td>
+        <td class="delta neutral">+1</td>
+      </tr>
+      <tr>
+        <td>新模块</td>
+        <td>—</td>
+        <td>—</td>
+        <td><strong>core/prompt_builder.py</strong></td>
+        <td class="delta good">+1</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="note-box green">
+    <strong>三轮修复 + 端到端场景验证成果：</strong>
+    共修改 18 个源码/测试文件，新增 36 个测试（含 3 个端到端功能流程测试），修复 8 个真实 bug，
+    提取 2 个新模块（prompt_builder.py + checkpoint_builder.py），runtime 类体减少 134 行（物理 1,196）。
+    <strong>端到端场景测试</strong>：用真实 demo-repo 驱动 agent 完成完整的"读文件→运行测试→patch修复→再测试→返回"流程，
+    验证了 trace 完整性、task_state/report 工件产出、checkpoint 在每步后创建。
+    <strong>新发现的产品行为风险</strong>：当 patch_file 被拒绝（如 old_text 不匹配），agent 仍可能继续运行测试并在测试恰好通过时声称修复成功——
+    这是一个"agent 在不确定情况下声称成功"的风险，    值得在后续版本中通过 final answer 校验逻辑改进。
+    <br><br>
+    <strong>2026-07-30 同步更新：</strong>指标已对齐 <code>scripts/measure.py</code> 实测（源码 14,531 / 测试 9,369 / runtime 类体 1,115·物理 1,196 / 101 方法）。最近一批 sandbox 安全加固已收口（read_only 直接阻止 run_shell、不再咨询命令过滤器；关闭 .env 覆盖与 fail-open 回退），详见新增 Issue 19。当前 working tree 存在 1 个 ruff 错误（F841，<code>tests/test_repo_harness.py:2378</code>，未提交改动）。
+  </div>
+</div>
+
+<!-- ========== Section 1: Architecture ========== -->
+<div class="section">
+  <div class="section-title">
+    <span class="num">1</span>
+    项目架构分析
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-value">5</div>
+      <div class="stat-label">Provider 协议</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">448</div>
+      <div class="stat-label">控制循环行数</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value green">1,115</div>
+      <div class="stat-label">Runtime 类体行数 (物理 1,196; 原1,249)</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">101</div>
+      <div class="stat-label">Runtime 方法数</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">26</div>
+      <div class="stat-label">core/ 子模块 (原25)</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">9</div>
+      <div class="stat-label">auto_issue_fix/ 子模块</div>
+    </div>
+  </div>
+
+  <div class="kanban">
+    <div class="kanban-col">
+      <div class="kanban-col-header" style="background: rgba(99,102,241,0.1); color: var(--accent-light);">
+        <span>入口层 · Entry</span>
+      </div>
+      <div class="kanban-col-body">
+        <div class="layer-card">
+          <div class="layer-name">CLI 参数解析</div>
+          <div class="layer-desc">解析显式参数、环境变量、.env、.repo-harness.toml、全局 config，按固定优先级合并</div>
+          <div class="layer-file">repo_harness/cli.py</div>
+        </div>
+        <div class="layer-card">
+          <div class="layer-name">REPL 交互</div>
+          <div class="layer-desc">基于 rich 的增强终端，工具调用卡片、Markdown 渲染、slash 命令补全</div>
+          <div class="layer-file">repl_display.py · repl_facade.py</div>
+        </div>
+        <div class="layer-card">
+          <div class="layer-name">Provider 配置闭环</div>
+          <div class="layer-desc">probe → setup → doctor，只存环境变量名不存 key</div>
+          <div class="layer-file">provider_registry.py · provider_setup.py</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="kanban-col">
+      <div class="kanban-col-header" style="background: rgba(168,85,247,0.1); color: var(--purple);">
+        <span>运行时 · Runtime</span>
+      </div>
+      <div class="kanban-col-body">
+        <div class="layer-card">
+          <div class="layer-name">RepoHarness</div>
+          <div class="layer-desc">会话状态、工具画像、checkpoint；记忆子域已迁出，prompt 纯计算已提取</div>
+          <div class="layer-file">repo_harness/runtime.py (1,115 类体 / 1,196 物理, 原1,249)</div>
+        </div>
+        <div class="layer-card">
+          <div class="layer-name">MemoryCoordinator</div>
+          <div class="layer-desc">记忆审核 / 长期化 / 自迭代，三个回调反向依赖 runtime</div>
+          <div class="layer-file">core/memory_coordinator.py</div>
+        </div>
+        <div class="layer-card new-module">
+          <div class="layer-name">PromptBuilder (新提取)</div>
+          <div class="layer-desc">3 个纯函数：filter_available_tools / compute_tool_signature / build_prompt_text，无状态依赖</div>
+          <div class="layer-file">core/prompt_builder.py (NEW)</div>
+        </div>
+        <div class="layer-card">
+          <div class="layer-name">ContextManager</div>
+          <div class="layer-desc">Prompt 组装与上下文预算控制，支持环境变量扩展 context window</div>
+          <div class="layer-file">context_manager.py (668行)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="kanban-col">
+      <div class="kanban-col-header" style="background: rgba(34,197,94,0.1); color: var(--green);">
+        <span>控制循环 · Engine</span>
+      </div>
+      <div class="kanban-col-body">
+        <div class="layer-card">
+          <div class="layer-name">Engine.run_turn</div>
+          <div class="layer-desc">构建 prompt → 调模型 → 解析输出 → 执行工具 → 循环或收敛</div>
+          <div class="layer-file">core/engine.py (448行)</div>
+        </div>
+        <div class="layer-card">
+          <div class="layer-name">工具执行器</div>
+          <div class="layer-desc">统一经 permission gate、tool policy、sandbox、artifact clipping</div>
+          <div class="layer-file">core/tool_executor.py</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="kanban-col">
+      <div class="kanban-col-header" style="background: rgba(249,115,22,0.1); color: var(--orange);">
+        <span>安全与权限 · Security</span>
+      </div>
+      <div class="kanban-col-body">
+        <div class="layer-card">
+          <div class="layer-name">PermissionChecker (单点决策)</div>
+          <div class="layer-desc">所有工具调用经此求值</div>
+          <div class="layer-file">permissions.py</div>
+        </div>
+        <div class="layer-card">
+          <div class="layer-name">SandboxRunner</div>
+          <div class="layer-desc">off / best_effort / read_only / required</div>
+          <div class="layer-file">sandbox.py</div>
+        </div>
+        <div class="layer-card">
+          <div class="layer-name">Model Client repr 脱敏</div>
+          <div class="layer-desc">3 个 client 类 __repr__ 不暴露 api_key</div>
+          <div class="layer-file">models.py (已加固)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="kanban-col">
+      <div class="kanban-col-header" style="background: rgba(59,130,246,0.1); color: var(--blue);">
+        <span>工件与编排 · Artifacts</span>
+      </div>
+      <div class="kanban-col-body">
+        <div class="layer-card">
+          <div class="layer-name">RunStore</div>
+          <div class="layer-desc">task_state.json / trace.jsonl / report.json</div>
+          <div class="layer-file">run_store.py</div>
+        </div>
+        <div class="layer-card">
+          <div class="layer-name">Auto Issue Fix</div>
+          <div class="layer-desc">测试命令推断已扩展到 9 种语言生态</div>
+          <div class="layer-file">auto_issue_fix/ (9 子模块)</div>
+        </div>
+        <div class="layer-card">
+          <div class="layer-name">Memory Pack</div>
+          <div class="layer-desc">导出/导入/检查/验证</div>
+          <div class="layer-file">memory_pack.py</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <table class="provider-table">
+    <thead>
+      <tr><th>Provider</th><th>协议</th><th>典型模型</th><th>Context Window</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>openai</code></td><td>Responses API</td><td>gpt-5.4</td><td>1,048,576</td></tr>
+      <tr><td><code>chat-completions</code></td><td>Chat Completions</td><td>mimo-v2.5-pro</td><td>128,000</td></tr>
+      <tr><td><code>anthropic</code></td><td>Messages API</td><td>claude-sonnet-4-6</td><td>200,000</td></tr>
+      <tr><td><code>deepseek</code></td><td>Anthropic-compatible</td><td>deepseek-v4-pro</td><td>128,000</td></tr>
+      <tr><td><code>ollama</code></td><td>本地</td><td>qwen3.5:4b</td><td>32,768</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ========== Section 2: User Flow ========== -->
+<div class="section">
+  <div class="section-title">
+    <span class="num">2</span>
+    用户流程梳理
+  </div>
+
+  <h3 style="color: var(--accent-light); margin-bottom: 16px; font-size: 17px;">2.1 核心任务流</h3>
+  <div class="flow-container">
+    <div class="flow-step"><div class="flow-num">1</div><div class="flow-title">PREFLIGHT 预检</div><div class="flow-detail">加载工作区、provider 配置、隔离后端状态检查</div><div class="flow-cmd">uv run repo-harness --cwd ./repo</div></div>
+    <div class="flow-step"><div class="flow-num">2</div><div class="flow-title">DIAGNOSE 诊断</div><div class="flow-detail">Agent 使用只读工具读取文件、定位问题根因</div><div class="flow-cmd">read tests/test_pricing.py</div></div>
+    <div class="flow-step"><div class="flow-num">3</div><div class="flow-title">PROPOSE 提议</div><div class="flow-detail">Agent 生成补丁和验证命令</div><div class="flow-cmd">patch src/pricing.py</div></div>
+    <div class="flow-step"><div class="flow-num">4</div><div class="flow-title">AUTHORIZE 授权</div><div class="flow-detail">权限门检查 write_scope / approval_policy</div><div class="flow-cmd">[approve] fs.write</div></div>
+    <div class="flow-step"><div class="flow-num">5</div><div class="flow-title">EXECUTE + VERIFY</div><div class="flow-detail">应用补丁、运行测试、验证结果</div><div class="flow-cmd">python -m pytest -q</div></div>
+    <div class="flow-step"><div class="flow-num">6</div><div class="flow-title">SUMMARY 收尾</div><div class="flow-detail">生成 task_state / trace / report，记忆候选进 Review Queue</div><div class="flow-cmd">.repo-harness/runs/</div></div>
+  </div>
+
+  <h3 style="color: var(--accent-light); margin: 32px 0 16px; font-size: 17px;">2.2 Auto Issue Fix 流（测试命令推断已扩展到 9 种语言）</h3>
+  <div class="flow-container">
+    <div class="flow-step"><div class="flow-num">1</div><div class="flow-title">获取 Issue</div><div class="flow-detail">从 GitHub 读取 issue 或 discovery 筛选</div><div class="flow-cmd">auto-issue-fix --repo owner/name --issue 123</div></div>
+    <div class="flow-step"><div class="flow-num">2</div><div class="flow-title">隔离 Clone</div><div class="flow-detail">创建分支、隔离工作区</div><div class="flow-cmd">clone + create branch</div></div>
+    <div class="flow-step"><div class="flow-num">3</div><div class="flow-title">修复 Turn</div><div class="flow-detail">调用 RepoHarness runtime 执行修复</div><div class="flow-cmd">run_repoharness_fix_turn()</div></div>
+    <div class="flow-step"><div class="flow-num">4</div><div class="flow-title">测试验证</div><div class="flow-detail">自动推断：Python/npm/Go/Rust/Maven/Gradle/.NET/Ruby/CMake</div><div class="flow-cmd">infer_test_commands()</div></div>
+    <div class="flow-step"><div class="flow-num">5</div><div class="flow-title">审查门</div><div class="flow-detail">自动审查 + maintainer-trust 门</div><div class="flow-cmd">review-gated / draft-auto</div></div>
+    <div class="flow-step"><div class="flow-num">6</div><div class="flow-title">Draft PR</div><div class="flow-detail">commit、push、创建 draft PR，生成证据包</div><div class="flow-cmd">evidence/</div></div>
+  </div>
+
+  <div class="memory-flow">
+    <div class="memory-flow-title">2.3 记忆治理流（accept 顺序已修复：先 promote 再 mark）</div>
+    <div class="memory-chain">
+      <span class="memory-node">候选事实</span>
+      <span class="memory-arrow">→</span>
+      <span class="memory-node">Review Queue</span>
+      <span class="memory-arrow">→</span>
+      <span class="memory-node">/memory review accept</span>
+      <span class="memory-arrow">→</span>
+      <span class="memory-node">promote_durable (先执行)</span>
+      <span class="memory-arrow">→</span>
+      <span class="memory-node">mark accepted (后执行)</span>
+      <span class="memory-arrow">→</span>
+      <span class="memory-node">durable topics</span>
+    </div>
+    <div style="margin-top: 12px; font-size: 13px; color: var(--text-dim);">
+      修复前：先 mark 再 promote，promote 失败时记录已标记 accepted 但 durable store 缺失内容。修复后：先 promote 再 mark，promote 失败时记录保持 pending，用户可重试。
+    </div>
+  </div>
+</div>
+
+<!-- ========== Section 3: Issues ========== -->
+<div class="section">
+  <div class="section-title">
+    <span class="num">3</span>
+    问题列表与修复状态
+  </div>
+
+  <div class="filter-bar">
+    <div class="filter-btn active" data-filter="all">全部 (19)</div>
+    <div class="filter-btn" data-filter="fixed" style="color:var(--green);">已修复 (12)</div>
+    <div class="filter-btn" data-filter="partial" style="color:var(--yellow);">部分修复 (0)</div>
+    <div class="filter-btn" data-filter="constraint" style="color:var(--text-dim);">设计约束 (3)</div>
+    <div class="filter-btn" data-filter="retained" style="color:var(--blue);">确认合理 (2)</div>
+    <div class="filter-btn" data-filter="done" style="color:var(--green);">已完成 (2)</div>
+  </div>
+
+  <div class="issue-board">
+
+    <!-- Issue 1 -->
+    <div class="issue-card sev-high status-fixed" data-status="fixed">
+      <div class="issue-header">
+        <div class="issue-title done">God Object：RepoHarness 承担过多职责</div>
+        <div class="issue-badges"><span class="badge badge-high">高</span><span class="badge badge-cat">架构</span><span class="badge badge-fixed">已修复</span></div>
+      </div>
+      <div class="issue-loc">repo_harness/runtime.py · 1,115 类体 / 1,196 物理行 / 101 方法 (原 1,249)</div>
+      <div class="issue-desc">
+        三轮提取完成：记忆子域（17 个方法→MemoryCoordinator）、prompt 纯计算（3 函数→prompt_builder.py）、checkpoint 纯计算（2 函数→checkpoint_builder.py）。
+        metrics/context 聚类已确认足够薄（2 行静态转发），无需提取。共减少 134 行（类体；物理 1,196）。
+      </div>
+      <div class="issue-fix">
+        <strong>已修复：</strong>三个可提取聚类全部完成。metrics/context 已确认是薄转发，保持现状（ADR-005）。
+      </div>
+    </div>
+
+    <!-- Issue 2 -->
+    <div class="issue-card sev-high status-constraint" data-status="constraint">
+      <div class="issue-header">
+        <div class="issue-title">shell=True 执行模型/用户提供的命令字符串</div>
+        <div class="issue-badges"><span class="badge badge-high">高</span><span class="badge badge-cat">安全</span><span class="badge badge-constraint">设计约束</span></div>
+      </div>
+      <div class="issue-loc">repo_harness/tools/__init__.py:344,394</div>
+      <div class="issue-desc">
+        <code>tool_run_shell</code> 使用 <code>shell=True</code> 执行模型生成的命令。这是 run_shell 工具的设计本质——它的目的就是执行 shell 命令。
+        权限门 + sandbox + 环境变量 allowlist + shell search 检测器共同提供安全边界。
+      </div>
+      <div class="issue-fix constraint">
+        <strong>不可消除：</strong>run_shell 工具的核心能力就是执行 shell 命令。删除 shell=True 等于删除工具本身。安全由多层门控保证。
+      </div>
+    </div>
+
+    <!-- Issue 3 -->
+    <div class="issue-card sev-high status-fixed" data-status="fixed">
+      <div class="issue-header">
+        <div class="issue-title done">API Key 明文存储于内存实例属性</div>
+        <div class="issue-badges"><span class="badge badge-high">高</span><span class="badge badge-cat">安全</span><span class="badge badge-fixed">已修复</span></div>
+      </div>
+      <div class="issue-loc">repo_harness/models.py:262,438,547</div>
+      <div class="issue-desc">
+        3 个 model client 类添加 <code>__repr__</code>，api_key 显示为 <code>&lt;redacted&gt;</code>。子 Agent 确认无其他泄露路径（异常消息不含 key，无 logging 模块）。
+      </div>
+      <div class="issue-fix">
+        <strong>已修复：</strong>添加 <code>__repr__</code> 脱敏。子 Agent 审查 PASS，无其他泄露路径。
+      </div>
+    </div>
+
+    <!-- Issue 4 -->
+    <div class="issue-card sev-medium status-fixed" data-status="fixed">
+      <div class="issue-header">
+        <div class="issue-title done">9 处 except Exception 静默吞掉异常</div>
+        <div class="issue-badges"><span class="badge badge-medium">中</span><span class="badge badge-cat">异常处理</span><span class="badge badge-fixed">已修复</span></div>
+      </div>
+      <div class="issue-loc">runtime.py · workspace.py · tool_policy.py · memory.py · repl_display.py</div>
+      <div class="issue-desc">
+        8 处收窄为精确异常类型（OSError / json.JSONDecodeError / ValueError 等），1 处保留广捕（prompt_toolkit 有 NoConsoleScreenBufferError 等自定义异常不继承标准类型）。
+      </div>
+      <div class="issue-fix">
+        <strong>已修复：</strong>子 Agent 抓到 2 个问题（ValueError 遗漏、cli.py 收窄过激进），均已修复。
+      </div>
+    </div>
+
+    <!-- Issue 5 -->
+    <div class="issue-card sev-medium status-fixed" data-status="fixed">
+      <div class="issue-header">
+        <div class="issue-title done">大模块未做深入审计</div>
+        <div class="issue-badges"><span class="badge badge-medium">中</span><span class="badge badge-cat">可维护性</span><span class="badge badge-fixed">已修复</span></div>
+      </div>
+      <div class="issue-loc">repo_harness/memory.py (1,266行) · context_manager.py (668行)</div>
+      <div class="issue-desc">
+        memory.py 审计：修复 accept_durable_review 部分提交 bug。确认 skip 行为是设计意图。压缩逻辑在 core/compact.py。
+        context_manager.py 审计：修复 5 个问题（section_order 缺 skills、floor>budget、note["text"] KeyError、output_reserve 溢出、CLI 异常类型缺失）。
+      </div>
+      <div class="issue-fix">
+        <strong>已修复：</strong>两个大模块均已完成深入审计，所有发现的问题已修复。
+      </div>
+    </div>
+
+    <!-- Issue 6 -->
+    <div class="issue-card sev-medium status-fixed" data-status="fixed">
+      <div class="issue-header">
+        <div class="issue-title done">run_shell 输出处理缺少专门测试</div>
+        <div class="issue-badges"><span class="badge badge-medium">中</span><span class="badge badge-cat">测试</span><span class="badge badge-fixed">已修复</span></div>
+      </div>
+      <div class="issue-loc">tests/test_tool_policy_acceptance.py</div>
+      <div class="issue-desc">
+        新增 3 个测试：成功命令(exit 0→ok)、部分成功(写文件+exit非零→partial_success)、无 task_state 长输出截断(不落盘)。
+      </div>
+      <div class="issue-fix">
+        <strong>已修复：</strong>子 Agent 确认 5 项检查全 PASS，测试提供真实回归保护。
+      </div>
+    </div>
+
+    <!-- Issue 7 -->
+    <div class="issue-card sev-medium status-fixed" data-status="fixed">
+      <div class="issue-header">
+        <div class="issue-title done">硬编码模型 context window 字典</div>
+        <div class="issue-badges"><span class="badge badge-medium">中</span><span class="badge badge-cat">可维护性</span><span class="badge badge-fixed">已修复</span></div>
+      </div>
+      <div class="issue-loc">repo_harness/context_manager.py:77-107</div>
+      <div class="issue-desc">
+        新增 <code>REPO_HARNESS_EXTRA_CONTEXT_WINDOWS</code> 环境变量扩展机制（JSON 格式），用户可注册新模型无需改代码。8 个测试覆盖 JSON 解析、非字典 JSON、非数字值过滤、优先级覆盖。
+      </div>
+      <div class="issue-fix">
+        <strong>已修复：</strong>子 Agent 抓到非字典 JSON 崩溃 bug（<code>json.loads('42')</code> 返回 int，<code>.items()</code> 崩溃），已修复。
+      </div>
+    </div>
+
+    <!-- Issue 8 -->
+    <div class="issue-card sev-medium status-constraint" data-status="constraint">
+      <div class="issue-header">
+        <div class="issue-title">Sandbox 过滤器非安全边界</div>
+        <div class="issue-badges"><span class="badge badge-medium">中</span><span class="badge badge-cat">安全</span><span class="badge badge-constraint">设计约束</span></div>
+      </div>
+      <div class="issue-loc">repo_harness/sandbox.py:28-37</div>
+      <div class="issue-desc">
+        ADR-007 已明确记录：命令过滤器 <code>_command_is_excluded</code>（sandbox.py:97-102）"不是安全边界，已被多次绕过"。现状：<code>read_only</code> 模式直接进入 <code>raise RuntimeError("sandbox read_only blocks run_shell")</code>（sandbox.py:63-64），即 read_only 豁免已完全退役，不再咨询过滤器；过滤器仅在 <code>best_effort</code> 模式（用户主动选择放弃隔离）下作为便利保留。
+      </div>
+      <div class="issue-fix constraint">
+        <strong>已由 ADR-007 解决并强化：</strong>read_only 不再咨询过滤器、直接阻止 run_shell（sandbox.py:63-64），read_only 豁免已退役。best_effort 模式下的过滤器仅为便利、非安全边界——用户已主动选择低隔离。
+      </div>
+    </div>
+
+    <!-- Issue 9 -->
+    <div class="issue-card sev-medium status-fixed" data-status="fixed">
+      <div class="issue-header">
+        <div class="issue-title done">测试命令推断仅覆盖 4 种语言</div>
+        <div class="issue-badges"><span class="badge badge-medium">中</span><span class="badge badge-cat">功能</span><span class="badge badge-fixed">已修复</span></div>
+      </div>
+      <div class="issue-loc">repo_harness/auto_issue_fix/workspace.py:15-33</div>
+      <div class="issue-desc">
+        从 4 种扩展到 9 种：新增 Maven (pom.xml)、Gradle (build.gradle/kts)、.NET (*.csproj/*.sln)、Ruby (Gemfile+spec/)、CMake (CMakeLists.txt)。
+        同时 Python 检测新增 <code>setup.cfg</code> 和 <code>test/</code> 目录支持。12 个新测试。
+      </div>
+      <div class="issue-fix">
+        <strong>已修复：</strong>9 种语言全覆盖，每种有独立测试。
+      </div>
+    </div>
+
+    <!-- Issue 10 -->
+    <div class="issue-card sev-medium status-fixed" data-status="fixed">
+      <div class="issue-header">
+        <div class="issue-title done">CLI 异常处理粒度过粗</div>
+        <div class="issue-badges"><span class="badge badge-medium">中</span><span class="badge badge-cat">异常处理</span><span class="badge badge-fixed">已修复</span></div>
+      </div>
+      <div class="issue-loc">repo_harness/cli.py:1337,1345,902,1019</div>
+      <div class="issue-desc">
+        prompt_toolkit 初始化广捕已确认合理（自定义异常不继承标准类型）并改进注释。CLI 命令处理器 (handle_memory_command、run_memory_pack_menu) 的异常消息加入 <code>type(exc).__name__</code> 前缀。
+      </div>
+      <div class="issue-fix">
+        <strong>已修复：</strong>所有可改进的 CLI 异常处理点均已加入异常类型名。
+      </div>
+    </div>
+
+    <!-- Issue 11 -->
+    <div class="issue-card sev-medium status-fixed" data-status="fixed">
+      <div class="issue-header">
+        <div class="issue-title done">重复注释块</div>
+        <div class="issue-badges"><span class="badge badge-medium">中</span><span class="badge badge-cat">代码质量</span><span class="badge badge-fixed">已修复</span></div>
+      </div>
+      <div class="issue-loc">repo_harness/runtime.py:512</div>
+      <div class="issue-desc">
+        连续两段完全相同的注释已删除重复的一份。保留的单份注释准确描述转发方法存在原因。
+      </div>
+      <div class="issue-fix">
+        <strong>已修复。</strong>
+      </div>
+    </div>
+
+    <!-- Issue 12 -->
+    <div class="issue-card sev-low status-constraint" data-status="constraint">
+      <div class="issue-header">
+        <div class="issue-title">Windows Sandbox 能力受限</div>
+        <div class="issue-badges"><span class="badge badge-low">低</span><span class="badge badge-cat">跨平台</span><span class="badge badge-constraint">平台约束</span></div>
+      </div>
+      <div class="issue-loc">repo_harness/sandbox.py</div>
+      <div class="issue-desc">
+        Sandbox 隔离依赖平台后端（bubblewrap 等），Windows 上无等价物。<code>required</code> 模式 fail closed，Windows fallback 写入明确 metadata。
+      </div>
+      <div class="issue-fix constraint">
+        <strong>平台约束：</strong>Windows 没有 bubblewrap。代码已有 Windows fallback + metadata 记录。POSIX 命令在无 Git Bash 的 Windows 上可能失败——这是已知边界。
+      </div>
+    </div>
+
+    <!-- Issue 13 -->
+    <div class="issue-card sev-low status-retained" data-status="retained">
+      <div class="issue-header">
+        <div class="issue-title">条件性跳过的测试</div>
+        <div class="issue-badges"><span class="badge badge-low">低</span><span class="badge badge-cat">测试</span><span class="badge badge-retained">确认合理</span></div>
+      </div>
+      <div class="issue-loc">tests/test_memory_pack.py:561,571 · test_delivery_figures.py · test_business_scenario_dogfood.py:28</div>
+      <div class="issue-desc">
+        symlink 测试在 Windows 上跳过（平台限制）；delivery figures 在 baseline 不可用时跳过（环境依赖）；business dogfood 默认 fake provider 跳过 live（设计如此）。
+      </div>
+      <div class="issue-fix constraint">
+        <strong>保留：</strong>这些跳过是平台/环境/设计限制，属于合理行为。
+      </div>
+    </div>
+
+    <!-- Issue 14 -->
+    <div class="issue-card sev-low status-fixed" data-status="fixed">
+      <div class="issue-header">
+        <div class="issue-title done">隐式 TODO 注释</div>
+        <div class="issue-badges"><span class="badge badge-low">低</span><span class="badge badge-cat">代码质量</span><span class="badge badge-fixed">已修复</span></div>
+      </div>
+      <div class="issue-loc">repo_harness/auto_issue_fix/security.py:25</div>
+      <div class="issue-desc">
+        内联正则 <code>re.fullmatch(r"repo-harness-auto-issue-fix-\d+", ...)</code> 提取为模块级常量 <code>AUTO_ISSUE_FIX_BRANCH_RE</code>，添加说明注释。
+      </div>
+      <div class="issue-fix">
+        <strong>已修复。</strong>
+      </div>
+    </div>
+
+    <!-- Issue 15 -->
+    <div class="issue-card sev-low status-retained" data-status="retained">
+      <div class="issue-header">
+        <div class="issue-title">Engine 模型调用异常捕获过宽</div>
+        <div class="issue-badges"><span class="badge badge-low">低</span><span class="badge badge-cat">异常处理</span><span class="badge badge-retained">确认合理</span></div>
+      </div>
+      <div class="issue-loc">repo_harness/core/engine.py:226</div>
+      <div class="issue-desc">
+        <code>except Exception as exc:</code> 是控制循环顶层兜底。已有分类：<code>should_retry_model_error</code> 判断可重试，<code>finish_model_error</code> 用 <code>type(exc).__name__</code> 作为 code 记录到 trace。
+      </div>
+      <div class="issue-fix constraint">
+        <strong>确认合理：</strong>顶层兜底必须捕获所有异常以避免 generator 崩溃。已有内部分类逻辑，异常类型已记录在 metadata 中。
+      </div>
+    </div>
+
+    <!-- Issue 16 -->
+    <div class="issue-card sev-low status-fixed" data-status="fixed">
+      <div class="issue-header">
+        <div class="issue-title done">Auto Issue Fix runner 顶层兜底丢失异常类型</div>
+        <div class="issue-badges"><span class="badge badge-low">低</span><span class="badge badge-cat">异常处理</span><span class="badge badge-fixed">已修复</span></div>
+      </div>
+      <div class="issue-loc">repo_harness/auto_issue_fix/runner.py:263,271</div>
+      <div class="issue-desc">
+        <code>fallback_reason</code> 从 <code>str(exc)</code> 改为 <code>f"{type(exc).__name__}: {exc}"</code>，review gate summary 同步更新。异常类型名现在出现在证据中。
+      </div>
+      <div class="issue-fix">
+        <strong>已修复：</strong>fallback_reason 和 review gate summary 均包含异常类型名。
+      </div>
+    </div>
+
+    <!-- Issue 17 -->
+    <div class="issue-card sev-info status-fixed" data-status="done">
+      <div class="issue-header">
+        <div class="issue-title done">历史：Codex 分支被放弃 (51 commits)</div>
+        <div class="issue-badges"><span class="badge badge-info">信息</span><span class="badge badge-cat">历史</span><span class="badge badge-fixed">已完成</span></div>
+      </div>
+      <div class="issue-loc">docs/decisions/001-放弃-codex-分支从-main-重建.md</div>
+      <div class="issue-desc">
+        51 个 commit 的 codex 分支被放弃（77% 文档/测试，4 层封锁导致 agent 0/14 写入场景）。从 main 重建，有价值修复以手工补丁移植。ADR-001 完整记录。
+      </div>
+      <div class="issue-fix">
+        <strong>已完成：</strong>ADR-001 记录完整，分支保留为零件仓库。
+      </div>
+    </div>
+
+    <!-- Issue 18 -->
+    <div class="issue-card sev-info status-fixed" data-status="done">
+      <div class="issue-header">
+        <div class="issue-title done">迭代劣化风险：方向累积偏移</div>
+        <div class="issue-badges"><span class="badge badge-info">信息</span><span class="badge badge-cat">流程</span><span class="badge badge-fixed">已完成</span></div>
+      </div>
+      <div class="issue-loc">docs/spec/整体方案.md · docs/delivery/04-后续路线图.md</div>
+      <div class="issue-desc">
+        三条长期约束已建立：① 安全边界用开关不删实现 (ADR-002)；② 每轮以能跑通功能收尾；③ 测试只测行为 (ADR-003)。本次两轮迭代严格遵守这三条。
+      </div>
+      <div class="issue-fix">
+        <strong>已完成：</strong>三条约束在本轮迭代中被严格遵守——没有删除实现、每轮以测试全绿收尾、新增测试全部断言行为。
+      </div>
+    </div>
+
+    <!-- Issue 19 -->
+    <div class="issue-card sev-high status-fixed" data-status="fixed">
+      <div class="issue-header">
+        <div class="issue-title done">Sandbox 隔离的 fail-open 路径与 read_only 豁免退役</div>
+        <div class="issue-badges"><span class="badge badge-high">高</span><span class="badge badge-cat">安全</span><span class="badge badge-fixed">已修复</span></div>
+      </div>
+      <div class="issue-loc">repo_harness/sandbox.py:56-66,97-102 · repo_harness/config.py:251-285 · docs/decisions/007-read-only-不再有豁免.md</div>
+      <div class="issue-desc">
+        审查发现若干 sandbox 隔离的 fail-open 回退：① <code>read_only</code> 原先仍咨询命令过滤器豁免（<code>excluded_commands</code>），被 <code>git status/../whoami</code> 等不含 shell 元字符的 git dashed-external 分发绕过，可在 read_only 下执行任意程序（ADR-007）；② 模式名拼错（如 <code>READ_ONLY</code>）曾静默 fall through 到无沙箱执行（sandbox.py:53-56）；③ 为克隆仓库构建 agent 时缺 CLI args，<code>_resolve_sandbox_for_directory</code> 曾回退 <code>SandboxConfig()</code>(mode off)，使声明 read_only 的克隆仓库全程无隔离（config.py:279-285）；④ 仓库自身 <code>.env</code> 的 <code>REPO_HARNESS_SANDBOX=off</code> 可覆盖操作者配置、由不可信内容决定自身隔离级别（config.py:251-259）。
+      </div>
+      <div class="issue-fix">
+        <strong>已修复（移除不安全机制）：</strong><code>read_only</code> 先校验模式再 <code>raise RuntimeError("sandbox read_only blocks run_shell")</code>，完全不再咨询命令过滤器（sandbox.py:63-64）；两处 fail-open 回退路径已关闭；<code>.env</code> 决定隔离级别的覆盖已移除。交付文档数字若不可复现则 stage-gate 判 fail（ADR-006）。<br>
+        <strong>保留声明：</strong>上述为移除/收紧不安全的 fail-open 机制，不等于 sandbox 已无逃逸可能——Windows 无 bubblewrap 等价物（见 Issue 12），<code>best_effort</code> 下过滤器本就非安全边界（ADR-007）。
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ========== Remaining Work ========== -->
+<div class="section">
+  <div class="section-title">
+    <span class="num">4</span>
+    残余工作与后续建议
+  </div>
+
+  <div class="kanban">
+    <div class="kanban-col">
+      <div class="kanban-col-header" style="background: rgba(34,197,94,0.1); color: var(--green);">
+        <span>全部完成</span>
+      </div>
+      <div class="kanban-col-body">
+        <div class="layer-card">
+          <div class="layer-name">checkpoint 聚类提取</div>
+          <div class="layer-desc">已提取到 core/checkpoint_builder.py。build_checkpoint + infer_next_step 纯函数。</div>
+          <div class="layer-file" style="color:var(--green);">已完成</div>
+        </div>
+        <div class="layer-card">
+          <div class="layer-name">metrics/context 聚类</div>
+          <div class="layer-desc">已确认足够薄（2 行静态转发），无需提取。ADR-005 保留薄转发。</div>
+          <div class="layer-file" style="color:var(--green);">已完成</div>
+        </div>
+        <div class="layer-card">
+          <div class="layer-name">context_manager.py 审计</div>
+          <div class="layer-desc">已完成。修复 5 个问题：section_order、floor>budget、KeyError、output_reserve 溢出、异常类型缺失。</div>
+          <div class="layer-file" style="color:var(--green);">已完成</div>
+        </div>
+        <div class="layer-card">
+          <div class="layer-name">memory.py 审计</div>
+          <div class="layer-desc">已完成。修复 accept_durable_review 部分提交 bug。</div>
+          <div class="layer-file" style="color:var(--green);">已完成</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="kanban-col">
+      <div class="kanban-col-header" style="background: rgba(234,179,8,0.1); color: var(--yellow);">
+        <span>端到端场景测试发现 (新)</span>
+      </div>
+      <div class="kanban-col-body">
+        <div class="layer-card" style="border-color: var(--yellow);">
+          <div class="layer-name" style="color: var(--yellow);">patch_file 被拒绝后 agent 仍声称成功</div>
+          <div class="layer-desc">
+            端到端测试发现：当 patch_file 因 old_text 不匹配被标记为 "rejected" 时，agent 继续运行测试。
+            如果测试恰好通过（如文件已是正确状态），agent 在 final answer 中声称"已修复"——即使它没有实际修改文件。
+            这是"agent 在不确定情况下声称成功"的风险。
+          </div>
+          <div class="layer-file" style="color: var(--yellow);">建议：final answer 前校验是否有成功的 write/patch 操作</div>
+        </div>
+        <div class="layer-card">
+          <div class="layer-name">端到端 trace 完整性验证</div>
+          <div class="layer-desc">26 个 trace 事件完整记录：run_started → prompt_built × 5 → model_requested × 5 → tool_executed × 4 → checkpoint_created × 5 → run_finished。task_state status=completed, stop_reason=final_answer_returned。</div>
+          <div class="layer-file" style="color:var(--green);">通过</div>
+        </div>
+        <div class="layer-card">
+          <div class="layer-name">工件产出验证</div>
+          <div class="layer-desc">每次 run 在 .repo-harness/runs/&lt;run_id&gt;/ 下产出 trace.jsonl + task_state.json + report.json。report.json 包含 run_id, status, stop_reason, final_answer, tool_steps。</div>
+          <div class="layer-file" style="color:var(--green);">通过</div>
+        </div>
+        <div class="layer-card">
+          <div class="layer-name">真实文件修改验证</div>
+          <div class="layer-desc">agent 运行后 calc.py 从 return a - b 变为 return a + b，pytest 从 1 failed 变为 2 passed。</div>
+          <div class="layer-file" style="color:var(--green);">通过</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="kanban-col">
+      <div class="kanban-col-header" style="background: rgba(100,116,139,0.1); color: var(--text-dim);">
+        <span>不可消除的设计约束 (3 项)</span>
+      </div>
+      <div class="kanban-col-body">
+        <div class="layer-card">
+          <div class="layer-name">shell=True</div>
+          <div class="layer-desc">run_shell 工具的核心能力。安全由 permission gate + sandbox + env allowlist + shell search detector 多层保证。</div>
+        </div>
+        <div class="layer-card">
+          <div class="layer-name">Sandbox 过滤器非安全边界</div>
+          <div class="layer-desc">ADR-007 已处理。read_only 不依赖过滤器，best_effort 下保留是用户选择。</div>
+        </div>
+        <div class="layer-card">
+          <div class="layer-name">Windows sandbox 限制</div>
+          <div class="layer-desc">平台无 bubblewrap 等价物。已有 fail closed + metadata fallback。</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="kanban-col">
+      <div class="kanban-col-header" style="background: rgba(59,130,246,0.1); color: var(--blue);">
+        <span>本轮新增能力</span>
+      </div>
+      <div class="kanban-col-body">
+        <div class="layer-card">
+          <div class="layer-name">环境变量扩展 context window</div>
+          <div class="layer-desc"><code>REPO_HARNESS_EXTRA_CONTEXT_WINDOWS</code> JSON 环境变量，用户可注册新模型无需改代码</div>
+        </div>
+        <div class="layer-card">
+          <div class="layer-name">prompt_builder 纯函数模块</div>
+          <div class="layer-desc">3 个无状态函数，prompt 构建可在不实例化 RepoHarness 的情况下测试</div>
+        </div>
+        <div class="layer-card">
+          <div class="layer-name">checkpoint_builder 纯函数模块</div>
+          <div class="layer-desc">build_checkpoint + infer_next_step，CHECKPOINT_SCHEMA_VERSION 统一来源</div>
+        </div>
+        <div class="layer-card">
+          <div class="layer-name">9 种语言测试命令推断</div>
+          <div class="layer-desc">Python/npm/Go/Rust/Maven/Gradle/.NET/Ruby/CMake</div>
+        </div>
+        <div class="layer-card">
+          <div class="layer-name">API Key repr 脱敏</div>
+          <div class="layer-desc">3 个 client 类 <code>__repr__</code> 不暴露 key</div>
+        </div>
+        <div class="layer-card">
+          <div class="layer-name">端到端功能流程测试</div>
+          <div class="layer-desc">3 个：durable memory accept→后续 prompt 出现、多轮工具链收敛、checkpoint 创建→恢复</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="report-footer">
+  RepoHarness 项目综合审查报告（三轮迭代 + 安全加固版）· 生成于 2026-07-30 · 当前状态 · 499 passed, 1 skipped, ruff 1 error (working tree) · 含 3 个端到端功能流程测试 · 新增安全加固 Issue 19
+</div>
+
+<script>
+  document.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const filter = btn.dataset.filter;
+      document.querySelectorAll('.issue-card').forEach(card => {
+        if (filter === 'all') {
+          card.classList.remove('hidden');
+        } else {
+          const status = card.dataset.status;
+          const show = (filter === 'fixed' && status === 'fixed') ||
+                       (filter === 'partial' && status === 'partial') ||
+                       (filter === 'constraint' && status === 'constraint') ||
+                       (filter === 'retained' && status === 'retained') ||
+                       (filter === 'done' && status === 'done');
+          card.classList.toggle('hidden', !show);
+        }
+      });
+    });
+  });
+</script>
+
+</body>
+</html>

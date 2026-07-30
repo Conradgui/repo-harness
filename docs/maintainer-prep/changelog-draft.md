@@ -1,5 +1,48 @@
 # 更新日志草稿
 
+## v6：深度审计、God Object 解体推进与安全加固
+
+### Added
+
+- 新增 `core/prompt_builder.py`，提取 3 个纯函数（`build_prompt_text`、`compute_tool_signature`、`filter_available_tools`），prompt 构建可在不实例化 RepoHarness 的情况下测试。
+- 新增 `core/checkpoint_builder.py`，提取 `build_checkpoint` 和 `infer_next_step` 纯函数，`CHECKPOINT_SCHEMA_VERSION` 常量统一来源。
+- 新增 `REPO_HARNESS_EXTRA_CONTEXT_WINDOWS` 环境变量，用户可通过 JSON 注册新模型 context window 无需改代码。
+- 新增 3 个 run_shell 输出处理测试（成功/partial_success/无 task_state 截断）。
+- 新增 8 个 context window 扩展机制测试（JSON 解析、非字典 JSON、非数字值过滤、优先级覆盖）。
+- 新增 12 个测试命令推断测试（Python/npm/Go/Rust/Maven/Gradle/.NET/Ruby/CMake）。
+- 新增 11 个 prompt_builder 纯函数隔离测试。
+
+### Changed
+
+- `accept_durable_review` 顺序反转：先 `promote_durable` 再 `mark`，避免 promote 失败时部分提交。
+- 8 处 `except Exception` 收窄为精确异常类型（OSError / json.JSONDecodeError / ValueError 等），1 处保留广捕（prompt_toolkit 自定义异常）。
+- 3 个 model client 类添加 `__repr__`，api_key 显示为 `<redacted>`。
+- `infer_test_commands` 从 4 种扩展到 9 种语言生态（新增 Maven/Gradle/.NET/Ruby/CMake）。
+- `compute_budgets` 的 `output_reserve` 增加 `context_window // 2` 上限，防止极小 context window 时 available_tokens 变负。
+- `context_manager` metadata `section_order` 修正为包含 `skills`，与实际渲染顺序一致。
+- `_compute_section_floors` 增加 `min(floor, budget)` cap，防止 floor 大于 budget。
+- CLI 和 runner 的异常消息加入 `type(exc).__name__` 前缀。
+- 隐式 TODO 正则提取为命名常量 `AUTO_ISSUE_FIX_BRANCH_RE`。
+- 重复注释块清理。
+
+### Fixed
+
+- `context_manager.py` metadata `section_order` 与实际渲染顺序不一致（缺少 `skills`）。
+- `context_manager.py` floor 可大于 budget，导致 section 永远无法被压缩。
+- `context_manager.py` `note["text"]` 直接访问可能 KeyError，改为 `note.get("text", "")`。
+- `context_manager.py` `compute_budgets` 极小 context_window 时 output_reserve 超过 context_window。
+- `memory.py` `accept_durable_review` 部分提交：先 mark 后 promote 时 promote 失败导致数据不一致。
+- `context_manager.py` `_load_extra_context_windows` 非字典 JSON 导致 `AttributeError` 崩溃。
+- `repl_display.py` usage table 异常处理遗漏 `ValueError`。
+- `cli.py` prompt_toolkit 初始化收窄过激进导致 `NoConsoleScreenBufferError` 未被捕获。
+
+### Verification
+
+- `uv run pytest tests/ -q` — 496 passed, 1 skipped
+- `uv run ruff check .` — passed
+
+---
+
 ## v5：动态上下文预算、死代码清理与代码质量提升
 
 ### Added
