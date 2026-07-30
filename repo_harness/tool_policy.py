@@ -111,7 +111,7 @@ class ToolPolicy:
             summary = self.agent.memory.to_dict().get("file_summaries", {}).get(rel, {})
             if summary and summary.get("freshness") == memorylib.file_freshness(rel, self.agent.root):
                 return True
-        except Exception:
+        except (OSError, KeyError, TypeError):
             return False
         return False
 

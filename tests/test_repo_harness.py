@@ -2289,6 +2289,121 @@ def test_memory_review_accept_edit_reject_and_skip_control_durable_writes(tmp_pa
     assert [record["status"] for record in queue] == ["accepted", "accepted", "rejected", "pending"]
 
 
+def test_accepted_durable_memory_appears_in_subsequent_prompt(tmp_path):
+    """End-to-end: accept a durable candidate → next agent.ask() prompt
+    must contain the promoted fact in the relevant_memory section.
+
+    This is the core value proposition of the memory governance flow:
+    facts the user accepted must be available to the agent in future
+    turns.  If this breaks, the entire review queue is theatre.
+    """
+    agent = build_agent(
+        tmp_path,
+        [
+            "<final>Project convention: Always pin Python to 3.12.</final>",
+            "<final>Acknowledged the convention.</final>",
+        ],
+    )
+
+    agent.ask("Remember the Python version convention.")
+    pending = agent.memory_review_pending()
+    assert pending, "no durable candidates were queued"
+    agent.memory_review_accept(pending[0]["id"])
+
+    # Second turn: the durable fact should surface in the prompt even
+    # though this is a fresh ask with no episodic overlap.
+    agent.ask("Which Python version should I use?")
+    prompt = agent.model_client.prompts[-1]
+    assert "pin Python to 3.12" in prompt, (
+        "accepted durable fact did not appear in the subsequent prompt — "
+        "the memory governance flow is broken"
+    )
+
+
+def test_multi_turn_tool_chain_where_result_informs_next_action(tmp_path):
+    """End-to-end: tool A's result is seen by the model → model uses it
+    to decide tool B → tool B executes → final answer references both.
+
+    FakeModelClient returns a canned sequence, but the key assertion is
+    that the *second* tool call's prompt contains the *first* tool's
+    result text — proving the agent loop feeds tool output back into
+    the next model call, not just "first tool then immediate final".
+    """
+    (tmp_path / "config.txt").write_text("port=8080\n", encoding="utf-8")
+    (tmp_path / "config.txt").write_text("port=8080\nhost=localhost\n", encoding="utf-8")
+
+    agent = build_agent(
+        tmp_path,
+        [
+            # Turn 1: read config.txt
+            '<tool>{"name":"read_file","args":{"path":"config.txt","start":1,"end":10}}</tool>',
+            # Turn 2: write a summary file based on what was read
+            '<tool name="write_file" path="summary.txt"><content>port=8080 host=localhost</content></tool>',
+            # Turn 3: final answer
+            "<final>Wrote summary based on config.</final>",
+        ],
+    )
+
+    result = agent.ask("Read config.txt and write a summary.")
+    assert result == "Wrote summary based on config."
+    assert (tmp_path / "summary.txt").read_text(encoding="utf-8").strip() == "port=8080 host=localhost"
+
+    # The second prompt (for the write_file call) must contain the
+    # read_file result — proving the agent loop feeds tool output back.
+    second_prompt = agent.model_client.prompts[1]
+    assert "port=8080" in second_prompt, (
+        "first tool result did not appear in the second model call's prompt — "
+        "the agent loop is not feeding tool output back to the model"
+    )
+    assert "host=localhost" in second_prompt
+
+
+def test_checkpoint_created_then_restored_and_agent_continues(tmp_path):
+    """End-to-end: agent creates a real checkpoint during a task →
+    resume from that checkpoint → verify the resumed prompt contains
+    the checkpoint's goal, blocker, and next_step.
+
+    Unlike test_resume_prompt_uses_checkpoint_state_not_just_history
+    which injects a manual checkpoint, this test creates a *real*
+    checkpoint via the runtime's create_checkpoint method and then
+    restores from it, validating the full round-trip.
+    """
+    (tmp_path / "app.py").write_text("print('hello')\n", encoding="utf-8")
+    agent = build_agent(
+        tmp_path,
+        ["<final>Checkpoint ready.</final>"],
+    )
+
+    agent.ask("Read app.py and prepare to continue.")
+    task_state = agent.session.get("task_state", {})
+    checkpoint = agent.create_checkpoint(
+        type("TS", (), {"final_answer": "", "stop_reason": "step_limit_reached", "status": "running", "last_tool": "read_file"})(),
+        "Fix the print statement",
+        "step_limit_reached",
+    )
+
+    assert checkpoint["checkpoint_id"]
+    assert checkpoint["current_goal"] == "Fix the print statement"
+    assert checkpoint["next_step"]
+
+    resumed = RepoHarness.from_session(
+        model_client=FakeModelClient(["<final>Resumed and fixed.</final>"]),
+        workspace=build_workspace(tmp_path),
+        session_store=agent.session_store,
+        session_id=agent.session["id"],
+        approval_policy="auto",
+    )
+
+    result = resumed.ask("Continue the task")
+    assert result == "Resumed and fixed."
+    prompt = resumed.model_client.prompts[-1]
+    assert "Fix the print statement" in prompt, (
+        "checkpoint goal did not appear in the resumed prompt — "
+        "checkpoint round-trip is broken"
+    )
+    assert "Task checkpoint:" in prompt
+
+
 def test_memory_review_edit_rejects_secret_shaped_and_transient_text(tmp_path):
     agent = build_agent(
         tmp_path,

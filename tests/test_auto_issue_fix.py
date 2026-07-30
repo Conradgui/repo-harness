@@ -24,7 +24,11 @@ from repo_harness.auto_issue_fix import (
     write_evidence,
 )
 from repo_harness.auto_issue_fix.runner import _build_auto_issue_fix_model_client
-from repo_harness.auto_issue_fix.workspace import changed_paths, git_diff
+from repo_harness.auto_issue_fix.workspace import (
+    changed_paths,
+    git_diff,
+    infer_test_commands,
+)
 from repo_harness.models import FakeModelClient
 
 
@@ -977,3 +981,66 @@ def test_auto_issue_fix_test_logs_are_redacted(tmp_path):
     assert results[0]["status"] == "failed"
     assert "sk-test-secret" not in text
     assert "<redacted>" in text
+
+
+def test_infer_test_commands_python_with_pyproject(tmp_path):
+    (tmp_path / "pyproject.toml").write_text("[tool.pytest]\n", encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    assert infer_test_commands(tmp_path) == ("python -m pytest -q",)
+
+
+def test_infer_test_commands_python_with_setup_cfg(tmp_path):
+    (tmp_path / "setup.cfg").write_text("[pytest]\n", encoding="utf-8")
+    (tmp_path / "test").mkdir()
+    assert infer_test_commands(tmp_path) == ("python -m pytest -q",)
+
+
+def test_infer_test_commands_npm(tmp_path):
+    (tmp_path / "package.json").write_text('{"scripts": {"test": "jest"}}\n', encoding="utf-8")
+    assert infer_test_commands(tmp_path) == ("npm test",)
+
+
+def test_infer_test_commands_go(tmp_path):
+    (tmp_path / "go.mod").write_text("module example\n", encoding="utf-8")
+    assert infer_test_commands(tmp_path) == ("go test ./...",)
+
+
+def test_infer_test_commands_rust(tmp_path):
+    (tmp_path / "Cargo.toml").write_text('[package]\nname = "demo"\n', encoding="utf-8")
+    assert infer_test_commands(tmp_path) == ("cargo test",)
+
+
+def test_infer_test_commands_maven(tmp_path):
+    (tmp_path / "pom.xml").write_text("<project></project>\n", encoding="utf-8")
+    assert infer_test_commands(tmp_path) == ("mvn test",)
+
+
+def test_infer_test_commands_gradle(tmp_path):
+    (tmp_path / "build.gradle").write_text("apply plugin: 'java'\n", encoding="utf-8")
+    assert infer_test_commands(tmp_path) == ("gradle test",)
+
+
+def test_infer_test_commands_gradle_kotlin(tmp_path):
+    (tmp_path / "build.gradle.kts").write_text("plugins { java }\n", encoding="utf-8")
+    assert infer_test_commands(tmp_path) == ("gradle test",)
+
+
+def test_infer_test_commands_dotnet(tmp_path):
+    (tmp_path / "App.csproj").write_text("<Project></Project>\n", encoding="utf-8")
+    assert infer_test_commands(tmp_path) == ("dotnet test",)
+
+
+def test_infer_test_commands_ruby(tmp_path):
+    (tmp_path / "Gemfile").write_text("source 'https://rubygems.org'\n", encoding="utf-8")
+    (tmp_path / "spec").mkdir()
+    assert infer_test_commands(tmp_path) == ("bundle exec rspec",)
+
+
+def test_infer_test_commands_cmake(tmp_path):
+    (tmp_path / "CMakeLists.txt").write_text("cmake_minimum_required(VERSION 3.10)\n", encoding="utf-8")
+    assert infer_test_commands(tmp_path) == ("ctest --output-on-failure",)
+
+
+def test_infer_test_commands_unknown_returns_empty(tmp_path):
+    (tmp_path / "README.md").write_text("just a readme\n", encoding="utf-8")
+    assert infer_test_commands(tmp_path) == ()

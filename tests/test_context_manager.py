@@ -37,7 +37,7 @@ def test_context_manager_assembles_sections_in_expected_order(tmp_path):
     assert prompt.index("Relevant memory:") < prompt.index("Transcript:")
     assert prompt.index("Transcript:") < prompt.index("Current user request:")
     assert prompt.rstrip().endswith("Current user request:\nWhere is the deploy key?")
-    assert metadata["section_order"] == ["prefix", "memory", "relevant_memory", "history", "current_request"]
+    assert metadata["section_order"] == ["prefix", "memory", "skills", "relevant_memory", "history", "current_request"]
 
 
 def test_context_manager_reduces_relevant_memory_before_history_and_preserves_newer_context(tmp_path):
@@ -281,6 +281,69 @@ def test_detect_context_window_unknown_model_and_provider_defaults():
 def test_detect_context_window_none_inputs():
     assert detect_context_window(None, None) == 128000
     assert detect_context_window("", "") == 128000
+
+
+def test_load_extra_context_windows_parses_json(monkeypatch):
+    from repo_harness.context_manager import _load_extra_context_windows
+
+    monkeypatch.setenv("REPO_HARNESS_EXTRA_CONTEXT_WINDOWS", '{"llama4": 256000, "qwen4": 131072}')
+    result = _load_extra_context_windows()
+    assert result == {"llama4": 256000, "qwen4": 131072}
+
+
+def test_load_extra_context_windows_invalid_json_returns_empty(monkeypatch):
+    from repo_harness.context_manager import _load_extra_context_windows
+
+    monkeypatch.setenv("REPO_HARNESS_EXTRA_CONTEXT_WINDOWS", "not valid json")
+    assert _load_extra_context_windows() == {}
+
+
+def test_load_extra_context_windows_empty_env_returns_empty(monkeypatch):
+    from repo_harness.context_manager import _load_extra_context_windows
+
+    monkeypatch.delenv("REPO_HARNESS_EXTRA_CONTEXT_WINDOWS", raising=False)
+    assert _load_extra_context_windows() == {}
+
+
+def test_load_extra_context_windows_non_dict_json_returns_empty(monkeypatch):
+    from repo_harness.context_manager import _load_extra_context_windows
+
+    monkeypatch.setenv("REPO_HARNESS_EXTRA_CONTEXT_WINDOWS", "42")
+    assert _load_extra_context_windows() == {}
+
+    monkeypatch.setenv("REPO_HARNESS_EXTRA_CONTEXT_WINDOWS", "[1, 2, 3]")
+    assert _load_extra_context_windows() == {}
+
+    monkeypatch.setenv("REPO_HARNESS_EXTRA_CONTEXT_WINDOWS", '"just a string"')
+    assert _load_extra_context_windows() == {}
+
+
+def test_load_extra_context_windows_filters_non_numeric_values(monkeypatch):
+    from repo_harness.context_manager import _load_extra_context_windows
+
+    monkeypatch.setenv(
+        "REPO_HARNESS_EXTRA_CONTEXT_WINDOWS",
+        '{"good-model": 65536, "bad-model": "not-a-number", "float-model": 131072.0}',
+    )
+    result = _load_extra_context_windows()
+    assert result == {"good-model": 65536, "float-model": 131072}
+
+
+def test_detect_context_window_uses_extra_patterns(monkeypatch):
+    import repo_harness.context_manager as cm
+
+    monkeypatch.setattr(cm, "EXTRA_MODEL_CONTEXT_WINDOWS", {"my-custom-model": 65536})
+    assert detect_context_window("my-custom-model-7b") == 65536
+    # built-in patterns still work
+    assert detect_context_window("gpt-4o") == 128000
+
+
+def test_detect_context_window_extra_overrides_builtin(monkeypatch):
+    import repo_harness.context_manager as cm
+
+    # user-provided pattern takes precedence for the same model name
+    monkeypatch.setattr(cm, "EXTRA_MODEL_CONTEXT_WINDOWS", {"gpt-4o": 999999})
+    assert detect_context_window("gpt-4o") == 999999
 
 
 # --- compute_budgets 测试 ---

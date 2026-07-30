@@ -496,7 +496,7 @@ def _parse_timestamp(value):
         return 0.0
     try:
         return datetime.fromisoformat(str(value)).timestamp()
-    except Exception:
+    except (ValueError, TypeError):
         return 0.0
 
 
@@ -1234,10 +1234,11 @@ class LayeredMemory:
             raise ValueError(f"unsupported durable memory topic: {final_topic}")
         if not final_text:
             raise ValueError("durable memory review text cannot be empty")
-        updated = self.durable_review_queue.mark(record_id, "accepted", topic=final_topic, text=final_text)
-        if updated is None:
-            return None, [], []
+        # Promote to durable store first — if this fails, the record
+        # stays pending and the user can retry without a partial commit
+        # (queue marked accepted but durable store missing the content).
         promoted, superseded = self.promote_durable([(final_topic, final_text)])
+        updated = self.durable_review_queue.mark(record_id, "accepted", topic=final_topic, text=final_text)
         return updated, promoted, superseded
 
     def update_pending_durable_review(self, record_id, *, topic=None, text=None):

@@ -900,7 +900,7 @@ def handle_memory_command(argv):
             result = _run_memory_validate(args.pack_path, cwd=args.cwd)
             return 1 if _memory_result_failed("validate", result) else 0
     except Exception as exc:
-        print(str(exc), file=sys.stderr)
+        print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
 
     parser.print_help()
@@ -1018,9 +1018,9 @@ def run_memory_pack_menu(cwd, display=None):
                 return
         except Exception as exc:
             if display:
-                display.show_error(f"memory pack error: {exc}")
+                display.show_error(f"memory pack error: {type(exc).__name__}: {exc}")
             else:
-                print(f"memory pack error: {exc}", file=sys.stderr)
+                print(f"memory pack error: {type(exc).__name__}: {exc}", file=sys.stderr)
             return
 
         if display:
@@ -1335,7 +1335,10 @@ def main(argv=None):
             completer=_pt_completer,
         )
     except Exception:
-        # prompt_toolkit is optional: without it the REPL falls back to input().
+        # prompt_toolkit raises custom exception types (e.g.
+        # NoConsoleScreenBufferError) that don't inherit from OSError when the
+        # terminal cannot be driven; broad catch is intentional so the REPL
+        # falls back to input() in any such environment.
         _pt_session = None
 
     def _read_input(prompt_text):

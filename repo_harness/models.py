@@ -259,6 +259,9 @@ class OpenAICompatibleModelClient:
         self.supports_prompt_cache = any(host in self.base_url for host in ("openai.com", "right.codes"))
         self.last_completion_metadata = {}
 
+    def __repr__(self):
+        return f"OpenAICompatibleModelClient(model={self.model!r}, base_url={self.base_url!r}, api_key=<redacted>)"
+
     def complete(self, prompt, max_new_tokens, prompt_cache_key=None, prompt_cache_retention=None):
         """向 OpenAI-compatible `/responses` 接口发起一次模型调用。
 
@@ -432,6 +435,9 @@ class ChatCompletionsCompatibleModelClient:
         self.supports_prompt_cache = False
         self.last_completion_metadata = {}
 
+    def __repr__(self):
+        return f"ChatCompletionsCompatibleModelClient(model={self.model!r}, base_url={self.base_url!r}, api_key=<redacted>)"
+
     def complete(self, prompt, max_new_tokens, prompt_cache_key=None, prompt_cache_retention=None):
         del prompt_cache_key, prompt_cache_retention
         self.last_completion_metadata = {}
@@ -537,6 +543,9 @@ class AnthropicCompatibleModelClient:
         self.timeout = timeout
         self.supports_prompt_cache = False
         self.last_completion_metadata = {}
+
+    def __repr__(self):
+        return f"AnthropicCompatibleModelClient(model={self.model!r}, base_url={self.base_url!r}, api_key=<redacted>)"
 
     def complete(self, prompt, max_new_tokens, prompt_cache_key=None, prompt_cache_retention=None):
         # 为了保持统一接口，runtime 仍然会传缓存参数进来；

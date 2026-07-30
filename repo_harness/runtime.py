@@ -8,7 +8,6 @@ import hashlib
 import json
 import os
 import re
-import textwrap
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,9 +18,20 @@ from . import skills as skillslib
 from . import tools as toolkit
 from .context_manager import ContextManager
 from .core import tool_executor as core_tool_executor
+from .core.checkpoint_builder import (
+    CHECKPOINT_SCHEMA_VERSION,
+    build_checkpoint,
+    infer_next_step,
+)
 from .core.engine import Engine
 from .core.memory_coordinator import MemoryCoordinator
 from .core.memory_outcome import MemoryOutcome
+from .core.prompt_builder import (
+    build_prompt_text,
+    compute_tool_signature,
+    filter_available_tools,
+)
+from .core.secret_sanitizer import SecretSanitizer
 from .core.session_events import SessionEventBus
 from .core.tool_profiles import build_tool_profiles
 from .features import skills_runtime
@@ -35,14 +45,12 @@ from .worker_manager import WorkerManager
 from .workspace import (
     IGNORED_PATH_NAMES,
     MAX_HISTORY,
-    REDACTED_VALUE,
     WorkspaceContext,
     clip,
     id_timestamp,
     now,
 )
 
-SENSITIVE_ENV_NAME_MARKERS = ("API_KEY", "TOKEN", "SECRET", "PASSWORD")
 DEFAULT_SHELL_ENV_ALLOWLIST = ("HOME", "LANG", "LC_ALL", "LC_CTYPE", "LOGNAME", "PATH", "PWD", "SHELL", "TERM", "TMPDIR", "TMP", "TEMP", "USER")
 DEFAULT_FEATURE_FLAGS = {
     "memory": True,
@@ -50,7 +58,6 @@ DEFAULT_FEATURE_FLAGS = {
     "context_reduction": True,
     "prompt_cache": True,
 }
-CHECKPOINT_SCHEMA_VERSION = "phase1-v1"
 CHECKPOINT_NONE_STATUS = "no-checkpoint"
 CHECKPOINT_FULL_VALID_STATUS = "full-valid"
 CHECKPOINT_PARTIAL_STALE_STATUS = "partial-stale"
@@ -106,6 +113,9 @@ class RepoHarness:
         self.ask_user_callback = ask_user_callback
         self.shell_env_allowlist = tuple(shell_env_allowlist or DEFAULT_SHELL_ENV_ALLOWLIST)
         self.secret_env_names = {str(name).upper() for name in (secret_env_names or ())}
+        self._secret_sanitizer = SecretSanitizer(
+            self.secret_env_names, self.shell_env_allowlist, self.root
+        )
         self.feature_flags = dict(DEFAULT_FEATURE_FLAGS)
         if feature_flags:
             self.feature_flags.update({str(key): bool(value) for key, value in feature_flags.items()})
@@ -257,10 +267,7 @@ class RepoHarness:
         return self.active_tool_profile
 
     def available_tools(self):
-        profile = getattr(self, "active_tool_profile", None)
-        if profile is None:
-            return dict(self.tools)
-        return {name: tool for name, tool in self.tools.items() if profile.allows(name)}
+        return filter_available_tools(self.tools, getattr(self, "active_tool_profile", None))
 
     def current_runtime_identity(self):
         return {
@@ -393,72 +400,11 @@ class RepoHarness:
         return toolkit.build_tool_registry(self)
 
     def tool_signature(self):
-        payload = []
-        for name in sorted(self.tools):
-            tool = self.tools[name]
-            payload.append(
-                {
-                    "name": name,
-                    "schema": tool["schema"],
-                    "risky": tool["risky"],
-                    "description": tool["description"],
-                }
-            )
-        return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+        return compute_tool_signature(self.tools)
 
     def build_prefix(self):
-        tool_lines = []
-        for name, tool in self.available_tools().items():
-            fields = ", ".join(f"{key}: {value}" for key, value in tool["schema"].items())
-            risk = "approval required" if tool["risky"] else "safe"
-            tool_lines.append(f"- {name}: ({fields}) [{risk}] {tool['description']}")
-        tool_text = "\n".join(tool_lines)
-        examples = "\n".join(
-            [
-                '<tool>{"name":"list_files","args":{"path":"."}}</tool>',
-                '<tool>{"name":"read_file","args":{"path":"README.md","start":1,"end":80}}</tool>',
-                '<tool name="write_file" path="binary_search.py"><content>def binary_search(nums, target):\n    return -1\n</content></tool>',
-                '<tool name="patch_file" path="binary_search.py"><old_text>return -1</old_text><new_text>return mid</new_text></tool>',
-                '<tool>{"name":"run_shell","args":{"command":"uv run --with pytest python -m pytest -q","timeout":20}}</tool>',
-                "<final>Done.</final>",
-            ]
-        )
-        skills_text = skillslib.render_skills_list(self.skills)
-        # prefix 可以理解成 agent 的“工作手册”：
-        # 它是谁、工具怎么调用、当前仓库是什么状态，都写在这里。
-        text = textwrap.dedent(
-            f"""\
-            You are RepoHarness, a small local coding agent working inside a local repository.
-
-            Rules:
-            - Use tools instead of guessing about the workspace.
-            - Return exactly one <tool>...</tool> or one <final>...</final>.
-            - Tool calls must look like:
-              <tool>{{"name":"tool_name","args":{{...}}}}</tool>
-            - For write_file and patch_file with multi-line text, prefer XML style:
-              <tool name="write_file" path="file.py"><content>...</content></tool>
-            - Final answers must look like:
-              <final>your answer</final>
-            - Never invent tool results.
-            - Keep answers concise and concrete.
-            - If the user asks you to create or update a specific file and the path is clear, use write_file or patch_file instead of repeatedly listing files.
-            - Before writing tests for existing code, read the implementation first.
-            - When writing tests, match the current implementation unless the user explicitly asked you to change the code.
-            - New files should be complete and runnable, including obvious imports.
-            - Do not repeat the same tool call with the same arguments if it did not help. Choose a different tool or return a final answer.
-            - Required tool arguments must not be empty. Do not call read_file, write_file, patch_file, run_shell, or delegate with args={{}}.
-
-            Tools:
-            {tool_text}
-
-            {skills_text}
-
-            Valid response examples:
-            {examples}
-
-            {self.workspace.text()}
-            """
-        ).strip()
+        text = build_prompt_text(self.available_tools(), self.skills)
+        text = text + "\n\n" + self.workspace.text()
         return PromptPrefix(
             text=text,
             hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
@@ -509,8 +455,6 @@ class RepoHarness:
         self.session["memory"] = self.memory.to_dict()
         self.session_path = self.session_store.save(self.session)
 
-    # 记忆审核 / 长期化 / 自迭代已迁入 MemoryCoordinator。
-    # 这里保留同名转发：cli.py 与既有测试通过 agent.<name> 调用它们。
     # 记忆审核 / 长期化 / 自迭代已迁入 MemoryCoordinator。
     # 这里保留同名转发：cli.py 与既有测试通过 agent.<name> 调用它们。
     def memory_review_pending(self):
@@ -674,86 +618,32 @@ class RepoHarness:
         self.emit_session_event("compaction_created", **compaction)
         return compaction
 
-    @staticmethod
-    def looks_sensitive_env_name(name):
-        upper = str(name).upper()
-        return any(
-            upper == marker or upper.endswith((marker, f"_{marker}"))
-            for marker in SENSITIVE_ENV_NAME_MARKERS
-        )
+    def looks_sensitive_env_name(self, name):
+        return self._secret_sanitizer.looks_sensitive_env_name(name)
 
     def is_secret_env_name(self, name):
-        upper = str(name).upper()
-        return upper in self.secret_env_names or self.looks_sensitive_env_name(upper)
+        return self._secret_sanitizer.is_secret_env_name(name)
 
     def configured_secret_env_items(self):
-        items = [
-            (name, value)
-            for name, value in os.environ.items()
-            if str(name).upper() in self.secret_env_names and value
-        ]
-        items.sort(key=lambda item: item[0])
-        return items
+        return self._secret_sanitizer.configured_secret_env_items()
 
     def detected_secret_env_items(self):
-        items = [
-            (name, value)
-            for name, value in os.environ.items()
-            if self.is_secret_env_name(name) and value
-        ]
-        items.sort(key=lambda item: item[0])
-        return items
+        return self._secret_sanitizer.detected_secret_env_items()
 
     def secret_env_summary(self):
-        names = [name for name, _ in self.configured_secret_env_items()]
-        return {
-            "secret_env_count": len(names),
-            "secret_env_names": names,
-        }
+        return self._secret_sanitizer.secret_env_summary()
 
     def detected_secret_env_summary(self):
-        names = [name for name, _ in self.detected_secret_env_items()]
-        return {
-            "secret_env_count": len(names),
-            "secret_env_names": names,
-        }
+        return self._secret_sanitizer.detected_secret_env_summary()
 
     def redact_text(self, text):
-        text = str(text)
-        for _, value in sorted(self.detected_secret_env_items(), key=lambda item: len(item[1]), reverse=True):
-            text = text.replace(value, REDACTED_VALUE)
-        return text
+        return self._secret_sanitizer.redact_text(text)
 
     def redact_artifact(self, value, key=None):
-        if key and self.is_secret_env_name(key):
-            return REDACTED_VALUE
-        if isinstance(value, dict):
-            return {
-                str(item_key): self.redact_artifact(item_value, key=item_key)
-                for item_key, item_value in value.items()
-            }
-        if isinstance(value, list):
-            return [self.redact_artifact(item, key=key) for item in value]
-        if isinstance(value, tuple):
-            return [self.redact_artifact(item, key=key) for item in value]
-        if isinstance(value, str):
-            redacted = self.redact_text(value)
-            return redacted
-        return value
+        return self._secret_sanitizer.redact_artifact(value, key=key)
 
     def shell_env(self):
-        env = {
-            name: os.environ[name]
-            for name in self.shell_env_allowlist
-            if name in os.environ
-        }
-        for name in ("ComSpec", "SystemRoot", "PATHEXT", "USERPROFILE", "APPDATA", "LOCALAPPDATA"):
-            if name in os.environ:
-                env[name] = os.environ[name]
-        env["PWD"] = str(self.root)
-        if "PATH" not in env and os.environ.get("PATH"):
-            env["PATH"] = os.environ["PATH"]
-        return env
+        return self._secret_sanitizer.shell_env()
 
     def prompt_metadata(self, user_message, prompt):
         _, metadata = self._build_prompt_and_metadata(user_message)
@@ -831,7 +721,7 @@ class RepoHarness:
                 continue
             try:
                 snapshot[path.relative_to(self.root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
-            except Exception:
+            except OSError:
                 continue
         return snapshot
 
@@ -855,28 +745,17 @@ class RepoHarness:
     def create_checkpoint(self, task_state, user_message, trigger):
         state = self.checkpoint_state()
         current = self.current_checkpoint()
-        checkpoint_id = "ckpt_" + uuid.uuid4().hex[:8]
-        key_files = []
-        freshness = {}
-        for path in self.memory.to_dict()["working"]["recent_files"]:
-            file_freshness = memorylib.file_freshness(path, self.root)
-            freshness[path] = file_freshness
-            key_files.append({"path": path, "freshness": file_freshness})
-        checkpoint = {
-            "checkpoint_id": checkpoint_id,
-            "parent_checkpoint_id": current.get("checkpoint_id", "") if current else "",
-            "schema_version": CHECKPOINT_SCHEMA_VERSION,
-            "created_at": now(),
-            "current_goal": str(user_message),
-            "completed": [task_state.final_answer] if task_state.final_answer else [],
-            "excluded": [],
-            "current_blocker": "" if str(task_state.stop_reason or "") in ("", "final_answer_returned") else str(task_state.stop_reason),
-            "next_step": self.infer_next_step(task_state),
-            "key_files": key_files,
-            "freshness": freshness,
-            "summary": f"{trigger}: {clip(str(user_message), 120)}",
-            "runtime_identity": self.current_runtime_identity(),
-        }
+        recent_files = self.memory.to_dict()["working"]["recent_files"]
+        checkpoint = build_checkpoint(
+            task_state,
+            user_message,
+            trigger,
+            recent_files,
+            lambda path: memorylib.file_freshness(path, self.root),
+            current.get("checkpoint_id", "") if current else "",
+            self.current_runtime_identity(),
+        )
+        checkpoint_id = checkpoint["checkpoint_id"]
         state["items"][checkpoint_id] = checkpoint
         state["current_id"] = checkpoint_id
         task_state.checkpoint_id = checkpoint_id
@@ -885,13 +764,7 @@ class RepoHarness:
         return checkpoint
 
     def infer_next_step(self, task_state):
-        if task_state.status == "completed":
-            return "No next step recorded."
-        if task_state.stop_reason == "step_limit_reached":
-            return "Resume from the latest checkpoint and continue the task."
-        if task_state.last_tool:
-            return f"Decide the next action after {task_state.last_tool}."
-        return "Continue the task from the latest checkpoint."
+        return infer_next_step(task_state)
 
     def update_memory_after_tool(self, name, args, result):
         """把少量高价值工具结果沉淀到 working memory。
@@ -1186,7 +1059,7 @@ class RepoHarness:
             body = RepoHarness.extract(raw, "tool")
             try:
                 payload = json.loads(body)
-            except Exception:
+            except json.JSONDecodeError:
                 return "retry", RepoHarness.retry_notice("model returned malformed tool JSON")
             if not isinstance(payload, dict):
                 return "retry", RepoHarness.retry_notice("tool payload must be a JSON object")
@@ -1220,7 +1093,7 @@ class RepoHarness:
         if not attrs:
             try:
                 payload = json.loads(body)
-            except Exception:
+            except json.JSONDecodeError:
                 return None
             if not isinstance(payload, dict):
                 return None

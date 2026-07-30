@@ -260,7 +260,7 @@ def run_live_auto_issue_fix(config: AutoIssueFixConfig, model_client=None, gh_ba
         context.stage = "completed"
         return _finalize_live_record(context, status="completed", summary="Auto Issue Fix created a draft pull request.")
     except Exception as exc:
-        context.fallback_reason = str(exc)
+        context.fallback_reason = f"{type(exc).__name__}: {exc}"
         context.review_gates = list(
             context.review_gates
             or (
@@ -268,7 +268,7 @@ def run_live_auto_issue_fix(config: AutoIssueFixConfig, model_client=None, gh_ba
                     stage="task",
                     title="Task Review",
                     verdict="block",
-                    summary=str(exc),
+                    summary=f"{type(exc).__name__}: {exc}",
                     required_action="inspect fallback evidence and rerun after fixing the failure",
                 ),
             )

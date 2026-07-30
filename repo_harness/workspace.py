@@ -87,7 +87,7 @@ class WorkspaceContext:
                     errors="replace",
                 )
                 return result.stdout.strip() or fallback
-            except Exception:
+            except (OSError, subprocess.SubprocessError):
                 return fallback
 
         repo_root = (

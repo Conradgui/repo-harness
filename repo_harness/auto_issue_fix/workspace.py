@@ -13,8 +13,8 @@ IGNORED_DIFF_SUFFIXES = (".pyc",)
 
 
 def infer_test_commands(repo_root: Path) -> tuple[str, ...]:
-    has_python_config = (repo_root / "pyproject.toml").exists() or (repo_root / "pytest.ini").exists()
-    if has_python_config and (repo_root / "tests").exists():
+    has_python_config = (repo_root / "pyproject.toml").exists() or (repo_root / "pytest.ini").exists() or (repo_root / "setup.cfg").exists()
+    if has_python_config and ((repo_root / "tests").exists() or (repo_root / "test").exists()):
         return ("python -m pytest -q",)
     if (repo_root / "package.json").exists():
         return ("npm test",)
@@ -22,6 +22,16 @@ def infer_test_commands(repo_root: Path) -> tuple[str, ...]:
         return ("go test ./...",)
     if (repo_root / "Cargo.toml").exists():
         return ("cargo test",)
+    if (repo_root / "pom.xml").exists():
+        return ("mvn test",)
+    if (repo_root / "build.gradle").exists() or (repo_root / "build.gradle.kts").exists():
+        return ("gradle test",)
+    if any(p.suffix == ".csproj" for p in repo_root.glob("*.csproj")) or any(p.suffix == ".sln" for p in repo_root.glob("*.sln")):
+        return ("dotnet test",)
+    if (repo_root / "Gemfile").exists() and ((repo_root / "spec").exists() or (repo_root / ".rspec").exists()):
+        return ("bundle exec rspec",)
+    if (repo_root / "CMakeLists.txt").exists():
+        return ("ctest --output-on-failure",)
     return ()
 
 
