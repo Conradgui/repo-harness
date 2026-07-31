@@ -468,4 +468,4 @@ def test_memory_organize_queues_candidates_without_writing_topics(tmp_path):
     assert "Memory organize" in output
     assert agent.memory_review_pending()
     topics_dir = tmp_path / ".repo-harness" / "memory" / "topics"
-    assert not list(topics_dir.glob("*.md")) if topics_dir.exists() else True
+    assert not topics_dir.exists()

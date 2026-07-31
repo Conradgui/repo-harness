@@ -195,7 +195,6 @@ def test_agent_only_stores_reusable_epistemic_notes(tmp_path):
     notes = agent.session["memory"]["episodic_notes"]
     assert any("deploy key is red" in note["text"] for note in notes)
     assert not any(note["text"] == "Done." for note in notes)
-    assert not any(note["text"] == "Done." for note in notes)
 
     resumed = RepoHarness.from_session(
         model_client=FakeModelClient(["<final>It is red.</final>"]),
@@ -2933,5 +2932,43 @@ def test_removed_legacy_module_execution_is_not_supported():
     )
 
     assert result.returncode != 0
+
+
+def test_user_interruption_recovers_session_after_model_error(tmp_path):
+    agent = build_agent(tmp_path, [])
+    result = agent.ask("Do the task.")
+
+    assert "模型错误" in result
+    task_state = json.loads(
+        agent.run_store.task_state_path(agent.current_task_state).read_text(encoding="utf-8")
+    )
+    assert task_state["status"] == "failed"
+    assert (tmp_path / ".repo-harness" / "runs").exists()
+
+    recovered = RepoHarness.from_session(
+        model_client=FakeModelClient([]),
+        workspace=agent.workspace,
+        session_store=agent.session_store,
+        session_id=agent.session["id"],
+        approval_policy="auto",
+    )
+    resume_state = recovered.evaluate_resume_state()
+    assert resume_state["status"] != "no-checkpoint"
+    assert recovered.session["id"] == agent.session["id"]
+    assert agent.session_store.path(agent.session["id"]).exists()
+
+
+def test_model_error_surfaces_user_visible_message_and_stop_reason(tmp_path):
+    agent = build_agent(tmp_path, [])
+
+    out = agent.ask("Any task.")
+
+    assert "模型错误" in out
+    assert "fake model ran out of outputs" in out
+    task_state = json.loads(
+        agent.run_store.task_state_path(agent.current_task_state).read_text(encoding="utf-8")
+    )
+    assert task_state["stop_reason"] == "model_error"
+    assert task_state["status"] == "failed"
 
 

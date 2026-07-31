@@ -592,7 +592,11 @@ def test_auto_issue_fix_repl_defaults_to_discovery_safe_preview(tmp_path):
 
     assert code == 0
     assert "Auto Issue Fix safe preview complete" in output
-    assert list((tmp_path / ".repo-harness" / "auto-issue-fix").glob("auto_issue_fix_*"))
+    evidence_root = tmp_path / ".repo-harness" / "auto-issue-fix"
+    run_dirs = list(evidence_root.glob("auto_issue_fix_*"))
+    assert run_dirs, "expected at least one auto_issue_fix_* evidence directory"
+    assert (run_dirs[0] / "run-record.json").exists()
+    assert (run_dirs[0] / "checkpoint.json").exists()
 
 
 def test_auto_issue_fix_repl_without_args_is_usage_when_not_interactive(tmp_path):

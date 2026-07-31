@@ -91,4 +91,4 @@ class TestBuildPromptText:
 
     def test_includes_skills_section(self):
         text = build_prompt_text({"read_file": _sample_tool()}, [])
-        assert "Skills:" in text or "skills" in text.lower() or text.strip()
+        assert "Skills:" in text and "none" in text
