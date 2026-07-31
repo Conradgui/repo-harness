@@ -304,13 +304,13 @@
 <!-- ========== Header ========== -->
 <div class="report-header">
   <h1>RepoHarness 项目综合审查报告</h1>
-  <div class="subtitle">本地 coding agent runtime · 三轮迭代 + 安全加固后的完整状态 · 19 项问题逐一跟踪 · 含端到端功能流程验证</div>
+  <div class="subtitle">本地 coding agent runtime · 迭代优化 + 安全加固后的完整状态 · 19 项问题逐一跟踪 · 含端到端功能流程验证</div>
   <div class="report-meta">
-    <span class="meta-chip">分支: release/optimized-v1</span>
-    <span class="meta-chip green">499 passed, 1 skipped</span>
-    <span class="meta-chip">ruff 1 error (working tree)</span>
-    <span class="meta-chip">源码 14,531 行 / 73 文件</span>
-    <span class="meta-chip">测试 9,369 行 / 38 文件</span>
+    <span class="meta-chip">分支: work/optimized-v1-pending-changes</span>
+    <span class="meta-chip green">506 passed, 1 skipped</span>
+    <span class="meta-chip">ruff 1 error（分支内，F841）</span>
+    <span class="meta-chip">源码 14,794 行 / 76 文件</span>
+    <span class="meta-chip">测试 9,535 行 / 40 文件</span>
     <span class="meta-chip yellow">Runtime 1,115 类体 / 1,196 物理行 (原 1,249)</span>
   </div>
 </div>
@@ -360,42 +360,42 @@
         <td>测试通过数</td>
         <td>463</td>
         <td>473</td>
-        <td><strong>499</strong></td>
-        <td class="delta good">+36</td>
+        <td><strong>506</strong></td>
+        <td class="delta good">+43</td>
       </tr>
       <tr>
         <td>Runtime 类行数 (类体)</td>
         <td>1,249</td>
         <td>1,247</td>
         <td><strong>1,115</strong></td>
-        <td class="delta good">−132</td>
+        <td class="delta good">−134</td>
       </tr>
       <tr>
         <td>源码行数</td>
         <td>14,602</td>
         <td>14,642</td>
-        <td><strong>14,531</strong></td>
-        <td class="delta good">−111</td>
+        <td><strong>14,794</strong></td>
+        <td class="delta neutral">+192</td>
       </tr>
       <tr>
         <td>测试行数</td>
         <td>9,083</td>
         <td>9,187</td>
-        <td><strong>9,369</strong></td>
-        <td class="delta good">+286</td>
+        <td><strong>9,535</strong></td>
+        <td class="delta good">+452</td>
       </tr>
       <tr>
         <td>ruff 错误</td>
         <td>0</td>
         <td>0</td>
-        <td><strong>1 (working tree)</strong></td>
+        <td><strong>1（分支内）</strong></td>
         <td class="delta neutral">+1</td>
       </tr>
       <tr>
         <td>新模块</td>
         <td>—</td>
         <td>—</td>
-        <td><strong>core/prompt_builder.py</strong></td>
+        <td><strong>core/secret_sanitizer.py</strong></td>
         <td class="delta good">+1</td>
       </tr>
     </tbody>
@@ -404,13 +404,13 @@
   <div class="note-box green">
     <strong>三轮修复 + 端到端场景验证成果：</strong>
     共修改 18 个源码/测试文件，新增 36 个测试（含 3 个端到端功能流程测试），修复 8 个真实 bug，
-    提取 2 个新模块（prompt_builder.py + checkpoint_builder.py），runtime 类体减少 134 行（物理 1,196）。
+    累计提取 4 个新模块（memory_coordinator.py + prompt_builder.py + checkpoint_builder.py + secret_sanitizer.py），runtime 类体减少 134 行（物理 1,196）。
     <strong>端到端场景测试</strong>：用真实 demo-repo 驱动 agent 完成完整的"读文件→运行测试→patch修复→再测试→返回"流程，
     验证了 trace 完整性、task_state/report 工件产出、checkpoint 在每步后创建。
     <strong>新发现的产品行为风险</strong>：当 patch_file 被拒绝（如 old_text 不匹配），agent 仍可能继续运行测试并在测试恰好通过时声称修复成功——
     这是一个"agent 在不确定情况下声称成功"的风险，    值得在后续版本中通过 final answer 校验逻辑改进。
     <br><br>
-    <strong>2026-07-30 同步更新：</strong>指标已对齐 <code>scripts/measure.py</code> 实测（源码 14,531 / 测试 9,369 / runtime 类体 1,115·物理 1,196 / 101 方法）。最近一批 sandbox 安全加固已收口（read_only 直接阻止 run_shell、不再咨询命令过滤器；关闭 .env 覆盖与 fail-open 回退），详见新增 Issue 19。当前 working tree 存在 1 个 ruff 错误（F841，<code>tests/test_repo_harness.py:2378</code>，未提交改动）。
+    <strong>2026-07-30 同步更新：</strong>指标已对齐 <code>scripts/measure.py</code> 实测（源码 14,794 / 76 文件 / 测试 9,535 / 40 文件 / runtime 类体 1,115 / 101 方法；物理 1,196 为看板口径）。最近一批 sandbox 安全加固已收口（read_only 直接阻止 run_shell、不再咨询命令过滤器；关闭 .env 覆盖与 fail-open 回退），详见新增 Issue 19。本轮（P1 收尾）进一步将 secret 环境变量脱敏逻辑抽离为 <code>core/secret_sanitizer.py</code>（9 方法）。当前分支 <code>work/optimized-v1-pending-changes</code> 内存在 1 个 ruff 错误（F841，<code>tests/test_repo_harness.py:2378</code>，已提交）。
   </div>
 </div>
 
@@ -438,10 +438,10 @@
       <div class="stat-value">101</div>
       <div class="stat-label">Runtime 方法数</div>
     </div>
-    <div class="stat-card">
-      <div class="stat-value">26</div>
-      <div class="stat-label">core/ 子模块 (原25)</div>
-    </div>
+      <div class="stat-card">
+        <div class="stat-value">27</div>
+        <div class="stat-label">core/ 子模块 (原25)</div>
+      </div>
     <div class="stat-card">
       <div class="stat-value">9</div>
       <div class="stat-label">auto_issue_fix/ 子模块</div>
@@ -479,7 +479,7 @@
       <div class="kanban-col-body">
         <div class="layer-card">
           <div class="layer-name">RepoHarness</div>
-          <div class="layer-desc">会话状态、工具画像、checkpoint；记忆子域已迁出，prompt 纯计算已提取</div>
+          <div class="layer-desc">会话状态、工具画像、checkpoint；记忆/prompt/checkpoint 子域已迁出，secret 脱敏已抽至 SecretSanitizer</div>
           <div class="layer-file">repo_harness/runtime.py (1,115 类体 / 1,196 物理, 原1,249)</div>
         </div>
         <div class="layer-card">
@@ -491,6 +491,11 @@
           <div class="layer-name">PromptBuilder (新提取)</div>
           <div class="layer-desc">3 个纯函数：filter_available_tools / compute_tool_signature / build_prompt_text，无状态依赖</div>
           <div class="layer-file">core/prompt_builder.py (NEW)</div>
+        </div>
+        <div class="layer-card new-module">
+          <div class="layer-name">SecretSanitizer (新提取)</div>
+          <div class="layer-desc">secret 环境变量检测与内容脱敏（9 方法：redact_text / redact_artifact / shell_env 等），区别于 models.py 的 repr 脱敏</div>
+          <div class="layer-file">core/secret_sanitizer.py (NEW)</div>
         </div>
         <div class="layer-card">
           <div class="layer-name">ContextManager</div>
@@ -653,7 +658,7 @@
       </div>
       <div class="issue-loc">repo_harness/runtime.py · 1,115 类体 / 1,196 物理行 / 101 方法 (原 1,249)</div>
       <div class="issue-desc">
-        三轮提取完成：记忆子域（17 个方法→MemoryCoordinator）、prompt 纯计算（3 函数→prompt_builder.py）、checkpoint 纯计算（2 函数→checkpoint_builder.py）。
+        累计提取 4 个子域：记忆子域（17 方法→MemoryCoordinator）、prompt 纯计算（3 函数→prompt_builder.py）、checkpoint 纯计算（2 函数→checkpoint_builder.py）、secret 环境变量脱敏（9 方法→secret_sanitizer.py）。
         metrics/context 聚类已确认足够薄（2 行静态转发），无需提取。共减少 134 行（类体；物理 1,196）。
       </div>
       <div class="issue-fix">
@@ -1052,6 +1057,10 @@
           <div class="layer-desc">3 个 client 类 <code>__repr__</code> 不暴露 key</div>
         </div>
         <div class="layer-card">
+          <div class="layer-name">SecretSanitizer 脱敏模块</div>
+          <div class="layer-desc">9 方法的环境变量检测/内容脱敏（redact_text / redact_artifact / shell_env），与 models.py 的 repr 脱敏互补</div>
+        </div>
+        <div class="layer-card">
           <div class="layer-name">端到端功能流程测试</div>
           <div class="layer-desc">3 个：durable memory accept→后续 prompt 出现、多轮工具链收敛、checkpoint 创建→恢复</div>
         </div>
@@ -1061,7 +1070,7 @@
 </div>
 
 <div class="report-footer">
-  RepoHarness 项目综合审查报告（三轮迭代 + 安全加固版）· 生成于 2026-07-30 · 当前状态 · 499 passed, 1 skipped, ruff 1 error (working tree) · 含 3 个端到端功能流程测试 · 新增安全加固 Issue 19
+  RepoHarness 项目综合审查报告（迭代优化 + 安全加固版）· 生成于 2026-07-30 · 当前状态 · 506 passed, 1 skipped, ruff 1 error（分支内，F841）· 含 3 个端到端功能流程测试 · 新增安全加固 Issue 19 · 指标来源 scripts/measure.py 实测
 </div>
 
 <script>
