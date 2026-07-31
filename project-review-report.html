@@ -308,9 +308,9 @@
   <div class="report-meta">
     <span class="meta-chip">分支: work/optimized-v1-pending-changes</span>
     <span class="meta-chip green">506 passed, 1 skipped</span>
-    <span class="meta-chip">ruff 1 error（分支内，F841）</span>
+    <span class="meta-chip">ruff 0 error（F841 已修复）</span>
     <span class="meta-chip">源码 14,794 行 / 76 文件</span>
-    <span class="meta-chip">测试 9,535 行 / 40 文件</span>
+    <span class="meta-chip">测试 9,534 行 / 40 文件</span>
     <span class="meta-chip yellow">Runtime 1,115 类体 / 1,196 物理行 (原 1,249)</span>
   </div>
 </div>
@@ -381,15 +381,15 @@
         <td>测试行数</td>
         <td>9,083</td>
         <td>9,187</td>
-        <td><strong>9,535</strong></td>
-        <td class="delta good">+452</td>
+        <td><strong>9,534</strong></td>
+        <td class="delta good">+451</td>
       </tr>
       <tr>
         <td>ruff 错误</td>
         <td>0</td>
         <td>0</td>
-        <td><strong>1（分支内）</strong></td>
-        <td class="delta neutral">+1</td>
+        <td><strong>0</strong></td>
+        <td class="delta neutral">0</td>
       </tr>
       <tr>
         <td>新模块</td>
@@ -410,7 +410,7 @@
     <strong>新发现的产品行为风险</strong>：当 patch_file 被拒绝（如 old_text 不匹配），agent 仍可能继续运行测试并在测试恰好通过时声称修复成功——
     这是一个"agent 在不确定情况下声称成功"的风险，    值得在后续版本中通过 final answer 校验逻辑改进。
     <br><br>
-    <strong>2026-07-30 同步更新：</strong>指标已对齐 <code>scripts/measure.py</code> 实测（源码 14,794 / 76 文件 / 测试 9,535 / 40 文件 / runtime 类体 1,115 / 101 方法；物理 1,196 为看板口径）。最近一批 sandbox 安全加固已收口（read_only 直接阻止 run_shell、不再咨询命令过滤器；关闭 .env 覆盖与 fail-open 回退），详见新增 Issue 19。本轮（P1 收尾）进一步将 secret 环境变量脱敏逻辑抽离为 <code>core/secret_sanitizer.py</code>（9 方法）。当前分支 <code>work/optimized-v1-pending-changes</code> 内存在 1 个 ruff 错误（F841，<code>tests/test_repo_harness.py:2378</code>，已提交）。
+    <strong>2026-07-30 同步更新：</strong>指标已对齐 <code>scripts/measure.py</code> 实测（源码 14,794 / 76 文件 / 测试 9,534 / 40 文件 / runtime 类体 1,115 / 101 方法；物理 1,196 为看板口径）。最近一批 sandbox 安全加固已收口（read_only 直接阻止 run_shell、不再咨询命令过滤器；关闭 .env 覆盖与 fail-open 回退），详见新增 Issue 19。本轮（P1 收尾）进一步将 secret 环境变量脱敏逻辑抽离为 <code>core/secret_sanitizer.py</code>（9 方法）。F841 死变量已修复：删除 <code>tests/test_repo_harness.py:2378</code> 的未使用 <code>task_state</code> 赋值，当前分支 <code>work/optimized-v1-pending-changes</code> 的 ruff 已无 error（measure.py 实测 0）。
   </div>
 </div>
 
@@ -1070,7 +1070,7 @@
 </div>
 
 <div class="report-footer">
-  RepoHarness 项目综合审查报告（迭代优化 + 安全加固版）· 生成于 2026-07-30 · 当前状态 · 506 passed, 1 skipped, ruff 1 error（分支内，F841）· 含 3 个端到端功能流程测试 · 新增安全加固 Issue 19 · 指标来源 scripts/measure.py 实测
+  RepoHarness 项目综合审查报告（迭代优化 + 安全加固版）· 生成于 2026-07-30 · 当前状态 · 506 passed, 1 skipped, ruff 0 error（F841 已修复）· 含 3 个端到端功能流程测试 · 新增安全加固 Issue 19 · 指标来源 scripts/measure.py 实测
 </div>
 
 <script>
