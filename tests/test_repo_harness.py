@@ -2375,7 +2375,6 @@ def test_checkpoint_created_then_restored_and_agent_continues(tmp_path):
     )
 
     agent.ask("Read app.py and prepare to continue.")
-    task_state = agent.session.get("task_state", {})
     checkpoint = agent.create_checkpoint(
         type("TS", (), {"final_answer": "", "stop_reason": "step_limit_reached", "status": "running", "last_tool": "read_file"})(),
         "Fix the print statement",
