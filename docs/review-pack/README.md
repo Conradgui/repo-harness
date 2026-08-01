@@ -4,9 +4,9 @@
 
 本文件为维护者和评审者提供可审查快照。它不替代 README；它说明当前版本应该如何被验证、哪些工件可作为证据、哪些治理边界不能被绕过。
 
-## 2026-05-30：v5 动态上下文预算与代码质量提升
+## 2026-07-31：v7 Builder 提取收尾、Sandbox 加固与测试质量门禁
 
-本快照覆盖 v5 版本，包含 v3 能力完善、v4 代码清理与安全加固、以及 v5 动态上下文预算：
+本快照覆盖 v3 能力完善、v4 代码清理与安全加固、v5 动态上下文预算、v6 God Object 解体推进与安全加固、以及 v7 builder 提取收尾与测试质量门禁：
 
 - provider config：全局 config、项目 config、项目 `.env`、CLI/env/config/default 优先级。
 - Chat Completions-compatible provider：MiMo 等 `/chat/completions` 后端必须走 `chat-completions`，不能误用 `openai` Responses API provider。

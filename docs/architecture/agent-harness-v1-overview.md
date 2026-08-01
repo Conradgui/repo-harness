@@ -9,6 +9,8 @@ Agent Harness v1 的核心概念仍然保留：一次任务会生成 task state�
 ## 当前架构记录：2026-05-29 v4 代码清理、安全加固与 Claude Code Skill 兼容
 
 > **v6 更新**：prompt 纯计算提取到 `core/prompt_builder.py`，checkpoint 纯计算提取到 `core/checkpoint_builder.py`，context window 支持环境变量扩展。详见 changelog-draft.md。
+>
+> **v7 更新**：secret 环境变量脱敏逻辑提取到 `core/secret_sanitizer.py`；sandbox hardening 跨 `auto_issue_fix` / `cli` / `tool_policy` / `workspace` / `context_manager` 落实（read_only 直接阻止 run_shell、关闭 .env 覆盖与 fail-open 回退，见 ADR-007）；`RepoHarness` 保留上述 builder 的瘦转发器。详见 changelog-draft.md。
 
 RepoHarness 的公共 API 仍然是 `RepoHarness.ask()`、`repo-harness` CLI 和 `python -m repo_harness`。REPL、public CLI scripted evidence、workers 和 release evidence 共用同一套 runtime、permission、tool policy、session events、trace/report 工件。
 

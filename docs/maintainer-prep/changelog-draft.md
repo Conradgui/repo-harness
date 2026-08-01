@@ -1,5 +1,37 @@
 # 更新日志草稿
 
+## v7：Builder 提取收尾、Sandbox 加固与测试质量门禁
+
+### Added
+
+- 新增 `core/secret_sanitizer.py`，将脱敏逻辑从 `RepoHarness` 提取为独立纯函数模块，可在不实例化 `RepoHarness` 的情况下隔离测试（配套 `tests/test_secret_sanitizer.py`，72 个用例）。
+- 新增 `auto_issue_fix` 的 sandbox/security 加固单测与 `tool_policy` 验收测试（`tests/test_tool_policy_acceptance.py`，41 个用例）。
+- 新增 2 类用户行为场景测试：
+  - `test_user_interruption_recovers_session_after_model_error`：模型错误后 session 落盘、`RepoHarness.from_session` 可恢复、`evaluate_resume_state()` 返回非 `no-checkpoint`、session 身份连续。
+  - `test_model_error_surfaces_user_visible_message_and_stop_reason`：`ask` 返回含 "模型错误" 与 "fake model ran out of outputs" 的用户可见文案，`stop_reason == "model_error"`、`status == "failed"`。
+
+### Changed
+
+- `RepoHarness` 上保留 `secret_sanitizer` / `prompt_builder` / `checkpoint_builder` 的瘦转发器与外部 redact 回调，保证既有调用方与下游文档不破坏。
+- Sandbox hardening 跨 `auto_issue_fix` / `cli` / `tool_policy` / `workspace` / `context_manager` 落实，收敛命令执行边界。
+- `test_auto_issue_fix_live_runner.py` 从 import smoke 改为离线真驱动 `run_live_auto_issue_fix`（注入 `FakeBackend` + `maintainer_access_confirmed=False`），断言返回 `AutoIssueFixRunRecord` 且 `status == "blocked"`。
+
+### Fixed
+
+- `test_prompt_builder.py::test_includes_skills_section`：恒真断言链（`or ... or text.strip()`）收紧为 `assert "Skills:" in text and "none" in text`，明确占位语义。
+- `test_repo_harness.py`：删除重复断言行（copy-paste 残留）。
+- `test_auto_issue_fix.py::test_auto_issue_fix_repl_defaults_to_discovery_safe_preview`：仅 truthy 的 glob 断言收紧为「至少 1 个 `auto_issue_fix_*` 目录且含 `run-record.json` / `checkpoint.json`」。
+- `test_memory.py`：`else True` 恒过分支收紧为 `assert not topics_dir.exists()`（`memory_organize_text` 只队列候选、不写 topics 目录）。
+- `runtime.py`：清理死代码赋值（F841），移除无用的 `task_state` 回写。
+- 交付报告登记测试行数经 `scripts/sync_figures.py` 重新同步至实测值（9,625 行）。
+
+### Verification
+
+- `uv run pytest tests/ -q` — 509 passed, 1 skipped
+- `uv run ruff check .` — 0 error
+
+---
+
 ## v6：深度审计、God Object 解体推进与安全加固
 
 ### Added
