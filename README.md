@@ -37,7 +37,7 @@ provider 配置是新手最高频的卡点，而且失败信号有误导性：HT
 
 ## 版本迭代
 
-v4 / v5 的详细变更见 [changelog-draft.md](docs/maintainer-prep/changelog-draft.md)。本轮重建的完整记录见 [交付文档](docs/delivery/README.md)。
+v4 / v5 的详细变更见 [changelog-draft.md](docs/maintainer-prep/changelog-draft.md)。v6 完成了 God Object 解体推进、深度审计与安全加固（builder 提取、context window 扩展、异常收窄）；v7 收尾了 builder 提取、Sandbox 加固与测试质量门禁（脱敏逻辑提取为 `core/secret_sanitizer.py`、跨模块收敛命令执行边界、收紧 5 处弱断言并新增中断恢复 / 模型错误可见性场景测试，509 passed / 1 skipped、ruff 0 error）。本轮重建的完整记录见 [交付文档](docs/delivery/README.md)。
 
 ## 产品边界
 
@@ -256,6 +256,7 @@ RepoHarness 的工具执行统一经过 core executor、permission gate、tool p
 - 修改既有文件前需要 fresh read；重复工具调用会进入 guard。
 - 多 tool-call 按模型输出顺序执行，partial failure 会进入 trace。
 - `read_only` 模式下不执行任何 shell 命令，`excluded_commands` 在该模式下不提供豁免（[ADR-007](docs/decisions/007-read-only-不再有豁免.md)）。豁免只在 `best_effort` 下生效，那个模式本就不承诺隔离。
+- Sandbox hardening（v7）：`read_only` 直接阻止 `run_shell`、关闭 `.env` 覆盖与 fail-open 回退，命令执行边界在 `auto_issue_fix` / `cli` / `tool_policy` / `workspace` / `context_manager` 统一收敛（见 [ADR-007](docs/decisions/007-read-only-不再有豁免.md)）。
 - Token 估算支持 CJK 文本感知（中文字符约 1.5 token/字，ASCII 约 0.25 token/字符）。
 
 Sandbox 支持：
