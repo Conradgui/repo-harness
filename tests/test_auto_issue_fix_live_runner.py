@@ -1,6 +1,56 @@
-from repo_harness.auto_issue_fix import GhCliBackend, run_live_auto_issue_fix
+from repo_harness.auto_issue_fix import (
+    AutoIssueFixConfig,
+    AutoIssueFixIssue,
+    AutoIssueFixRunRecord,
+    GhCliBackend,
+    run_live_auto_issue_fix,
+)
 
 
 def test_auto_issue_fix_live_runner_public_entrypoints_are_importable():
     assert GhCliBackend is not None
     assert run_live_auto_issue_fix is not None
+    assert AutoIssueFixConfig is not None
+    assert AutoIssueFixIssue is not None
+    assert AutoIssueFixRunRecord is not None
+
+
+class FakeBackend:
+    """Offline stand-in for GhCliBackend: never touches the network."""
+
+    def issue_view(self, repo, issue):
+        return AutoIssueFixIssue(
+            repo=str(repo),
+            number=int(issue),
+            title="offline issue",
+            body="offline body",
+            url=f"https://github.com/{repo}/issues/{issue}",
+            labels=(),
+        )
+
+    def issue_list(self, repo, limit=20):
+        return [self.issue_view(repo, 1)]
+
+    def search_repos(self, query="topic:python sort:stars-desc", limit=10):
+        return []
+
+    def default_branch(self, repo):
+        return "main"
+
+
+def test_auto_issue_fix_live_runner_blocks_without_maintainer_access(tmp_path):
+    fake_backend = FakeBackend()
+    cfg = AutoIssueFixConfig(
+        repo="owner/name",
+        issue=1,
+        workspace_root=tmp_path,
+        discover=False,
+        maintainer_access_confirmed=False,
+    )
+
+    rec = run_live_auto_issue_fix(cfg, gh_backend=fake_backend)
+
+    assert isinstance(rec, AutoIssueFixRunRecord)
+    assert rec.status == "blocked"
+    assert rec.tests == []
+    assert rec.changed_paths == ()

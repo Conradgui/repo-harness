@@ -1,5 +1,80 @@
 # 更新日志草稿
 
+## v7：Builder 提取收尾、Sandbox 加固与测试质量门禁
+
+### Added
+
+- 新增 `core/secret_sanitizer.py`，将脱敏逻辑从 `RepoHarness` 提取为独立纯函数模块，可在不实例化 `RepoHarness` 的情况下隔离测试（配套 `tests/test_secret_sanitizer.py`，72 个用例）。
+- 新增 `auto_issue_fix` 的 sandbox/security 加固单测与 `tool_policy` 验收测试（`tests/test_tool_policy_acceptance.py`，41 个用例）。
+- 新增 2 类用户行为场景测试：
+  - `test_user_interruption_recovers_session_after_model_error`：模型错误后 session 落盘、`RepoHarness.from_session` 可恢复、`evaluate_resume_state()` 返回非 `no-checkpoint`、session 身份连续。
+  - `test_model_error_surfaces_user_visible_message_and_stop_reason`：`ask` 返回含 "模型错误" 与 "fake model ran out of outputs" 的用户可见文案，`stop_reason == "model_error"`、`status == "failed"`。
+
+### Changed
+
+- `RepoHarness` 上保留 `secret_sanitizer` / `prompt_builder` / `checkpoint_builder` 的瘦转发器与外部 redact 回调，保证既有调用方与下游文档不破坏。
+- Sandbox hardening 跨 `auto_issue_fix` / `cli` / `tool_policy` / `workspace` / `context_manager` 落实，收敛命令执行边界。
+- `test_auto_issue_fix_live_runner.py` 从 import smoke 改为离线真驱动 `run_live_auto_issue_fix`（注入 `FakeBackend` + `maintainer_access_confirmed=False`），断言返回 `AutoIssueFixRunRecord` 且 `status == "blocked"`。
+
+### Fixed
+
+- `test_prompt_builder.py::test_includes_skills_section`：恒真断言链（`or ... or text.strip()`）收紧为 `assert "Skills:" in text and "none" in text`，明确占位语义。
+- `test_repo_harness.py`：删除重复断言行（copy-paste 残留）。
+- `test_auto_issue_fix.py::test_auto_issue_fix_repl_defaults_to_discovery_safe_preview`：仅 truthy 的 glob 断言收紧为「至少 1 个 `auto_issue_fix_*` 目录且含 `run-record.json` / `checkpoint.json`」。
+- `test_memory.py`：`else True` 恒过分支收紧为 `assert not topics_dir.exists()`（`memory_organize_text` 只队列候选、不写 topics 目录）。
+- `runtime.py`：清理死代码赋值（F841），移除无用的 `task_state` 回写。
+- 交付报告登记测试行数经 `scripts/sync_figures.py` 重新同步至实测值（9,625 行）。
+
+### Verification
+
+- `uv run pytest tests/ -q` — 509 passed, 1 skipped
+- `uv run ruff check .` — 0 error
+
+---
+
+## v6：深度审计、God Object 解体推进与安全加固
+
+### Added
+
+- 新增 `core/prompt_builder.py`，提取 3 个纯函数（`build_prompt_text`、`compute_tool_signature`、`filter_available_tools`），prompt 构建可在不实例化 RepoHarness 的情况下测试。
+- 新增 `core/checkpoint_builder.py`，提取 `build_checkpoint` 和 `infer_next_step` 纯函数，`CHECKPOINT_SCHEMA_VERSION` 常量统一来源。
+- 新增 `REPO_HARNESS_EXTRA_CONTEXT_WINDOWS` 环境变量，用户可通过 JSON 注册新模型 context window 无需改代码。
+- 新增 3 个 run_shell 输出处理测试（成功/partial_success/无 task_state 截断）。
+- 新增 8 个 context window 扩展机制测试（JSON 解析、非字典 JSON、非数字值过滤、优先级覆盖）。
+- 新增 12 个测试命令推断测试（Python/npm/Go/Rust/Maven/Gradle/.NET/Ruby/CMake）。
+- 新增 11 个 prompt_builder 纯函数隔离测试。
+
+### Changed
+
+- `accept_durable_review` 顺序反转：先 `promote_durable` 再 `mark`，避免 promote 失败时部分提交。
+- 8 处 `except Exception` 收窄为精确异常类型（OSError / json.JSONDecodeError / ValueError 等），1 处保留广捕（prompt_toolkit 自定义异常）。
+- 3 个 model client 类添加 `__repr__`，api_key 显示为 `<redacted>`。
+- `infer_test_commands` 从 4 种扩展到 9 种语言生态（新增 Maven/Gradle/.NET/Ruby/CMake）。
+- `compute_budgets` 的 `output_reserve` 增加 `context_window // 2` 上限，防止极小 context window 时 available_tokens 变负。
+- `context_manager` metadata `section_order` 修正为包含 `skills`，与实际渲染顺序一致。
+- `_compute_section_floors` 增加 `min(floor, budget)` cap，防止 floor 大于 budget。
+- CLI 和 runner 的异常消息加入 `type(exc).__name__` 前缀。
+- 隐式 TODO 正则提取为命名常量 `AUTO_ISSUE_FIX_BRANCH_RE`。
+- 重复注释块清理。
+
+### Fixed
+
+- `context_manager.py` metadata `section_order` 与实际渲染顺序不一致（缺少 `skills`）。
+- `context_manager.py` floor 可大于 budget，导致 section 永远无法被压缩。
+- `context_manager.py` `note["text"]` 直接访问可能 KeyError，改为 `note.get("text", "")`。
+- `context_manager.py` `compute_budgets` 极小 context_window 时 output_reserve 超过 context_window。
+- `memory.py` `accept_durable_review` 部分提交：先 mark 后 promote 时 promote 失败导致数据不一致。
+- `context_manager.py` `_load_extra_context_windows` 非字典 JSON 导致 `AttributeError` 崩溃。
+- `repl_display.py` usage table 异常处理遗漏 `ValueError`。
+- `cli.py` prompt_toolkit 初始化收窄过激进导致 `NoConsoleScreenBufferError` 未被捕获。
+
+### Verification
+
+- `uv run pytest tests/ -q` — 496 passed, 1 skipped
+- `uv run ruff check .` — passed
+
+---
+
 ## v5：动态上下文预算、死代码清理与代码质量提升
 
 ### Added

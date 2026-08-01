@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import shlex
 import sys
+from pathlib import Path
 
-from .config import AUTO_ISSUE_FIX_MODES, AUTO_REVIEW_MODES, AutoIssueFixConfig, AutoIssueFixRunRecord
+from ..provider_registry import provider_choices
+from .config import (
+    AUTO_ISSUE_FIX_MODES,
+    AUTO_REVIEW_MODES,
+    AutoIssueFixConfig,
+    AutoIssueFixRunRecord,
+)
 from .evidence import write_evidence
 from .runner import run_auto_issue_fix
-from ..provider_registry import provider_choices
 
 
 def _split_csv(values: list[str] | None, default: tuple[str, ...]) -> tuple[str, ...]:

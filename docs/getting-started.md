@@ -354,7 +354,7 @@ uv run repo-harness --sandbox required --sandbox-backend bubblewrap
 
 `required` 模式在后端不可用时 fail closed。Windows fallback 会写入不可用 metadata，而不是伪装为完整隔离。
 
-`excluded_commands` 使用前导空格规范化和 shell 元字符检测（`$(`、`` ` ``、`\`、`${`）防止绕过 sandbox。
+`read_only` 模式下不执行任何 shell 命令，`excluded_commands` 在该模式下不再提供豁免（见 ADR-007）。
 
 ## 7. Skills
 
@@ -427,7 +427,7 @@ Worker 支持后台生命周期、continue、stop、shutdown、running send guar
 
 ```bash
 uv run python -m repo_harness --help
-uv run pytest tests/test_run_evidence.py tests/test_business_scenario_dogfood.py -q
+uv run pytest tests/test_business_scenario_dogfood.py -q
 ```
 
 Business dogfood 默认 fake/scripted provider，场景为：

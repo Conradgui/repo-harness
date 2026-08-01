@@ -1,5 +1,22 @@
 # 修改摘要记录
 
+## 2026-07-31：v6 / v7 修改摘要（God Object 解体、Builder 提取、Sandbox 加固、测试质量门禁）
+
+### v6：深度审计、God Object 解体推进与安全加固
+
+- `core/prompt_builder.py`、`core/checkpoint_builder.py` 提取为独立纯计算模块，`RepoHarness` 保留瘦转发器。
+- `auto_issue_fix` sandbox hardening：read_only 直接阻止 `run_shell`、关闭 .env 覆盖与 fail-open 回退（见 ADR-007）。
+- `memory.py`（1,266 行）、`context_manager.py`（668 行）完成深入审计并修复若干缺陷。
+- ruff 错误数从 198 降为 0（规则集在 `pyproject.toml` 显式声明并锁版本）。
+
+### v7：Builder 提取收尾、Sandbox 加固与测试质量门禁
+
+- 新增 `core/secret_sanitizer.py`，脱敏逻辑从 `RepoHarness` 提取为独立纯函数模块，配套隔离单测。
+- Sandbox hardening 跨 `auto_issue_fix` / `cli` / `tool_policy` / `workspace` / `context_manager` 落实。
+- 测试质量门禁：收紧 5 处弱测试（Skills 占位、重复断言、truthy glob、else-True、F841 死代码）；新增 2 类用户场景测试（中断恢复、模型错误可见性）。
+- `test_auto_issue_fix_live_runner.py` 从 import smoke 改为离线真驱动 `run_live_auto_issue_fix`。
+- 验证：`509 passed, 1 skipped`、`ruff 0 error`。详见 `changelog-draft.md`。
+
 ## 2026-05-25：Auto Issue Fix v2 真实执行更新
 
 本次补充新增 `chat-completions` provider，让 MiMo 等 `/chat/completions` 兼容后端可以正式驱动 RepoHarness；`openai` provider 继续代表 Responses API，避免协议混用。

@@ -2,7 +2,6 @@
 
 import unicodedata
 
-
 DEFAULT_CONTEXT_WINDOW = 128000
 AUTO_COMPACT_THRESHOLD = 0.84
 

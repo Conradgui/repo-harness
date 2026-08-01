@@ -6,6 +6,7 @@
 """
 
 import argparse
+import contextlib
 import dataclasses
 import inspect as inspectlib
 import os
@@ -24,8 +25,13 @@ from .config import (
     DEFAULT_OPENAI_MODEL,
     resolve_runtime_config,
 )
-from .models import AnthropicCompatibleModelClient, ChatCompletionsCompatibleModelClient, OllamaModelClient, OpenAICompatibleModelClient
-from .models import _sanitize_base_url
+from .models import (
+    AnthropicCompatibleModelClient,
+    ChatCompletionsCompatibleModelClient,
+    OllamaModelClient,
+    OpenAICompatibleModelClient,
+    _sanitize_base_url,
+)
 from .provider_registry import provider_choices
 from .runtime import RepoHarness
 from .session_store import SessionStore
@@ -894,7 +900,7 @@ def handle_memory_command(argv):
             result = _run_memory_validate(args.pack_path, cwd=args.cwd)
             return 1 if _memory_result_failed("validate", result) else 0
     except Exception as exc:
-        print(str(exc), file=sys.stderr)
+        print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
 
     parser.print_help()
@@ -1012,9 +1018,9 @@ def run_memory_pack_menu(cwd, display=None):
                 return
         except Exception as exc:
             if display:
-                display.show_error(f"memory pack error: {exc}")
+                display.show_error(f"memory pack error: {type(exc).__name__}: {exc}")
             else:
-                print(f"memory pack error: {exc}", file=sys.stderr)
+                print(f"memory pack error: {type(exc).__name__}: {exc}", file=sys.stderr)
             return
 
         if display:
@@ -1319,7 +1325,7 @@ def main(argv=None):
             "/usage", "/model", "/history", "/context", "/compact",
             "/working-memory", "/memory", "/memory_explain", "/remember",
             "/memory review", "/memory organize", "/agents", "/subagent",
-            "/auto-issue-fix", "/session", "/reset", "/exit",
+            "/auto-issue-fix", "/session", "/reset", "/exit", "/quit",
         ]
         _pt_completer = WordCompleter(_slash_commands, ignore_case=True)
         _pt_history_file = Path(agent.workspace.cwd) / ".repo-harness" / "input_history"
@@ -1329,14 +1335,18 @@ def main(argv=None):
             completer=_pt_completer,
         )
     except Exception:
-        pass
+        # prompt_toolkit raises custom exception types (e.g.
+        # NoConsoleScreenBufferError) that don't inherit from OSError when the
+        # terminal cannot be driven; broad catch is intentional so the REPL
+        # falls back to input() in any such environment.
+        _pt_session = None
 
     def _read_input(prompt_text):
+        # prompt_toolkit fails on terminals it cannot drive (no tty, some CI
+        # shells); plain input() still works there.
         if _pt_session is not None:
-            try:
+            with contextlib.suppress(Exception):
                 return _pt_session.prompt(prompt_text)
-            except Exception:
-                pass
         return input(prompt_text)
 
     if args.prompt:

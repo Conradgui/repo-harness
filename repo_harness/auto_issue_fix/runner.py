@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import sys
 from argparse import Namespace
 from pathlib import Path
-import sys
 
 from repo_harness.config import resolve_runtime_config
 
-from .config import AutoIssueFixConfig, AutoIssueFixIssue, AutoIssueFixReviewGate, AutoIssueFixRunRecord, LiveRunContext
+from .config import (
+    AutoIssueFixConfig,
+    AutoIssueFixIssue,
+    AutoIssueFixReviewGate,
+    AutoIssueFixRunRecord,
+    LiveRunContext,
+)
 from .evidence import (
     build_preview_review_gates,
     default_evidence_dir,
@@ -23,7 +29,13 @@ from .evidence import (
 from .github_backend import GhCliBackend
 from .reviewer import build_rule_review_gates, discover_issue
 from .security import maintainer_trust_block_reason, require_ok, run_command
-from .workspace import changed_paths, git_diff, infer_test_commands, run_test_commands, scan_diff_gate
+from .workspace import (
+    changed_paths,
+    git_diff,
+    infer_test_commands,
+    run_test_commands,
+    scan_diff_gate,
+)
 
 
 def _build_auto_issue_fix_model_client(config: AutoIssueFixConfig, workspace_root: Path | None = None):
@@ -63,12 +75,17 @@ def run_repoharness_fix_turn(
     model_client=None,
     workspace_root: Path | None = None,
 ) -> str:
+    from repo_harness.config import sandbox_config_for_directory
     from repo_harness.runtime import RepoHarness
     from repo_harness.session_store import SessionStore
     from repo_harness.workspace import WorkspaceContext
 
     model = model_client or _build_auto_issue_fix_model_client(config, workspace_root or Path(config.workspace_root or "."))
     session_store = SessionStore(str(clone_dir / ".repo-harness" / "sessions"))
+    # The clone's own .repo-harness.toml governs its sandbox. Without this the
+    # agent fell back to SandboxConfig() -- mode "off" -- so a repository that
+    # declared read_only had every shell command run unsandboxed here, while
+    # the same declaration was honoured through the CLI.
     agent = RepoHarness(
         model_client=model,
         workspace=WorkspaceContext.build(clone_dir),
@@ -77,6 +94,7 @@ def run_repoharness_fix_turn(
         max_steps=config.max_steps,
         max_new_tokens=config.max_new_tokens,
         read_only=False,
+        sandbox_config=sandbox_config_for_directory(clone_dir),
     )
     prompt = f"""You are running inside RepoHarness Auto Issue Fix.
 
@@ -242,7 +260,7 @@ def run_live_auto_issue_fix(config: AutoIssueFixConfig, model_client=None, gh_ba
         context.stage = "completed"
         return _finalize_live_record(context, status="completed", summary="Auto Issue Fix created a draft pull request.")
     except Exception as exc:
-        context.fallback_reason = str(exc)
+        context.fallback_reason = f"{type(exc).__name__}: {exc}"
         context.review_gates = list(
             context.review_gates
             or (
@@ -250,7 +268,7 @@ def run_live_auto_issue_fix(config: AutoIssueFixConfig, model_client=None, gh_ba
                     stage="task",
                     title="Task Review",
                     verdict="block",
-                    summary=str(exc),
+                    summary=f"{type(exc).__name__}: {exc}",
                     required_action="inspect fallback evidence and rerun after fixing the failure",
                 ),
             )

@@ -1,12 +1,11 @@
 import importlib
 import json
+import os
 import re
 import zipfile
-import os
 from pathlib import Path
 
 import pytest
-
 
 MANIFEST_NAME = "repo-harness-memory-pack.json"
 WORKING_CONTEXT_MEMBER = "payload/working_context/working-context.json"

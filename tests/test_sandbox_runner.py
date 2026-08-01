@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+import pytest
+
 from repo_harness import FakeModelClient, RepoHarness, SessionStore, WorkspaceContext
 from repo_harness.sandbox import SandboxConfig
 
@@ -21,9 +23,47 @@ def test_sandbox_read_only_blocks_run_shell_before_subprocess(tmp_path):
     with patch("repo_harness.tools.subprocess.run") as fake_run:
         result = agent.run_tool("run_shell", {"command": "echo hi", "timeout": 20})
 
-    assert "sandbox read_only blocks run_shell" in result
+    # The refusal now comes from PermissionChecker, which reaches the decision
+    # before SandboxRunner is consulted. Two things improve: the model gets a
+    # named reason instead of a generic tool failure, and the status is
+    # "rejected" rather than "error" -- a policy decision, not a malfunction.
+    # SandboxRunner still raises for a direct call; see the next test.
+    assert "sandbox_read_only" in result
     fake_run.assert_not_called()
-    assert agent._last_tool_result_metadata["tool_status"] == "error"
+    assert agent._last_tool_result_metadata["tool_status"] == "rejected"
+
+
+def _must_not_run(command, timeout):
+    raise AssertionError(f"the command must not reach the platform runner: {command!r}")
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo hi",
+        "git status",                # matches the exclusion pattern exactly
+        "git status/../whoami",      # git dashed-external dispatch
+        "git status; rm -rf x",
+    ],
+)
+def test_sandbox_runner_raises_on_read_only_mode(tmp_path, command):
+    """read_only refuses before the exemption is consulted.
+
+    excluded_commands is configured here on purpose. Without it this test
+    passes under either ordering, and the ordering is the whole point: the
+    exemption used to come first, so `git status/../whoami` ran unsandboxed.
+    See ADR-007.
+    """
+    from repo_harness.sandbox import SandboxRunner
+
+    config = SandboxConfig(
+        mode="read_only", backend="native", excluded_commands=("git status*",)
+    )
+    runner = SandboxRunner(config)
+    agent = build_agent(tmp_path, config)
+
+    with pytest.raises(RuntimeError, match="sandbox read_only blocks run_shell"):
+        runner.run(agent, command, 20, _must_not_run)
 
 
 def test_sandbox_config_resolves_from_repo_harness_toml(tmp_path):

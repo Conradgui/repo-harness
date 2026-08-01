@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import asdict
-from dataclasses import dataclass
-from dataclasses import field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 AUTO_ISSUE_FIX_MODES = ("review-gated", "draft-auto")

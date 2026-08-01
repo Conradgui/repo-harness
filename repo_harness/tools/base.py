@@ -1,7 +1,7 @@
 """Tool abstraction shared by the runtime and prompt builder."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 
 @dataclass(frozen=True)

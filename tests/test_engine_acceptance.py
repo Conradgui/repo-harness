@@ -1,7 +1,8 @@
 import json
 
-from repo_harness.providers import ProviderError
 from conftest import build_agent
+
+from repo_harness.providers import ProviderError
 
 
 def read_jsonl(path):

@@ -1,43 +1,43 @@
 # RepoHarness
 
-> **v0.1.0** | Python 3.10+ | MIT License
+> Python 3.10+ | MIT License | ruff 0 error · 测试全绿
 
-RepoHarness 是一个运行在本地仓库里的轻量 coding agent。它通过受约束工具读取文件、修改文件、运行命令，并把会话、运行工件、记忆和审计信息保存在 `.repo-harness/` 下。
+一个运行在本地仓库里的 coding agent runtime。它通过受约束的工具读文件、改文件、跑命令，把会话、运行工件、记忆和审计信息留在 `.repo-harness/` 下。
 
-RepoHarness 面向需要在本地仓库中可控使用 AI agent 的工程场景：把上下文治理、权限控制、记忆审查、证据留存和 issue 修复流程放进同一套运行边界。Agent 可以执行实际工作，维护者也能持续追踪它读了什么、改了什么、为什么这么做，以及失败时留下了哪些证据。
+**它解决的不是"让模型写代码"，而是"让 agent 安全地改动一个真实仓库"之间那层工程。** 控制循环本身只有 448 行；其余的代码量花在模型不会替你处理的事情上——输出格式纠错、上下文超限时的自动压缩、工具输出截断、重复调用检测、路径越界收敛、以及模型自己填的参数带来的注入面。
 
-## v5 版本迭代
+```bash
+uv sync
+uv run repo-harness --repl
+```
 
-v5 聚焦上下文治理升级和代码质量提升：
+新手完整流程见 [新手指南](docs/getting-started.md)，设计取舍与实现见 [整体方案](docs/spec/整体方案.md)。
 
-| 类别 | 变更 |
-| --- | --- |
-| 动态 Context Budget | 根据模型 context window 自动计算预算（最高 400K 字符），替代固定 12K 限制 |
-| Provider 元数据 | `ProviderRegistryEntry` 新增 `context_window` 和 `supports_native_tools` 字段 |
-| 智能 recent_window | 历史窗口从固定 6 条缩放为根据预算动态调整（6/10/16/24 条） |
-| 死代码清理 | 删除 3 个未使用的 compatibility shim 文件 + 2 个死方法，消除冗余 `_normalize_tool_args` |
-| 补全命令建议 | `ReplFacade.suggest_commands()` 补全 8 个缺失的 slash 命令 |
-| 边界测试 | 新增 12 个 `detect_context_window` / `compute_budgets` 边界测试 |
+## 三个设计取舍
 
-详细变更记录见 [changelog-draft.md](docs/maintainer-prep/changelog-draft.md)。
+**权限决策收敛到单点。** 所有工具调用经 `PermissionChecker.check()` 求值，工具实现里不自行判断能不能做。代价是这个函数会长；收益是想知道"什么情况下 agent 能写文件"，读一个函数就够。这个取舍被一次真实事故验证过——曾有人在函数第一行加了无条件 `deny`，让下方的细粒度校验变成永不可达的死代码，**因为决策集中，这个矛盾一眼可见**。
 
-## v4 版本迭代
+**拒绝回传模型，而不是抛异常。** 权限拒绝把错误码作为下一轮输入交还模型，模型据此换方法。用户看到的是 agent 调整策略，不是崩溃。一个动不动就终止的权限系统，用户的第一反应是全放开。
 
-v4 是与 v3 同等重要的版本迭代，聚焦代码清理、安全加固、架构改进和生态兼容：
+**为复盘而设计，不为复现。** agent 行为非确定性，要求可复现是与模型本质对抗。每次运行产出独立的 `task_state.json` / `trace.jsonl` / `report.json`——能复盘才是可达成的目标。
 
-| 类别 | 变更 |
-| --- | --- |
-| 安全修复 | Shell `excluded_commands` metacharacter 绕过漏洞修复 |
-| 死代码清理 | 删除 254 行 runtime.py 不可达代码 + 5 个重复 re-export 文件 + 490 行 TUI 死代码 |
-| 架构改进 | `SessionStore` 提取为独立模块；`ReplFacade` 从 TUI 提取为独立模块 |
-| Token 估算 | CJK-aware token 估算（中文字符 ~1.5 token/字，ASCII ~0.25 token/字符） |
-| 路径编码 | 修复 Windows CJK 路径编码问题（`workspace.py` git 子进程使用 UTF-8） |
-| REPL 增强 | 基于 `rich` 的增强 REPL：工具调用卡片、Markdown 渲染、语法高亮、状态栏 |
-| 新功能 | Claude Code Skill 兼容层（`claude_code_skills.py`），支持从 `~/.claude/skills/` 发现和加载 |
-| CI 增强 | Python 3.10-3.13 测试矩阵 + TUI 专属 job + 覆盖率报告 |
-| 测试改进 | `conftest.py` 共享 fixtures + sandbox 安全测试扩展 |
+## 从用户卡点倒推的交互设计
 
-详细变更记录见 [changelog-draft.md](docs/maintainer-prep/changelog-draft.md)。
+provider 配置是新手最高频的卡点，而且失败信号有误导性：HTTP 404 看起来像服务不可用，实际往往是把只支持 `/chat/completions` 的模型配成了 Responses provider。用户会去查网络、查域名，问题却在配置里。
+
+所以不做"配置向导"，而是拆成三个命令，各自回答一个用户能自己判断的问题：
+
+| 命令 | 用户此刻的困惑 |
+|---|---|
+| `provider probe` | 不知道该选哪个 —— 从 endpoint 路径反推 |
+| `provider setup` | 知道选什么但不确定怎么写 —— 只存环境变量名，不存 key |
+| `provider doctor` | 配好了但跑不通 —— 告诉你 401/404 各意味着什么 |
+
+`probe` 默认不发真实请求，避免用户在探测阶段产生计费。
+
+## 版本迭代
+
+v4 / v5 的详细变更见 [changelog-draft.md](docs/maintainer-prep/changelog-draft.md)。v6 完成了 God Object 解体推进、深度审计与安全加固（builder 提取、context window 扩展、异常收窄）；v7 收尾了 builder 提取、Sandbox 加固与测试质量门禁（脱敏逻辑提取为 `core/secret_sanitizer.py`、跨模块收敛命令执行边界、收紧 5 处弱断言并新增中断恢复 / 模型错误可见性场景测试，509 passed / 1 skipped、ruff 0 error）。本轮重建的完整记录见 [交付文档](docs/delivery/README.md)。
 
 ## 产品边界
 
@@ -255,7 +255,8 @@ RepoHarness 的工具执行统一经过 core executor、permission gate、tool p
 - shell 普通搜索/读取会被拦截，鼓励使用结构化 `read_file` / `search`。
 - 修改既有文件前需要 fresh read；重复工具调用会进入 guard。
 - 多 tool-call 按模型输出顺序执行，partial failure 会进入 trace。
-- `excluded_commands` 使用前导空格规范化和 shell 元字符检测（`$(`、`` ` ``、`\`、`${`）防止绕过 sandbox。
+- `read_only` 模式下不执行任何 shell 命令，`excluded_commands` 在该模式下不提供豁免（[ADR-007](docs/decisions/007-read-only-不再有豁免.md)）。豁免只在 `best_effort` 下生效，那个模式本就不承诺隔离。
+- Sandbox hardening（v7）：`read_only` 直接阻止 `run_shell`、关闭 `.env` 覆盖与 fail-open 回退，命令执行边界在 `auto_issue_fix` / `cli` / `tool_policy` / `workspace` / `context_manager` 统一收敛（见 [ADR-007](docs/decisions/007-read-only-不再有豁免.md)）。
 - Token 估算支持 CJK 文本感知（中文字符约 1.5 token/字，ASCII 约 0.25 token/字符）。
 
 Sandbox 支持：
@@ -454,10 +455,43 @@ RepoHarness 记忆系统继续以"可迁移、可审核、可解释"为核心。
 
 ## 项目文档
 
-- [新手指南](docs/getting-started.md)
+**入门**
+
+- [新手指南](docs/getting-started.md) — 从安装到跑通第一个任务
 - [架构概览](docs/architecture/agent-harness-v1-overview.md)
-- [更新日志](docs/maintainer-prep/changelog-draft.md)
+
+**设计与规范**
+
+- [整体方案](docs/spec/整体方案.md) — 痛点、设计取舍、架构、实现要点
+- [工程规范](docs/spec/工程规范.md) — 质量门禁、测试规范、安全边界、迭代纪律
+- [决策记录（ADR）](docs/decisions/README.md) — 为什么这么做，以及后来证明对不对
+- [交付文档](docs/delivery/README.md) — 本轮优化的完整记录、测试资料与后续路线图
+
+**功能方案**
+
 - [Auto Issue Fix 产品方案](docs/auto-issue-fix-product-plan.md)
 - [Auto Issue Fix 实现计划](docs/auto-issue-fix-implementation-plan.md)
+
+**维护者**
+
+- [更新日志](docs/maintainer-prep/changelog-draft.md)
 - [维护者文档入口](docs/maintainer-prep/README.md)
 - [Review Pack](docs/review-pack/README.md)
+
+## 工程约定
+
+三条长期生效的约束，来自一次技术债治理的复盘（完整背景见 [ADR-001](docs/decisions/001-放弃-codex-分支从-main-重建.md)）：
+
+| 约定 | 含义 |
+|---|---|
+| [ADR-002](docs/decisions/002-安全边界用开关而非删除实现.md) | 安全边界用配置开关表达，**不删除实现**。删掉的能力找不回来，关掉的随时能开 |
+| [ADR-003](docs/decisions/003-测试只测行为.md) | 测试断言行为，不断言行数、文档措辞或文件形状。会 skip 的测试等于没测 |
+| [ADR-006](docs/decisions/006-交付数字必须可复现.md) | 文档里的每个数字都要能由一条命令复算 |
+
+代码质量门禁：
+
+```bash
+uv run ruff check .        # 规则集在 pyproject.toml 显式声明，预期 0 error
+uv run pytest tests/ -q    # 预期全绿
+python scripts/measure.py  # 产出所有交付文档引用的量化指标
+```

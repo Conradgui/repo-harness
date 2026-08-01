@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .skills import Skill, FRONTMATTER_RE, _string, _list_value, _parse_value
+from .skills import FRONTMATTER_RE, Skill, _list_value, _parse_value, _string
 
 # Claude Code tool name → RepoHarness tool name mapping
 TOOL_NAME_MAP = {

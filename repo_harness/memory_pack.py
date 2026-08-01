@@ -14,7 +14,6 @@ from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path, PurePosixPath
 
-
 SCHEMA_VERSION = "memory-pack-v1"
 MANIFEST_NAME = "repo-harness-memory-pack.json"
 PAYLOAD_PREFIX = "payload"
@@ -80,10 +79,7 @@ def normalize_memory_modules(modules):
 
     if modules is None:
         return []
-    if isinstance(modules, str):
-        raw_items = modules.split(",")
-    else:
-        raw_items = list(modules)
+    raw_items = modules.split(",") if isinstance(modules, str) else list(modules)
 
     seen = set()
     result = []
@@ -898,7 +894,7 @@ def _parse_index_blocks(data):
             current_topic = match.group(1).strip()
             current_lines = [raw.rstrip()]
             continue
-        if current_topic is not None and (raw.startswith(" ") or raw.startswith("\t")):
+        if current_topic is not None and raw.startswith((" ", "\t")):
             current_lines.append(raw.rstrip())
     if current_topic is not None:
         blocks[current_topic] = current_lines

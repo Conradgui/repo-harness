@@ -1,23 +1,24 @@
 import json
 import os
-import pytest
 import subprocess
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import pytest
+
 from repo_harness import WorkspaceContext
 from repo_harness.config import resolve_runtime_config
+from repo_harness.provider_registry import PROVIDER_REGISTRY, provider_names
 from repo_harness.provider_setup import (
+    ProviderDoctorResult,
     build_provider_setup_toml,
     classify_provider_error,
     detect_provider_from_base_url,
     probe_provider_endpoint,
     provider_doctor,
-    ProviderDoctorResult,
     write_provider_config,
 )
-from repo_harness.provider_registry import PROVIDER_REGISTRY, provider_names
 
 
 def _args(tmp_path, **overrides):
@@ -42,7 +43,7 @@ def _args(tmp_path, **overrides):
 
 
 def _init_workspace_repo(tmp_path):
-    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
     return tmp_path
 
 
@@ -186,7 +187,7 @@ def test_public_cli_uses_mock_openai_provider_without_live_key(tmp_path):
             "auto",
             "run mock provider task",
         ]
-        completed = subprocess.run(command, cwd=os.getcwd(), env=env, text=True, capture_output=True, timeout=60, check=False)
+        completed = subprocess.run(command, cwd=os.getcwd(), env=env, text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=60, check=False)
     finally:
         server.shutdown()
         server.server_close()
@@ -234,6 +235,8 @@ def test_provider_setup_requires_provider_for_ambiguous_version_root(tmp_path):
         cwd=tmp_path,
         env=env,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         timeout=30,
         check=False,
@@ -365,6 +368,8 @@ def test_provider_cli_probe_write_updates_config_with_detected_provider(tmp_path
             cwd=tmp_path,
             env=env,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             capture_output=True,
             timeout=30,
             check=False,
@@ -401,6 +406,8 @@ def test_provider_cli_probe_rejects_secret_like_api_key_env(tmp_path):
         cwd=tmp_path,
         env=env,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         timeout=30,
         check=False,
@@ -636,6 +643,8 @@ def test_provider_cli_setup_and_doctor_do_not_write_secret_values(tmp_path):
         cwd=tmp_path,
         env=env,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         timeout=30,
         check=False,
@@ -651,6 +660,8 @@ def test_provider_cli_setup_and_doctor_do_not_write_secret_values(tmp_path):
         cwd=tmp_path,
         env=env,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         timeout=30,
         check=False,
@@ -663,7 +674,7 @@ def test_provider_cli_setup_and_doctor_do_not_write_secret_values(tmp_path):
 
 
 def test_provider_cli_setup_from_subdirectory_writes_repo_root_config(tmp_path):
-    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
     subdir = tmp_path / "nested"
     subdir.mkdir()
     env = dict(os.environ)
@@ -686,6 +697,8 @@ def test_provider_cli_setup_from_subdirectory_writes_repo_root_config(tmp_path):
         cwd=subdir,
         env=env,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         timeout=30,
         check=False,
@@ -718,6 +731,8 @@ def test_provider_setup_rejects_secret_like_api_key_env(tmp_path):
         cwd=tmp_path,
         env=env,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         timeout=30,
         check=False,

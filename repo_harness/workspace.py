@@ -4,13 +4,14 @@
 这份快照刻意保持小而稳定：主要包含 Git 事实和少量白名单项目文档。
 """
 
-import subprocess
-import textwrap
 import hashlib
 import json
+import subprocess
+import textwrap
 from datetime import datetime, timezone
 from pathlib import Path
 
+REDACTED_VALUE = "<redacted>"
 MAX_TOOL_OUTPUT = 4000
 MAX_HISTORY = 12000
 # 这些文件最可能直接影响 agent 的行动方式。
@@ -29,6 +30,17 @@ IGNORED_PATH_NAMES = {
 
 def now():
     return datetime.now(timezone.utc).isoformat()
+
+
+def id_timestamp():
+    """UTC stamp for session, task and run identifiers.
+
+    Local time is not monotonic -- a DST fall-back repeats an hour, so two runs
+    an hour apart can produce identifiers that sort in the wrong order. It also
+    disagrees with `created_at`, which has always been UTC. Everything that
+    names a run derives its stamp here.
+    """
+    return datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
 
 
 def clip(text, limit=MAX_TOOL_OUTPUT):
@@ -75,7 +87,7 @@ class WorkspaceContext:
                     errors="replace",
                 )
                 return result.stdout.strip() or fallback
-            except Exception:
+            except (OSError, subprocess.SubprocessError):
                 return fallback
 
         repo_root = (

@@ -14,6 +14,7 @@ data and renders it.
 
 from __future__ import annotations
 
+import contextlib
 import json
 from pathlib import Path
 
@@ -84,10 +85,10 @@ class ReplDisplay:
         """Stop thinking spinner if running."""
         status = getattr(self, "_status", None)
         if status is not None:
-            try:
+            # A spinner that refuses to stop is cosmetic; clearing the handle
+            # matters more than the failure.
+            with contextlib.suppress(Exception):
                 status.stop()
-            except Exception:
-                pass
             self._status = None
 
     # ── Tool Call / Result ───────────────────────────────────────────
@@ -123,7 +124,8 @@ class ReplDisplay:
         try:
             self.console.print(Markdown(content))
         except Exception:
-            # Fallback to plain text if Markdown rendering fails
+            # rich Markdown rendering can fail on malformed input or terminals
+            # that lack the capabilities it expects; plain text is always safe.
             self.console.print(content)
 
     # ── Error ────────────────────────────────────────────────────────
@@ -234,7 +236,7 @@ class ReplDisplay:
                 "",
                 str(usage.get("free_tokens", 0)),
             )
-        except Exception:
+        except (KeyError, AttributeError, TypeError, ValueError):
             table.add_row("(unavailable)", "", "")
 
         return table

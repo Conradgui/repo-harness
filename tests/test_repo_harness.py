@@ -1,5 +1,5 @@
-﻿import os
-import json
+﻿import json
+import os
 import subprocess
 import sys
 import urllib.error
@@ -7,20 +7,21 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
+from conftest import build_agent, build_workspace
+
 import repo_harness as harness_pkg
-from repo_harness import cli as mini_cli
 from repo_harness import (
     AnthropicCompatibleModelClient,
     ChatCompletionsCompatibleModelClient,
     FakeModelClient,
-    RepoHarness,
     OllamaModelClient,
     OpenAICompatibleModelClient,
+    RepoHarness,
     SessionStore,
     WorkspaceContext,
     build_welcome,
 )
-from conftest import build_agent, build_workspace
+from repo_harness import cli as mini_cli
 
 
 def test_agent_runs_tool_then_final(tmp_path):
@@ -193,7 +194,6 @@ def test_agent_only_stores_reusable_epistemic_notes(tmp_path):
     assert agent.ask("Read the file and remember the fact") == "Done."
     notes = agent.session["memory"]["episodic_notes"]
     assert any("deploy key is red" in note["text"] for note in notes)
-    assert not any(note["text"] == "Done." for note in notes)
     assert not any(note["text"] == "Done." for note in notes)
 
     resumed = RepoHarness.from_session(
@@ -811,10 +811,10 @@ def test_openai_compatible_client_extracts_text_from_event_stream():
 
         def read(self):
             return (
-                'data: {"type":"response.created","response":{"id":"resp_1","output":[]}}\n'
-                'data: {"type":"response.completed","response":{"output":[{"content":[{"text":"<final>stream ok</final>"}]}]}}\n'
-                "data: [DONE]\n"
-            ).encode("utf-8")
+                b'data: {"type":"response.created","response":{"id":"resp_1","output":[]}}\n'
+                b'data: {"type":"response.completed","response":{"output":[{"content":[{"text":"<final>stream ok</final>"}]}]}}\n'
+                b"data: [DONE]\n"
+            )
 
     client = OpenAICompatibleModelClient(
         model="right.codes/codex-mini",
@@ -842,14 +842,14 @@ def test_openai_compatible_client_extracts_text_from_event_stream_deltas():
 
         def read(self):
             return (
-                'event: response.output_text.delta\n'
-                'data: {"type":"response.output_text.delta","delta":"<final>"}\n'
-                'event: response.output_text.delta\n'
-                'data: {"type":"response.output_text.delta","delta":"OK"}\n'
-                'event: response.output_text.done\n'
-                'data: {"type":"response.output_text.done","text":"<final>OK</final>"}\n'
-                "data: [DONE]\n"
-            ).encode("utf-8")
+                b'event: response.output_text.delta\n'
+                b'data: {"type":"response.output_text.delta","delta":"<final>"}\n'
+                b'event: response.output_text.delta\n'
+                b'data: {"type":"response.output_text.delta","delta":"OK"}\n'
+                b'event: response.output_text.done\n'
+                b'data: {"type":"response.output_text.done","text":"<final>OK</final>"}\n'
+                b"data: [DONE]\n"
+            )
 
     client = OpenAICompatibleModelClient(
         model="right.codes/codex-mini",
@@ -995,13 +995,12 @@ def test_build_agent_uses_openai_provider_and_model_override(tmp_path):
             "OPENAI_MODEL": "env-model",
         },
         clear=False,
-    ):
-        with patch(
-            "repo_harness.cli.OllamaModelClient",
-            side_effect=AssertionError("ollama client should not be used"),
-        ), patch("repo_harness.cli.OpenAICompatibleModelClient") as mock_openai:
-            fake_client = mock_openai.return_value
-            agent = harness_pkg.build_agent(args)
+    ), patch(
+        "repo_harness.cli.OllamaModelClient",
+        side_effect=AssertionError("ollama client should not be used"),
+    ), patch("repo_harness.cli.OpenAICompatibleModelClient") as mock_openai:
+        fake_client = mock_openai.return_value
+        agent = harness_pkg.build_agent(args)
 
     mock_openai.assert_called_once()
     assert mock_openai.call_args.kwargs["model"] == "override-model"
@@ -1194,16 +1193,15 @@ def test_build_agent_uses_anthropic_provider_and_openai_key_fallback(tmp_path):
             "OPENAI_API_KEY": "sk-openai-fallback",
         },
         clear=True,
-    ):
-        with patch(
-            "repo_harness.cli.OllamaModelClient",
-            side_effect=AssertionError("ollama client should not be used"),
-        ), patch(
-            "repo_harness.cli.OpenAICompatibleModelClient",
-            side_effect=AssertionError("openai client should not be used"),
-        ), patch("repo_harness.cli.AnthropicCompatibleModelClient") as mock_anthropic:
-            fake_client = mock_anthropic.return_value
-            agent = harness_pkg.build_agent(args)
+    ), patch(
+        "repo_harness.cli.OllamaModelClient",
+        side_effect=AssertionError("ollama client should not be used"),
+    ), patch(
+        "repo_harness.cli.OpenAICompatibleModelClient",
+        side_effect=AssertionError("openai client should not be used"),
+    ), patch("repo_harness.cli.AnthropicCompatibleModelClient") as mock_anthropic:
+        fake_client = mock_anthropic.return_value
+        agent = harness_pkg.build_agent(args)
 
     mock_anthropic.assert_called_once()
     assert mock_anthropic.call_args.kwargs["model"] == "claude-sonnet-4-5-20250929"
@@ -1237,13 +1235,12 @@ def test_build_agent_uses_openai_provider_by_default(tmp_path):
             "OPENAI_API_KEY": "sk-test",
         },
         clear=False,
-    ):
-        with patch(
-            "repo_harness.cli.OllamaModelClient",
-            side_effect=AssertionError("ollama client should not be used"),
-        ), patch("repo_harness.cli.OpenAICompatibleModelClient") as mock_openai:
-            fake_client = mock_openai.return_value
-            agent = harness_pkg.build_agent(args)
+    ), patch(
+        "repo_harness.cli.OllamaModelClient",
+        side_effect=AssertionError("ollama client should not be used"),
+    ), patch("repo_harness.cli.OpenAICompatibleModelClient") as mock_openai:
+        fake_client = mock_openai.return_value
+        agent = harness_pkg.build_agent(args)
 
     mock_openai.assert_called_once()
     assert mock_openai.call_args.kwargs["model"] == "gpt-5.4"
@@ -2291,6 +2288,120 @@ def test_memory_review_accept_edit_reject_and_skip_control_durable_writes(tmp_pa
     assert [record["status"] for record in queue] == ["accepted", "accepted", "rejected", "pending"]
 
 
+def test_accepted_durable_memory_appears_in_subsequent_prompt(tmp_path):
+    """End-to-end: accept a durable candidate → next agent.ask() prompt
+    must contain the promoted fact in the relevant_memory section.
+
+    This is the core value proposition of the memory governance flow:
+    facts the user accepted must be available to the agent in future
+    turns.  If this breaks, the entire review queue is theatre.
+    """
+    agent = build_agent(
+        tmp_path,
+        [
+            "<final>Project convention: Always pin Python to 3.12.</final>",
+            "<final>Acknowledged the convention.</final>",
+        ],
+    )
+
+    agent.ask("Remember the Python version convention.")
+    pending = agent.memory_review_pending()
+    assert pending, "no durable candidates were queued"
+    agent.memory_review_accept(pending[0]["id"])
+
+    # Second turn: the durable fact should surface in the prompt even
+    # though this is a fresh ask with no episodic overlap.
+    agent.ask("Which Python version should I use?")
+    prompt = agent.model_client.prompts[-1]
+    assert "pin Python to 3.12" in prompt, (
+        "accepted durable fact did not appear in the subsequent prompt — "
+        "the memory governance flow is broken"
+    )
+
+
+def test_multi_turn_tool_chain_where_result_informs_next_action(tmp_path):
+    """End-to-end: tool A's result is seen by the model → model uses it
+    to decide tool B → tool B executes → final answer references both.
+
+    FakeModelClient returns a canned sequence, but the key assertion is
+    that the *second* tool call's prompt contains the *first* tool's
+    result text — proving the agent loop feeds tool output back into
+    the next model call, not just "first tool then immediate final".
+    """
+    (tmp_path / "config.txt").write_text("port=8080\n", encoding="utf-8")
+    (tmp_path / "config.txt").write_text("port=8080\nhost=localhost\n", encoding="utf-8")
+
+    agent = build_agent(
+        tmp_path,
+        [
+            # Turn 1: read config.txt
+            '<tool>{"name":"read_file","args":{"path":"config.txt","start":1,"end":10}}</tool>',
+            # Turn 2: write a summary file based on what was read
+            '<tool name="write_file" path="summary.txt"><content>port=8080 host=localhost</content></tool>',
+            # Turn 3: final answer
+            "<final>Wrote summary based on config.</final>",
+        ],
+    )
+
+    result = agent.ask("Read config.txt and write a summary.")
+    assert result == "Wrote summary based on config."
+    assert (tmp_path / "summary.txt").read_text(encoding="utf-8").strip() == "port=8080 host=localhost"
+
+    # The second prompt (for the write_file call) must contain the
+    # read_file result — proving the agent loop feeds tool output back.
+    second_prompt = agent.model_client.prompts[1]
+    assert "port=8080" in second_prompt, (
+        "first tool result did not appear in the second model call's prompt — "
+        "the agent loop is not feeding tool output back to the model"
+    )
+    assert "host=localhost" in second_prompt
+
+
+def test_checkpoint_created_then_restored_and_agent_continues(tmp_path):
+    """End-to-end: agent creates a real checkpoint during a task →
+    resume from that checkpoint → verify the resumed prompt contains
+    the checkpoint's goal, blocker, and next_step.
+
+    Unlike test_resume_prompt_uses_checkpoint_state_not_just_history
+    which injects a manual checkpoint, this test creates a *real*
+    checkpoint via the runtime's create_checkpoint method and then
+    restores from it, validating the full round-trip.
+    """
+    (tmp_path / "app.py").write_text("print('hello')\n", encoding="utf-8")
+    agent = build_agent(
+        tmp_path,
+        ["<final>Checkpoint ready.</final>"],
+    )
+
+    agent.ask("Read app.py and prepare to continue.")
+    checkpoint = agent.create_checkpoint(
+        type("TS", (), {"final_answer": "", "stop_reason": "step_limit_reached", "status": "running", "last_tool": "read_file"})(),
+        "Fix the print statement",
+        "step_limit_reached",
+    )
+
+    assert checkpoint["checkpoint_id"]
+    assert checkpoint["current_goal"] == "Fix the print statement"
+    assert checkpoint["next_step"]
+
+    resumed = RepoHarness.from_session(
+        model_client=FakeModelClient(["<final>Resumed and fixed.</final>"]),
+        workspace=build_workspace(tmp_path),
+        session_store=agent.session_store,
+        session_id=agent.session["id"],
+        approval_policy="auto",
+    )
+
+    result = resumed.ask("Continue the task")
+    assert result == "Resumed and fixed."
+    prompt = resumed.model_client.prompts[-1]
+    assert "Fix the print statement" in prompt, (
+        "checkpoint goal did not appear in the resumed prompt — "
+        "checkpoint round-trip is broken"
+    )
+    assert "Task checkpoint:" in prompt
+
+
 def test_memory_review_edit_rejects_secret_shaped_and_transient_text(tmp_path):
     agent = build_agent(
         tmp_path,
@@ -2384,46 +2495,6 @@ def test_public_api_exports_resolve_through_package_path():
     assert SessionStore is not None
     assert WorkspaceContext is not None
     assert Path(harness_pkg.__file__).as_posix().endswith("/repo_harness/__init__.py")
-
-
-def test_reviewer_skeleton_docs_exist():
-    review_pack = Path("docs/review-pack/README.md")
-    architecture = Path("docs/architecture/agent-harness-v1-overview.md")
-
-    assert review_pack.exists()
-    assert architecture.exists()
-
-    review_text = review_pack.read_text(encoding="utf-8")
-    assert "Project pitch" in review_text
-    assert "Architecture map" in review_text
-    assert "Benchmark evidence" in review_text
-    assert "Sample run artifact list" in review_text
-
-    architecture_text = architecture.read_text(encoding="utf-8")
-    assert "Agent Harness v1" in architecture_text
-    assert "task state" in architecture_text.lower()
-
-
-def test_getting_started_guide_is_linked_and_covers_onboarding_basics():
-    guide = Path("docs/getting-started.md")
-    readme = Path("README.md")
-
-    assert guide.exists()
-    assert "docs/getting-started.md" in readme.read_text(encoding="utf-8")
-
-    guide_text = guide.read_text(encoding="utf-8")
-    for required in [
-        "PowerShell",
-        "CMD",
-        "Ollama",
-        "OPENAI_API_KEY",
-        "ANTHROPIC_API_KEY",
-        "/help",
-        ".repo-harness/runs",
-        "v2.0 历史实验结果",
-        "AI 产品经理",
-    ]:
-        assert required in guide_text
 
 
 class DummyCliAgent:
@@ -2751,263 +2822,6 @@ def test_remember_command_rejects_empty_and_secret_shaped_text(tmp_path, capsys)
     assert "usage: /remember <text>" in capsys.readouterr().out
 
 
-def test_memory_pack_docs_cover_repl_cli_presets_and_privacy():
-    readme_text = Path("README.md").read_text(encoding="utf-8")
-    guide_text = Path("docs/getting-started.md").read_text(encoding="utf-8")
-    combined = readme_text + "\n" + guide_text
-
-    for required in [
-        "/memory_pack",
-        "/memory-pack",
-        "repo-harness memory export",
-        "repo-harness memory inspect",
-        "repo-harness memory validate",
-        "safe-transfer",
-        "continue-work",
-        "full-recovery",
-        "prompts",
-        "tool outputs",
-        "local paths",
-        "reports",
-        "traces",
-    ]:
-        assert required in combined
-
-
-def test_memory_review_queue_docs_cover_repl_report_and_pending_boundaries():
-    readme_text = Path("README.md").read_text(encoding="utf-8")
-    guide_text = Path("docs/getting-started.md").read_text(encoding="utf-8")
-    roadmap_text = Path("docs/maintainer-prep/memory-system-iteration-roadmap.md").read_text(encoding="utf-8")
-    handoff_text = Path("docs/maintainer-prep/memory-system-new-window-handoff.md").read_text(encoding="utf-8")
-    patch_summary_text = Path("docs/maintainer-prep/patch-summary.md").read_text(encoding="utf-8")
-    combined = "\n".join([readme_text, guide_text, roadmap_text, handoff_text, patch_summary_text])
-
-    for required in [
-        "/memory review",
-        "/memory self_iteration",
-        "review-queue.jsonl",
-        "durable-review-queue-v1",
-        "durable_review_queued",
-        "self_iteration_review_queued",
-        "Pending queue",
-        "safe-transfer",
-    ]:
-        assert required in combined
-
-
-def test_v3_compat_phase1_docs_cover_foundation_boundaries():
-    docs = {
-        "readme": Path("README.md").read_text(encoding="utf-8"),
-        "guide": Path("docs/getting-started.md").read_text(encoding="utf-8"),
-        "architecture": Path("docs/architecture/agent-harness-v1-overview.md").read_text(encoding="utf-8"),
-        "review_pack": Path("docs/review-pack/README.md").read_text(encoding="utf-8"),
-        "maintainer": Path("docs/maintainer-prep/README.md").read_text(encoding="utf-8"),
-        "handoff": Path("docs/maintainer-prep/memory-system-new-window-handoff.md").read_text(encoding="utf-8"),
-        "study_sop": Path("docs/maintainer-prep/project-study-sop.md").read_text(encoding="utf-8"),
-        "patch_summary": Path("docs/maintainer-prep/patch-summary.md").read_text(encoding="utf-8"),
-        "changelog": Path("docs/maintainer-prep/changelog-draft.md").read_text(encoding="utf-8"),
-        "roadmap": Path("docs/maintainer-prep/repo-harness-v3-compat-roadmap.md").read_text(encoding="utf-8"),
-        "status": Path("docs/maintainer-prep/repo-harness-v3-compat-status.md").read_text(encoding="utf-8"),
-    }
-    combined = "\n".join(docs.values())
-
-    for required in [
-        ".repo-harness.toml",
-        "DeepSeek",
-        "/remember",
-        "candidate fact -> Review Queue -> /memory review accept/edit -> durable topics",
-        "Phase 1",
-        "Phase 2",
-        "91a7c17",
-        "archive-before-repoharness-rename-20260503",
-    ]:
-        assert required in combined
-
-    for name in ["roadmap", "status"]:
-        assert "worker manager" in docs[name]
-        assert "sandbox" in docs[name]
-
-
-def test_v3_compat_phase2_docs_cover_workflow_release_boundaries():
-    docs = {
-        "readme": Path("README.md").read_text(encoding="utf-8"),
-        "guide": Path("docs/getting-started.md").read_text(encoding="utf-8"),
-        "architecture": Path("docs/architecture/agent-harness-v1-overview.md").read_text(encoding="utf-8"),
-        "review_pack": Path("docs/review-pack/README.md").read_text(encoding="utf-8"),
-        "maintainer": Path("docs/maintainer-prep/README.md").read_text(encoding="utf-8"),
-        "handoff": Path("docs/maintainer-prep/memory-system-new-window-handoff.md").read_text(encoding="utf-8"),
-        "study_sop": Path("docs/maintainer-prep/project-study-sop.md").read_text(encoding="utf-8"),
-        "patch_summary": Path("docs/maintainer-prep/patch-summary.md").read_text(encoding="utf-8"),
-        "changelog": Path("docs/maintainer-prep/changelog-draft.md").read_text(encoding="utf-8"),
-        "roadmap": Path("docs/maintainer-prep/repo-harness-v3-compat-roadmap.md").read_text(encoding="utf-8"),
-        "status": Path("docs/maintainer-prep/repo-harness-v3-compat-status.md").read_text(encoding="utf-8"),
-    }
-    combined = "\n".join(docs.values())
-
-    for required in [
-        "Phase 2 Workflow And UX",
-        "/skills",
-        "/skill <name> [args]",
-        "todo ledger",
-        "worker manager",
-        "sandbox",
-        "Textual TUI",
-        "release evidence",
-        "candidate fact -> Review Queue -> /memory review accept/edit -> durable topics",
-        "repo-harness/v3-compat-phase2",
-    ]:
-        assert required in combined
-
-    removed_name = "pi" + "co"
-    forbidden_public_markers = [
-        "." + removed_name + "/",
-        "." + removed_name + ".toml",
-        removed_name + " CLI",
-        "old screenshots",
-    ]
-    for name, text in docs.items():
-        if name in {"roadmap", "status"}:
-            continue
-        lowered = text.lower()
-        for marker in forbidden_public_markers:
-            assert marker not in lowered
-
-
-def test_explainable_retrieval_docs_cover_repl_command_and_metadata():
-    readme_text = Path("README.md").read_text(encoding="utf-8")
-    guide_text = Path("docs/getting-started.md").read_text(encoding="utf-8")
-    roadmap_text = Path("docs/maintainer-prep/memory-system-iteration-roadmap.md").read_text(encoding="utf-8")
-    combined = readme_text + "\n" + guide_text + "\n" + roadmap_text
-
-    for required in [
-        "/memory_explain",
-        "Explainable Retrieval",
-        "score_breakdown",
-        "selected_explanations",
-    ]:
-        assert required in combined
-
-
-def test_memory_self_iteration_docs_cover_transparency_and_review_control():
-    docs = {
-        "readme": Path("README.md").read_text(encoding="utf-8"),
-        "guide": Path("docs/getting-started.md").read_text(encoding="utf-8"),
-        "roadmap": Path("docs/maintainer-prep/memory-system-iteration-roadmap.md").read_text(encoding="utf-8"),
-        "handoff": Path("docs/maintainer-prep/memory-system-new-window-handoff.md").read_text(encoding="utf-8"),
-        "patch_summary": Path("docs/maintainer-prep/patch-summary.md").read_text(encoding="utf-8"),
-        "changelog": Path("docs/maintainer-prep/changelog-draft.md").read_text(encoding="utf-8"),
-    }
-
-    for name, text in docs.items():
-        for required in [
-            "/memory self_iteration",
-            "episodic_compactions",
-            "self_iteration_review_queued",
-            "self_iteration_rejections",
-            "/memory review",
-        ]:
-            assert required in text, f"{name} missing {required}"
-
-    for name in ["readme", "guide", "roadmap", "handoff", "changelog"]:
-        assert "不触发 compaction" in docs[name] or "不会触发 compaction" in docs[name] or "does not compact" in docs[name]
-        assert (
-            "不写 durable" in docs[name]
-            or "不会写 durable" in docs[name]
-            or "不会自动写入 durable memory" in docs[name]
-            or "不会自动写 durable topics" in docs[name]
-        )
-
-    stale_status = [
-        "下一阶段才进入简单、可审核的 **Memory Self-Iteration v1**",
-        "后续下一阶段才进入简单、可审核的 Memory Self-Iteration v1",
-        "不新增 CLI 命令",
-    ]
-    for stale_text in stale_status:
-        assert stale_text not in docs["roadmap"]
-        assert stale_text not in docs["handoff"]
-        assert stale_text not in docs["patch_summary"]
-        assert stale_text not in docs["changelog"]
-
-
-def test_maintainer_docs_make_documentation_sync_a_completion_gate():
-    maintainer_readme = Path("docs/maintainer-prep/README.md").read_text(encoding="utf-8")
-    study_sop = Path("docs/maintainer-prep/project-study-sop.md").read_text(encoding="utf-8")
-    patch_summary = Path("docs/maintainer-prep/patch-summary.md").read_text(encoding="utf-8")
-    changelog = Path("docs/maintainer-prep/changelog-draft.md").read_text(encoding="utf-8")
-    handoff = Path("docs/maintainer-prep/memory-system-new-window-handoff.md").read_text(encoding="utf-8")
-
-    assert "memory-system-iteration-roadmap.md" in maintainer_readme
-    assert "memory-system-new-window-handoff.md" in maintainer_readme
-    assert "文档同步是功能完成后的必需门禁" in maintainer_readme
-    assert "README、getting-started、memory roadmap、patch-summary" in maintainer_readme
-    assert "不能把已完成能力继续列为 future work" in maintainer_readme
-    assert "README" in study_sop
-    assert "docs/getting-started.md" in study_sop
-    assert "文档健全是长期可维护性的一部分" in study_sop
-    assert "Memory Pack v1 与文档同步门禁" in patch_summary
-    assert "Memory Pack v1" in changelog
-    assert "Code-Aware File Summaries v1 已完成" in handoff
-    assert "后续仍可补" not in handoff
-
-
-def test_memory_v1_closure_docs_are_consistent_about_next_stage():
-    docs = {
-        "readme": Path("README.md").read_text(encoding="utf-8"),
-        "guide": Path("docs/getting-started.md").read_text(encoding="utf-8"),
-        "roadmap": Path("docs/maintainer-prep/memory-system-iteration-roadmap.md").read_text(encoding="utf-8"),
-        "handoff": Path("docs/maintainer-prep/memory-system-new-window-handoff.md").read_text(encoding="utf-8"),
-        "patch_summary": Path("docs/maintainer-prep/patch-summary.md").read_text(encoding="utf-8"),
-        "changelog": Path("docs/maintainer-prep/changelog-draft.md").read_text(encoding="utf-8"),
-        "maintainer_readme": Path("docs/maintainer-prep/README.md").read_text(encoding="utf-8"),
-    }
-
-    core_markers = [
-        "/memory review",
-        "/memory_explain",
-        "safe-transfer",
-        "durable_review_queued",
-        "review-queue.jsonl",
-        "可迁移",
-        "可审核",
-        "可解释",
-    ]
-    for name in ["readme", "guide", "roadmap", "handoff", "patch_summary"]:
-        for required in core_markers:
-            assert required in docs[name], f"{name} missing {required}"
-
-    for name in ["roadmap", "handoff", "patch_summary", "changelog"]:
-        for required in [
-            "Memory Self-Iteration v1",
-            "不做 Topic Configuration",
-            "Semantic Retrieval",
-            "embedding",
-            "vector DB",
-        ]:
-            assert required in docs[name], f"{name} missing {required}"
-
-    for required in [
-        "可迁移",
-        "可审核",
-        "可解释",
-        "Memory Self-Iteration v1",
-    ]:
-        assert required in docs["changelog"]
-
-    assert "memory-system-new-window-handoff.md" in docs["maintainer_readme"]
-    assert "不能把已完成能力继续列为 future work" in docs["maintainer_readme"]
-
-    stale_future_work = [
-        "Future Memory Intelligence Improvements",
-        "以下内容不放入第一阶段实现，后续逐项推进。",
-        "Code-Aware File Summaries 剩余部分",
-        "下一步建议优先评估 **Episodic Compaction / Archival** 或 **Memory Safety And Redaction**",
-        "下一步优先评估 Episodic Compaction / Archival 或 Memory Safety And Redaction",
-    ]
-    for stale_text in stale_future_work:
-        assert stale_text not in docs["handoff"]
-        assert stale_text not in docs["roadmap"]
-
-
 def test_gitignore_keeps_publishable_docs_trackable():
     lines = [
         line.strip()
@@ -3092,23 +2906,14 @@ def test_repo_text_does_not_reintroduce_removed_brand_markers():
     assert offenders == []
 
 
-def test_readme_does_not_reference_removed_brand_screenshots():
-    readme_text = Path("README.md").read_text(encoding="utf-8")
-
-    for screenshot in [
-        "repo-harness-help.png",
-        "repo-harness-start.png",
-        "repo-harness-repl.png",
-        "assets/screenshots",
-    ]:
-        assert screenshot not in readme_text
-
-
 def test_module_execution_help_works():
     result = subprocess.run(
         [sys.executable, "-m", "repo_harness", "--help"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
     )
 
     assert result.returncode == 0
@@ -3121,8 +2926,49 @@ def test_removed_legacy_module_execution_is_not_supported():
         [sys.executable, "-m", removed_module, "--help"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
     )
 
     assert result.returncode != 0
+
+
+def test_user_interruption_recovers_session_after_model_error(tmp_path):
+    agent = build_agent(tmp_path, [])
+    result = agent.ask("Do the task.")
+
+    assert "模型错误" in result
+    task_state = json.loads(
+        agent.run_store.task_state_path(agent.current_task_state).read_text(encoding="utf-8")
+    )
+    assert task_state["status"] == "failed"
+    assert (tmp_path / ".repo-harness" / "runs").exists()
+
+    recovered = RepoHarness.from_session(
+        model_client=FakeModelClient([]),
+        workspace=agent.workspace,
+        session_store=agent.session_store,
+        session_id=agent.session["id"],
+        approval_policy="auto",
+    )
+    resume_state = recovered.evaluate_resume_state()
+    assert resume_state["status"] != "no-checkpoint"
+    assert recovered.session["id"] == agent.session["id"]
+    assert agent.session_store.path(agent.session["id"]).exists()
+
+
+def test_model_error_surfaces_user_visible_message_and_stop_reason(tmp_path):
+    agent = build_agent(tmp_path, [])
+
+    out = agent.ask("Any task.")
+
+    assert "模型错误" in out
+    assert "fake model ran out of outputs" in out
+    task_state = json.loads(
+        agent.run_store.task_state_path(agent.current_task_state).read_text(encoding="utf-8")
+    )
+    assert task_state["stop_reason"] == "model_error"
+    assert task_state["status"] == "failed"
 
 

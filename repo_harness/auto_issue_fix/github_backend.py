@@ -8,6 +8,7 @@ from pathlib import Path
 from .config import AutoIssueFixIssue
 from .security import issue_from_gh_payload, normalize_repo, require_ok, run_command
 
+
 class GhCliBackend:
     def __init__(self, runner=None):
         self.runner = runner or run_command

@@ -1,40 +1,56 @@
-﻿"""Agent 运行时核心逻辑。
+"""Agent 运行时核心逻辑。
 
 RepoHarness 就是包在模型外面的控制循环：负责组 prompt、解析模型输出、
 校验并执行工具、写 trace、更新工作记忆，以及在合适的时候停下来。
 """
 
+import hashlib
 import json
 import os
 import re
-import textwrap
 import uuid
-import hashlib
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 
 from . import memory as memorylib
+from . import runtime_evidence
+from . import skills as skillslib
+from . import tools as toolkit
 from .context_manager import ContextManager
-from .core.engine import Engine
-from .core.session_events import SessionEventBus
 from .core import tool_executor as core_tool_executor
+from .core.checkpoint_builder import (
+    CHECKPOINT_SCHEMA_VERSION,
+    build_checkpoint,
+    infer_next_step,
+)
+from .core.engine import Engine
+from .core.memory_coordinator import MemoryCoordinator
+from .core.memory_outcome import MemoryOutcome
+from .core.prompt_builder import (
+    build_prompt_text,
+    compute_tool_signature,
+    filter_available_tools,
+)
+from .core.secret_sanitizer import SecretSanitizer
+from .core.session_events import SessionEventBus
 from .core.tool_profiles import build_tool_profiles
+from .features import skills_runtime
 from .permissions import PermissionChecker
 from .plan_mode import PlanModeManager
-from . import runtime_evidence
 from .run_store import RunStore
 from .sandbox import SandboxConfig, SandboxRunner
-from . import skills as skillslib
-from .features import skills_runtime
 from .todo_ledger import TodoLedger
-from . import tools as toolkit
 from .tool_policy import ToolPolicy
 from .worker_manager import WorkerManager
-from .workspace import IGNORED_PATH_NAMES, MAX_HISTORY, WorkspaceContext, clip, now
+from .workspace import (
+    IGNORED_PATH_NAMES,
+    MAX_HISTORY,
+    WorkspaceContext,
+    clip,
+    id_timestamp,
+    now,
+)
 
-SENSITIVE_ENV_NAME_MARKERS = ("API_KEY", "TOKEN", "SECRET", "PASSWORD")
-REDACTED_VALUE = "<redacted>"
 DEFAULT_SHELL_ENV_ALLOWLIST = ("HOME", "LANG", "LC_ALL", "LC_CTYPE", "LOGNAME", "PATH", "PWD", "SHELL", "TERM", "TMPDIR", "TMP", "TEMP", "USER")
 DEFAULT_FEATURE_FLAGS = {
     "memory": True,
@@ -42,26 +58,11 @@ DEFAULT_FEATURE_FLAGS = {
     "context_reduction": True,
     "prompt_cache": True,
 }
-CHECKPOINT_SCHEMA_VERSION = "phase1-v1"
 CHECKPOINT_NONE_STATUS = "no-checkpoint"
 CHECKPOINT_FULL_VALID_STATUS = "full-valid"
 CHECKPOINT_PARTIAL_STALE_STATUS = "partial-stale"
 CHECKPOINT_WORKSPACE_MISMATCH_STATUS = "workspace-mismatch"
 CHECKPOINT_SCHEMA_MISMATCH_STATUS = "schema-mismatch"
-DURABLE_MEMORY_INTENT_PATTERN = re.compile(r"(?i)\b(capture|remember|save|store|persist|note)\b")
-DURABLE_MEMORY_INTENT_ZH_PATTERN = re.compile(r"(记住|保存|记录|沉淀|长期记忆|持久记忆)")
-DURABLE_MEMORY_LINE_PATTERNS = (
-    ("project-conventions", re.compile(r"(?i)^Project convention:\s*(.+)$")),
-    ("key-decisions", re.compile(r"(?i)^Decision:\s*(.+)$")),
-    ("dependency-facts", re.compile(r"(?i)^Dependency:\s*(.+)$")),
-    ("user-preferences", re.compile(r"(?i)^Preference:\s*(.+)$")),
-    ("project-conventions", re.compile(r"^项目约定：\s*(.+)$")),
-    ("key-decisions", re.compile(r"^决策：\s*(.+)$")),
-    ("dependency-facts", re.compile(r"^依赖：\s*(.+)$")),
-    ("user-preferences", re.compile(r"^偏好：\s*(.+)$")),
-)
-SECRET_SHAPED_TEXT_PATTERN = re.compile(r"(?i)(\b(api[_ -]?key|token|secret|password)\b|sk-[A-Za-z0-9_-]{6,})")
-SELF_ITERATION_KEEP_RECENT_NOTES = 8
 
 
 @dataclass
@@ -112,6 +113,9 @@ class RepoHarness:
         self.ask_user_callback = ask_user_callback
         self.shell_env_allowlist = tuple(shell_env_allowlist or DEFAULT_SHELL_ENV_ALLOWLIST)
         self.secret_env_names = {str(name).upper() for name in (secret_env_names or ())}
+        self._secret_sanitizer = SecretSanitizer(
+            self.secret_env_names, self.shell_env_allowlist, self.root
+        )
         self.feature_flags = dict(DEFAULT_FEATURE_FLAGS)
         if feature_flags:
             self.feature_flags.update({str(key): bool(value) for key, value in feature_flags.items()})
@@ -119,7 +123,7 @@ class RepoHarness:
         self.sandbox_config = sandbox_config or SandboxConfig()
         self.sandbox_runner = SandboxRunner(self.sandbox_config)
         self.session = session or {
-            "id": datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6],
+            "id": id_timestamp() + "-" + uuid.uuid4().hex[:6],
             "created_at": now(),
             "workspace_root": workspace.repo_root,
             "history": [],
@@ -137,6 +141,21 @@ class RepoHarness:
             workspace_root=self.root,
         )
         self.session["memory"] = self.memory.to_dict()
+        # 协作者必须在 evaluate_resume_state() 之前就位——后者会调 invalidate_stale_memory。
+        self.current_task_state = None
+        self.memory_outcome = MemoryOutcome()
+        self.memory_coordinator = MemoryCoordinator(
+            self.memory,
+            self.memory_outcome,
+            persist=self._persist_memory,
+            sync=lambda: self.session.__setitem__("memory", self.memory.to_dict()),
+            source_context=lambda origin: {
+                "session_id": self.session.get("id", ""),
+                "run_id": self.current_task_state.run_id if self.current_task_state else "",
+                "task_id": self.current_task_state.task_id if self.current_task_state else "",
+                "origin": origin,
+            },
+        )
         self.todo_ledger = TodoLedger(self)
         self.worker_manager = WorkerManager(self)
         self.skills = skillslib.discover_skills(self.root, user_home=self._safe_user_home())
@@ -150,7 +169,7 @@ class RepoHarness:
         self.prefix_state = self.build_prefix()
         self.prefix = self.prefix_state.text
         # 根据模型和 provider 动态计算 context budget
-        from .context_manager import detect_context_window, compute_budgets
+        from .context_manager import compute_budgets, detect_context_window
         _provider_name = self._infer_provider_name(model_client)
         _ctx_window = detect_context_window(
             str(getattr(model_client, "model", "")),
@@ -169,7 +188,6 @@ class RepoHarness:
         )
         self.resume_state = self.evaluate_resume_state()
         self.session_path = self.session_store.save(self.session)
-        self.current_task_state = None
         self.current_run_id = ""
         self.current_turn_id = ""
         self._trusted_tools = set()
@@ -178,13 +196,6 @@ class RepoHarness:
         self.abort_requested = False
         self.last_prompt_metadata = {}
         self.last_completion_metadata = {}
-        self.last_durable_promotions = []
-        self.last_durable_review_queued = []
-        self.last_durable_rejections = []
-        self.last_durable_superseded = []
-        self.last_episodic_compactions = []
-        self.last_self_iteration_review_queued = []
-        self.last_self_iteration_rejections = []
         self._last_tool_result_metadata = {}
         self._run_changed_paths = []
         self.runtime_reminders = []
@@ -256,10 +267,7 @@ class RepoHarness:
         return self.active_tool_profile
 
     def available_tools(self):
-        profile = getattr(self, "active_tool_profile", None)
-        if profile is None:
-            return dict(self.tools)
-        return {name: tool for name, tool in self.tools.items() if profile.allows(name)}
+        return filter_available_tools(self.tools, getattr(self, "active_tool_profile", None))
 
     def current_runtime_identity(self):
         return {
@@ -288,10 +296,10 @@ class RepoHarness:
             return None
         return state.get("items", {}).get(checkpoint_id)
 
+    def remember_candidate(self, text):
+        return self.memory_coordinator.remember_candidate(text)
     def invalidate_stale_memory(self):
-        invalidated = self.memory.invalidate_stale_file_summaries()
-        self.session["memory"] = self.memory.to_dict()
-        return invalidated
+        return self.memory_coordinator.invalidate_stale_memory()
 
     def evaluate_resume_state(self):
         previous_resume_state = dict(self.session.get("resume_state", {}) or {})
@@ -392,72 +400,11 @@ class RepoHarness:
         return toolkit.build_tool_registry(self)
 
     def tool_signature(self):
-        payload = []
-        for name in sorted(self.tools):
-            tool = self.tools[name]
-            payload.append(
-                {
-                    "name": name,
-                    "schema": tool["schema"],
-                    "risky": tool["risky"],
-                    "description": tool["description"],
-                }
-            )
-        return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+        return compute_tool_signature(self.tools)
 
     def build_prefix(self):
-        tool_lines = []
-        for name, tool in self.available_tools().items():
-            fields = ", ".join(f"{key}: {value}" for key, value in tool["schema"].items())
-            risk = "approval required" if tool["risky"] else "safe"
-            tool_lines.append(f"- {name}: ({fields}) [{risk}] {tool['description']}")
-        tool_text = "\n".join(tool_lines)
-        examples = "\n".join(
-            [
-                '<tool>{"name":"list_files","args":{"path":"."}}</tool>',
-                '<tool>{"name":"read_file","args":{"path":"README.md","start":1,"end":80}}</tool>',
-                '<tool name="write_file" path="binary_search.py"><content>def binary_search(nums, target):\n    return -1\n</content></tool>',
-                '<tool name="patch_file" path="binary_search.py"><old_text>return -1</old_text><new_text>return mid</new_text></tool>',
-                '<tool>{"name":"run_shell","args":{"command":"uv run --with pytest python -m pytest -q","timeout":20}}</tool>',
-                "<final>Done.</final>",
-            ]
-        )
-        skills_text = skillslib.render_skills_list(self.skills)
-        # prefix 可以理解成 agent 的“工作手册”：
-        # 它是谁、工具怎么调用、当前仓库是什么状态，都写在这里。
-        text = textwrap.dedent(
-            f"""\
-            You are RepoHarness, a small local coding agent working inside a local repository.
-
-            Rules:
-            - Use tools instead of guessing about the workspace.
-            - Return exactly one <tool>...</tool> or one <final>...</final>.
-            - Tool calls must look like:
-              <tool>{{"name":"tool_name","args":{{...}}}}</tool>
-            - For write_file and patch_file with multi-line text, prefer XML style:
-              <tool name="write_file" path="file.py"><content>...</content></tool>
-            - Final answers must look like:
-              <final>your answer</final>
-            - Never invent tool results.
-            - Keep answers concise and concrete.
-            - If the user asks you to create or update a specific file and the path is clear, use write_file or patch_file instead of repeatedly listing files.
-            - Before writing tests for existing code, read the implementation first.
-            - When writing tests, match the current implementation unless the user explicitly asked you to change the code.
-            - New files should be complete and runnable, including obvious imports.
-            - Do not repeat the same tool call with the same arguments if it did not help. Choose a different tool or return a final answer.
-            - Required tool arguments must not be empty. Do not call read_file, write_file, patch_file, run_shell, or delegate with args={{}}.
-
-            Tools:
-            {tool_text}
-
-            {skills_text}
-
-            Valid response examples:
-            {examples}
-
-            {self.workspace.text()}
-            """
-        ).strip()
+        text = build_prompt_text(self.available_tools(), self.skills)
+        text = text + "\n\n" + self.workspace.text()
         return PromptPrefix(
             text=text,
             hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
@@ -508,63 +455,43 @@ class RepoHarness:
         self.session["memory"] = self.memory.to_dict()
         self.session_path = self.session_store.save(self.session)
 
+    # 记忆审核 / 长期化 / 自迭代已迁入 MemoryCoordinator。
+    # 这里保留同名转发：cli.py 与既有测试通过 agent.<name> 调用它们。
     def memory_review_pending(self):
-        return self.memory.pending_durable_reviews()
-
-    def _memory_review_result(self, status, record=None, promoted=None, superseded=None):
-        if record is None:
-            return {
-                "status": "not_found",
-                "record": {},
-                "promoted": [],
-                "superseded": [],
-            }
-        return {
-            "status": status,
-            "record": dict(record),
-            "promoted": list(promoted or []),
-            "superseded": list(superseded or []),
-        }
-
-    def _reject_durable_review_text(self, text):
-        reason = self.reject_durable_reason(text)
-        if not reason:
-            return None
-        return {
-            "status": "rejected",
-            "reason": reason,
-            "record": {},
-            "promoted": [],
-            "superseded": [],
-        }
+        return self.memory_coordinator.memory_review_pending()
 
     def memory_review_accept(self, record_id):
-        record = self.memory.skip_durable_review(record_id)
-        if record is None:
-            return self._memory_review_result("not_found")
-        rejection = self._reject_durable_review_text(record.get("text", ""))
-        if rejection is not None:
-            return rejection
-        record, promoted, superseded = self.memory.accept_durable_review(record_id)
-        self._persist_memory()
-        return self._memory_review_result("accepted", record, promoted, superseded)
+        return self.memory_coordinator.memory_review_accept(record_id)
 
     def memory_review_edit(self, record_id, *, topic, text):
-        rejection = self._reject_durable_review_text(text)
-        if rejection is not None:
-            return rejection
-        record, promoted, superseded = self.memory.accept_durable_review(record_id, topic=topic, text=text)
-        self._persist_memory()
-        return self._memory_review_result("accepted", record, promoted, superseded)
+        return self.memory_coordinator.memory_review_edit(record_id, topic=topic, text=text)
 
     def memory_review_reject(self, record_id):
-        record = self.memory.reject_durable_review(record_id)
-        self._persist_memory()
-        return self._memory_review_result("rejected", record)
+        return self.memory_coordinator.memory_review_reject(record_id)
 
     def memory_review_skip(self, record_id):
-        record = self.memory.skip_durable_review(record_id)
-        return self._memory_review_result("pending", record)
+        return self.memory_coordinator.memory_review_skip(record_id)
+
+    def memory_self_iteration_status(self):
+        return self.memory_coordinator.memory_self_iteration_status()
+
+    def memory_self_iteration_text(self):
+        return self.memory_coordinator.memory_self_iteration_text()
+
+    def memory_organize_text(self):
+        return self.memory_coordinator.memory_organize_text()
+
+    def promote_durable_memory(self, user_message, final_answer):
+        return self.memory_coordinator.promote_durable_memory(user_message, final_answer)
+
+    def run_memory_self_iteration(self):
+        return self.memory_coordinator.run_memory_self_iteration()
+
+    def extract_durable_promotions(self, user_message, final_answer):
+        return self.memory_coordinator.extract_durable_promotions(user_message, final_answer)
+
+    def reject_durable_reason(self, note_text):
+        return self.memory_coordinator.reject_durable_reason(note_text)
 
     def render_skills(self):
         return skillslib.render_skills_list(self.skills)
@@ -603,76 +530,6 @@ class RepoHarness:
         return "\n".join(
             ["Agents:", *[f"- {item['id']} [{item['status']}] {item['description']}" for item in items]]
         )
-
-    def remember_candidate(self, text):
-        original_text = str(text or "").strip()
-        if not original_text:
-            return {"status": "usage", "record": {}, "reason": "empty"}
-        topic = "user-preferences"
-        note_text = original_text
-        for candidate_topic, pattern in DURABLE_MEMORY_LINE_PATTERNS:
-            match = pattern.match(original_text)
-            if match:
-                topic = candidate_topic
-                note_text = match.group(1).strip()
-                break
-        reason = self.reject_durable_reason(note_text)
-        if reason:
-            return {"status": "rejected", "record": {}, "reason": reason}
-        queued = self.memory.enqueue_durable_reviews(
-            [(topic, note_text)],
-            source={
-                "session_id": self.session.get("id", ""),
-                "run_id": self.current_task_state.run_id if self.current_task_state is not None else "",
-                "task_id": self.current_task_state.task_id if self.current_task_state is not None else "",
-                "origin": "user-remember",
-            },
-        )
-        self._persist_memory()
-        if not queued:
-            return {"status": "duplicate", "record": {}, "reason": "duplicate"}
-        return {"status": "queued", "record": dict(queued[0]), "reason": ""}
-
-    def memory_self_iteration_status(self):
-        return {
-            "episodic_compactions": list(self.last_episodic_compactions),
-            "self_iteration_review_queued": list(self.last_self_iteration_review_queued),
-            "self_iteration_rejections": list(self.last_self_iteration_rejections),
-            "pending_review_count": len(self.memory_review_pending()),
-        }
-
-    def memory_self_iteration_text(self):
-        status = self.memory_self_iteration_status()
-        lines = [
-            "Memory self-iteration:",
-            f"- last compactions: {len(status['episodic_compactions'])}",
-            f"- queued candidates: {len(status['self_iteration_review_queued'])}",
-            f"- rejections: {len(status['self_iteration_rejections'])}",
-            f"- pending review candidates: {status['pending_review_count']}",
-        ]
-        for item in status["episodic_compactions"]:
-            lines.append(f"  compaction: {clip(item, 160)}")
-        for item in status["self_iteration_review_queued"]:
-            lines.append(f"  queued: {clip(item, 160)}")
-        for item in status["self_iteration_rejections"]:
-            lines.append(f"  rejected: {item}")
-        lines.append("This command is read-only; it does not compact memory or write durable topics.")
-        lines.append("Use /memory review to accept, edit, reject, or skip pending durable memory candidates.")
-        return "\n".join(lines)
-
-    def memory_organize_text(self):
-        status = self.run_memory_self_iteration()
-        lines = [
-            "Memory organize:",
-            f"- queued candidates: {len(status.get('self_iteration_review_queued', []))}",
-            f"- compactions: {len(status.get('episodic_compactions', []))}",
-            f"- rejections: {len(status.get('self_iteration_rejections', []))}",
-            "Durable memory is still review-gated: candidate fact -> Review Queue -> /memory review accept/edit -> durable topics.",
-            "Run /memory review to accept, edit, reject, or skip candidates.",
-        ]
-        for item in status.get("self_iteration_review_queued", []):
-            lines.append(f"  queued: {clip(item, 160)}")
-        return "\n".join(lines)
 
     def history_text(self):
         history = self.session["history"]
@@ -761,83 +618,32 @@ class RepoHarness:
         self.emit_session_event("compaction_created", **compaction)
         return compaction
 
-    @staticmethod
-    def looks_sensitive_env_name(name):
-        upper = str(name).upper()
-        return any(upper == marker or upper.endswith(marker) or upper.endswith(f"_{marker}") for marker in SENSITIVE_ENV_NAME_MARKERS)
+    def looks_sensitive_env_name(self, name):
+        return self._secret_sanitizer.looks_sensitive_env_name(name)
 
     def is_secret_env_name(self, name):
-        upper = str(name).upper()
-        return upper in self.secret_env_names or self.looks_sensitive_env_name(upper)
+        return self._secret_sanitizer.is_secret_env_name(name)
 
     def configured_secret_env_items(self):
-        items = [
-            (name, value)
-            for name, value in os.environ.items()
-            if str(name).upper() in self.secret_env_names and value
-        ]
-        items.sort(key=lambda item: item[0])
-        return items
+        return self._secret_sanitizer.configured_secret_env_items()
 
     def detected_secret_env_items(self):
-        items = [
-            (name, value)
-            for name, value in os.environ.items()
-            if self.is_secret_env_name(name) and value
-        ]
-        items.sort(key=lambda item: item[0])
-        return items
+        return self._secret_sanitizer.detected_secret_env_items()
 
     def secret_env_summary(self):
-        names = [name for name, _ in self.configured_secret_env_items()]
-        return {
-            "secret_env_count": len(names),
-            "secret_env_names": names,
-        }
+        return self._secret_sanitizer.secret_env_summary()
 
     def detected_secret_env_summary(self):
-        names = [name for name, _ in self.detected_secret_env_items()]
-        return {
-            "secret_env_count": len(names),
-            "secret_env_names": names,
-        }
+        return self._secret_sanitizer.detected_secret_env_summary()
 
     def redact_text(self, text):
-        text = str(text)
-        for _, value in sorted(self.detected_secret_env_items(), key=lambda item: len(item[1]), reverse=True):
-            text = text.replace(value, REDACTED_VALUE)
-        return text
+        return self._secret_sanitizer.redact_text(text)
 
     def redact_artifact(self, value, key=None):
-        if key and self.is_secret_env_name(key):
-            return REDACTED_VALUE
-        if isinstance(value, dict):
-            return {
-                str(item_key): self.redact_artifact(item_value, key=item_key)
-                for item_key, item_value in value.items()
-            }
-        if isinstance(value, list):
-            return [self.redact_artifact(item, key=key) for item in value]
-        if isinstance(value, tuple):
-            return [self.redact_artifact(item, key=key) for item in value]
-        if isinstance(value, str):
-            redacted = self.redact_text(value)
-            return redacted
-        return value
+        return self._secret_sanitizer.redact_artifact(value, key=key)
 
     def shell_env(self):
-        env = {
-            name: os.environ[name]
-            for name in self.shell_env_allowlist
-            if name in os.environ
-        }
-        for name in ("ComSpec", "SystemRoot", "PATHEXT", "USERPROFILE", "APPDATA", "LOCALAPPDATA"):
-            if name in os.environ:
-                env[name] = os.environ[name]
-        env["PWD"] = str(self.root)
-        if "PATH" not in env and os.environ.get("PATH"):
-            env["PATH"] = os.environ["PATH"]
-        return env
+        return self._secret_sanitizer.shell_env()
 
     def prompt_metadata(self, user_message, prompt):
         _, metadata = self._build_prompt_and_metadata(user_message)
@@ -915,7 +721,7 @@ class RepoHarness:
                 continue
             try:
                 snapshot[path.relative_to(self.root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
-            except Exception:
+            except OSError:
                 continue
         return snapshot
 
@@ -939,28 +745,17 @@ class RepoHarness:
     def create_checkpoint(self, task_state, user_message, trigger):
         state = self.checkpoint_state()
         current = self.current_checkpoint()
-        checkpoint_id = "ckpt_" + uuid.uuid4().hex[:8]
-        key_files = []
-        freshness = {}
-        for path in self.memory.to_dict()["working"]["recent_files"]:
-            file_freshness = memorylib.file_freshness(path, self.root)
-            freshness[path] = file_freshness
-            key_files.append({"path": path, "freshness": file_freshness})
-        checkpoint = {
-            "checkpoint_id": checkpoint_id,
-            "parent_checkpoint_id": current.get("checkpoint_id", "") if current else "",
-            "schema_version": CHECKPOINT_SCHEMA_VERSION,
-            "created_at": now(),
-            "current_goal": str(user_message),
-            "completed": [task_state.final_answer] if task_state.final_answer else [],
-            "excluded": [],
-            "current_blocker": "" if str(task_state.stop_reason or "") in ("", "final_answer_returned") else str(task_state.stop_reason),
-            "next_step": self.infer_next_step(task_state),
-            "key_files": key_files,
-            "freshness": freshness,
-            "summary": f"{trigger}: {clip(str(user_message), 120)}",
-            "runtime_identity": self.current_runtime_identity(),
-        }
+        recent_files = self.memory.to_dict()["working"]["recent_files"]
+        checkpoint = build_checkpoint(
+            task_state,
+            user_message,
+            trigger,
+            recent_files,
+            lambda path: memorylib.file_freshness(path, self.root),
+            current.get("checkpoint_id", "") if current else "",
+            self.current_runtime_identity(),
+        )
+        checkpoint_id = checkpoint["checkpoint_id"]
         state["items"][checkpoint_id] = checkpoint
         state["current_id"] = checkpoint_id
         task_state.checkpoint_id = checkpoint_id
@@ -969,13 +764,7 @@ class RepoHarness:
         return checkpoint
 
     def infer_next_step(self, task_state):
-        if task_state.status == "completed":
-            return "No next step recorded."
-        if task_state.stop_reason == "step_limit_reached":
-            return "Resume from the latest checkpoint and continue the task."
-        if task_state.last_tool:
-            return f"Decide the next action after {task_state.last_tool}."
-        return "Continue the task from the latest checkpoint."
+        return infer_next_step(task_state)
 
     def update_memory_after_tool(self, name, args, result):
         """把少量高价值工具结果沉淀到 working memory。
@@ -1068,167 +857,6 @@ class RepoHarness:
         if self.current_task_state is not None:
             self.current_task_state.runtime_reminders = list(self.runtime_reminders)
 
-    def reject_durable_reason(self, note_text):
-        text = str(note_text or "").strip()
-        lowered = text.lower()
-        if not text:
-            return "empty"
-        if REDACTED_VALUE in text or SECRET_SHAPED_TEXT_PATTERN.search(text):
-            return "secret_shaped"
-        checkpoint_like_prefixes = (
-            "current goal",
-            "current blocker",
-            "next step",
-            "current phase",
-            "key files",
-            "freshness",
-            "当前目标",
-            "当前卡点",
-            "下一步",
-            "当前阶段",
-            "关键文件",
-            "已完成",
-            "已排除",
-        )
-        if any(lowered.startswith(prefix) for prefix in checkpoint_like_prefixes):
-            return "transient_task_state"
-        if re.search(r"(?i)\b(stdout|stderr|traceback|exit_code)\b", text) or len(text) > 220:
-            return "noisy_output"
-        return ""
-
-    def extract_durable_promotions(self, user_message, final_answer):
-        user_text = str(user_message or "")
-        if not (DURABLE_MEMORY_INTENT_PATTERN.search(user_text) or DURABLE_MEMORY_INTENT_ZH_PATTERN.search(user_text)):
-            return [], []
-        promotions = []
-        rejections = []
-        for line in str(final_answer or "").splitlines():
-            text = line.strip()
-            if not text or REDACTED_VALUE in text:
-                continue
-            for topic, pattern in DURABLE_MEMORY_LINE_PATTERNS:
-                match = pattern.match(text)
-                if not match:
-                    continue
-                note_text = match.group(1).strip()
-                if note_text:
-                    reason = self.reject_durable_reason(note_text)
-                    if reason:
-                        rejections.append(f"{topic}:{reason}")
-                        break
-                    promotions.append((topic, note_text))
-                break
-        return promotions, rejections
-
-    def durable_review_source(self):
-        task_state = self.current_task_state
-        return {
-            "session_id": self.session.get("id", ""),
-            "run_id": task_state.run_id if task_state is not None else "",
-            "task_id": task_state.task_id if task_state is not None else "",
-            "origin": "durable-promotion",
-        }
-
-    def promote_durable_memory(self, user_message, final_answer):
-        promotions, rejections = self.extract_durable_promotions(user_message, final_answer)
-        queued_records = self.memory.enqueue_durable_reviews(promotions, source=self.durable_review_source())
-        queued = [f"{record['topic']}: {record['text']}" for record in queued_records]
-        self._persist_memory()
-        self.last_durable_promotions = []
-        self.last_durable_review_queued = queued
-        self.last_durable_rejections = rejections
-        self.last_durable_superseded = []
-        return [], rejections, [], queued
-
-    def self_iteration_source(self):
-        task_state = self.current_task_state
-        return {
-            "session_id": self.session.get("id", ""),
-            "run_id": task_state.run_id if task_state is not None else "",
-            "task_id": task_state.task_id if task_state is not None else "",
-            "origin": "memory-self-iteration",
-        }
-
-    def _self_iteration_candidate_promotions(self, notes):
-        promotions = []
-        rejections = []
-        seen = set()
-        for note in notes:
-            text = str(note.get("text", "")).strip() if isinstance(note, dict) else str(note).strip()
-            if not text:
-                continue
-            for topic, pattern in DURABLE_MEMORY_LINE_PATTERNS:
-                match = pattern.match(text)
-                if not match:
-                    continue
-                note_text = match.group(1).strip()
-                if not note_text:
-                    break
-                reason = self.reject_durable_reason(note_text)
-                if reason:
-                    rejections.append(f"{topic}:{reason}")
-                    break
-                key = (topic, note_text)
-                if key not in seen:
-                    promotions.append(key)
-                    seen.add(key)
-                break
-        return promotions, rejections
-
-    def _safe_compaction_parts(self, notes):
-        parts = []
-        for note in notes:
-            text = str(note.get("text", "")).strip() if isinstance(note, dict) else str(note).strip()
-            if not text or self.reject_durable_reason(text):
-                continue
-            if str(note.get("source", "")) == "episodic-compaction":
-                continue
-            parts.append(clip(text, 80))
-        return parts
-
-    def _compact_episodic_notes(self):
-        state = self.memory.to_dict()
-        notes = list(state.get("episodic_notes", []))
-        if len(notes) < memorylib.EPISODIC_NOTE_LIMIT:
-            return []
-        older = notes[:-SELF_ITERATION_KEEP_RECENT_NOTES]
-        recent = notes[-SELF_ITERATION_KEEP_RECENT_NOTES:]
-        parts = self._safe_compaction_parts(older)
-        if not parts:
-            return []
-        summary = clip("Compacted earlier notes: " + "; ".join(parts[:4]), 500)
-        compacted_note = {
-            "text": summary,
-            "tags": ["summary", "compacted"],
-            "source": "episodic-compaction",
-            "created_at": now(),
-            "note_index": int(state.get("next_note_index", 0)),
-            "kind": "episodic",
-        }
-        state["next_note_index"] = compacted_note["note_index"] + 1
-        state["episodic_notes"] = [compacted_note, *recent][-memorylib.EPISODIC_NOTE_LIMIT:]
-        state["notes"] = [note["text"] for note in state["episodic_notes"]]
-        self.memory.state = state
-        self.session["memory"] = self.memory.to_dict()
-        return [summary]
-
-    def run_memory_self_iteration(self):
-        source_notes = list(self.memory.to_dict().get("episodic_notes", []))
-        promotions, rejections = self._self_iteration_candidate_promotions(source_notes)
-        queued_records = self.memory.enqueue_durable_reviews(promotions, source=self.self_iteration_source())
-        queued = [f"{record['topic']}: {record['text']}" for record in queued_records]
-        compactions = self._compact_episodic_notes()
-        self.last_episodic_compactions = compactions
-        self.last_self_iteration_review_queued = queued
-        self.last_self_iteration_rejections = rejections
-        if compactions or queued:
-            self._persist_memory()
-        return {
-            "episodic_compactions": compactions,
-            "self_iteration_review_queued": queued,
-            "self_iteration_rejections": rejections,
-        }
-
     def ask(self, user_message):
         """执行一次完整的 agent 回合，直到产出最终答案或命中停止条件。
 
@@ -1292,11 +920,11 @@ class RepoHarness:
 
     @staticmethod
     def new_task_id():
-        return "task_" + datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
+        return "task_" + id_timestamp() + "-" + uuid.uuid4().hex[:6]
 
     @staticmethod
     def new_run_id():
-        return "run_" + datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
+        return "run_" + id_timestamp() + "-" + uuid.uuid4().hex[:6]
 
     def build_report(self, task_state):
         # report 是一次运行的最终摘要；
@@ -1314,13 +942,7 @@ class RepoHarness:
             "resume_status": task_state.resume_status,
             "task_state": task_state.to_dict(),
             "prompt_metadata": self.last_prompt_metadata,
-            "durable_promotions": list(self.last_durable_promotions),
-            "durable_review_queued": list(self.last_durable_review_queued),
-            "durable_rejections": list(self.last_durable_rejections),
-            "durable_superseded": list(self.last_durable_superseded),
-            "episodic_compactions": list(self.last_episodic_compactions),
-            "self_iteration_review_queued": list(self.last_self_iteration_review_queued),
-            "self_iteration_rejections": list(self.last_self_iteration_rejections),
+            **self.memory_outcome.report_dict(),
             "todos": self.todo_ledger.to_dict(),
             "todo_changes": list(getattr(task_state, "todo_changes", []) or self.session.get("todo_changes", [])),
             "workers": self.worker_manager.to_dict(),
@@ -1336,9 +958,8 @@ class RepoHarness:
     def validate_tool(self, name, args):
         """把通用工具校验和 runtime 级额外约束串起来。"""
         toolkit.validate_tool(self, name, args)
-        if name == "delegate":
-            if self.depth >= self.max_depth:
-                raise ValueError("delegate depth exceeded")
+        if name == "delegate" and self.depth >= self.max_depth:
+            raise ValueError("delegate depth exceeded")
 
     def tool_list_files(self, args):
         return toolkit.tool_list_files(self, args)
@@ -1438,7 +1059,7 @@ class RepoHarness:
             body = RepoHarness.extract(raw, "tool")
             try:
                 payload = json.loads(body)
-            except Exception:
+            except json.JSONDecodeError:
                 return "retry", RepoHarness.retry_notice("model returned malformed tool JSON")
             if not isinstance(payload, dict):
                 return "retry", RepoHarness.retry_notice("tool payload must be a JSON object")
@@ -1472,7 +1093,7 @@ class RepoHarness:
         if not attrs:
             try:
                 payload = json.loads(body)
-            except Exception:
+            except json.JSONDecodeError:
                 return None
             if not isinstance(payload, dict):
                 return None

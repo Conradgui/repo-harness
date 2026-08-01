@@ -1,7 +1,7 @@
 """Runtime configuration loading for RepoHarness."""
 
-from dataclasses import dataclass, field
 import os
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .provider_registry import (
@@ -167,7 +167,7 @@ def _arg_was_explicit(args, name):
 
 def _provider_from_sources(args, data, env):
     if _arg_was_explicit(args, "provider"):
-        provider = str(getattr(args, "provider")).strip()
+        provider = str(args.provider).strip()
     elif env.get("REPO_HARNESS_PROVIDER"):
         provider = env["REPO_HARNESS_PROVIDER"].strip()
     elif data.get("provider"):
@@ -198,7 +198,7 @@ def _resolve_profile(args, data, provider, env):
     if env.get("REPO_HARNESS_MODEL"):
         profile["model"] = env["REPO_HARNESS_MODEL"]
     if _arg_was_explicit(args, "model") and getattr(args, "model", None):
-        profile["model"] = getattr(args, "model")
+        profile["model"] = args.model
 
     provider_base_env = PROVIDER_BASE_URL_ENV.get(provider, "")
     if provider_base_env and env.get(provider_base_env):
@@ -206,7 +206,7 @@ def _resolve_profile(args, data, provider, env):
     if env.get("REPO_HARNESS_BASE_URL"):
         profile["base_url"] = env["REPO_HARNESS_BASE_URL"]
     if _arg_was_explicit(args, "base_url") and getattr(args, "base_url", None):
-        profile["base_url"] = getattr(args, "base_url")
+        profile["base_url"] = args.base_url
 
     return ProviderProfile(
         name=provider,
@@ -219,7 +219,7 @@ def _resolve_profile(args, data, provider, env):
 
 def _resolve_max_steps(args, data, env):
     if _arg_was_explicit(args, "max_steps") and getattr(args, "max_steps", None) is not None:
-        return int(getattr(args, "max_steps"))
+        return int(args.max_steps)
     if env.get("REPO_HARNESS_MAX_STEPS"):
         return int(env["REPO_HARNESS_MAX_STEPS"])
     if data.get("max_steps") is not None:
@@ -229,7 +229,7 @@ def _resolve_max_steps(args, data, env):
 
 def _resolve_max_new_tokens(args, data, provider, env):
     if _arg_was_explicit(args, "max_new_tokens") and getattr(args, "max_new_tokens", None) is not None:
-        return int(getattr(args, "max_new_tokens"))
+        return int(args.max_new_tokens)
     if env.get("REPO_HARNESS_MAX_NEW_TOKENS"):
         return int(env["REPO_HARNESS_MAX_NEW_TOKENS"])
     if data.get("max_new_tokens") is not None:
@@ -239,7 +239,7 @@ def _resolve_max_new_tokens(args, data, provider, env):
     return DEFAULT_MAX_NEW_TOKENS.get(provider, 512)
 
 
-def _resolve_sandbox(args, data, env):
+def _resolve_sandbox(args, data, process_env):
     sandbox_data = data.get("sandbox", {})
     if not isinstance(sandbox_data, dict):
         sandbox_data = {}
@@ -248,14 +248,19 @@ def _resolve_sandbox(args, data, env):
         filesystem = {}
     mode = sandbox_data.get("mode", "off")
     backend = sandbox_data.get("backend", "native")
-    if env.get("REPO_HARNESS_SANDBOX"):
-        mode = env["REPO_HARNESS_SANDBOX"]
-    if env.get("REPO_HARNESS_SANDBOX_BACKEND"):
-        backend = env["REPO_HARNESS_SANDBOX_BACKEND"]
+    # `process_env` is the real environment, never the merged one. `_effective_env`
+    # folds in the repository's own .env, and reading that here let a cloned repo
+    # ship `.env` with REPO_HARNESS_SANDBOX=off to override both its own
+    # .repo-harness.toml and the operator's global config -- untrusted content
+    # deciding its own isolation. Callers pass what they trust.
+    if process_env.get("REPO_HARNESS_SANDBOX"):
+        mode = process_env["REPO_HARNESS_SANDBOX"]
+    if process_env.get("REPO_HARNESS_SANDBOX_BACKEND"):
+        backend = process_env["REPO_HARNESS_SANDBOX_BACKEND"]
     if getattr(args, "sandbox", None):
-        mode = getattr(args, "sandbox")
+        mode = args.sandbox
     if getattr(args, "sandbox_backend", None):
-        backend = getattr(args, "sandbox_backend")
+        backend = args.sandbox_backend
     return SandboxConfig(
         mode=str(mode).strip(),
         backend=str(backend).strip(),
@@ -265,6 +270,27 @@ def _resolve_sandbox(args, data, env):
         deny_read=tuple(str(item) for item in filesystem.get("deny_read", []) or []),
         deny_write=tuple(str(item) for item in filesystem.get("deny_write", []) or []),
     )
+
+
+def sandbox_config_for_directory(directory):
+    """Sandbox settings declared by a repository, independent of CLI args.
+
+    Auto Issue Fix builds an agent for a cloned repository without going
+    through the CLI, so it has no `args` to resolve against. Without this it
+    fell back to SandboxConfig() -- mode "off" -- and a clone that declared
+    read_only had every shell command run unsandboxed.
+
+    The environment is deliberately empty: REPO_HARNESS_SANDBOX from the
+    ambient environment must not decide the isolation level for code that was
+    just cloned from somewhere else.
+    """
+    data, _ = _load_toml(Path(directory) / CONFIG_FILE_NAME)
+
+    class _NoArgs:
+        sandbox = None
+        sandbox_backend = None
+
+    return _resolve_sandbox(_NoArgs(), data or {}, {})
 
 
 def resolve_runtime_config(args, workspace):
@@ -279,7 +305,7 @@ def resolve_runtime_config(args, workspace):
         provider_profile=profile,
         max_steps=_resolve_max_steps(args, data, env),
         max_new_tokens=_resolve_max_new_tokens(args, data, provider, env),
-        sandbox=_resolve_sandbox(args, data, env),
+        sandbox=_resolve_sandbox(args, data, os.environ),
         config_path=project_config_path or global_config_path,
         environment=env,
     )

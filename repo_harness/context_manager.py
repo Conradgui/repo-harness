@@ -7,10 +7,10 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 
 from . import skills as skillslib
-
 
 DEFAULT_TOTAL_BUDGET = 12000
 DEFAULT_SECTION_BUDGETS = {
@@ -74,10 +74,33 @@ PROVIDER_CONTEXT_WINDOWS = {
 }
 
 
+def _load_extra_context_windows():
+    """Load additional model→context_window mappings from the environment.
+
+    Format: REPO_HARNESS_EXTRA_CONTEXT_WINDOWS='{"my-model": 65536, "llama4": 256000}'
+    User-provided patterns take precedence over built-in defaults, so new models
+    can be registered without modifying code. Invalid JSON or non-integer values
+    are silently ignored to avoid crashing the runtime on a typo.
+    """
+    raw = os.environ.get("REPO_HARNESS_EXTRA_CONTEXT_WINDOWS", "")
+    if not raw.strip():
+        return {}
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {str(key).lower(): int(value) for key, value in data.items() if isinstance(value, (int, float))}
+
+
+EXTRA_MODEL_CONTEXT_WINDOWS = _load_extra_context_windows()
+
+
 def detect_context_window(model_name, provider_name=""):
     """从模型名或 provider 推断 context window 大小（token 数）。"""
     model = str(model_name or "").lower()
-    for pattern, window in MODEL_CONTEXT_WINDOWS.items():
+    for pattern, window in {**MODEL_CONTEXT_WINDOWS, **EXTRA_MODEL_CONTEXT_WINDOWS}.items():
         if pattern in model:
             return window
     provider = str(provider_name or "").lower()
@@ -89,11 +112,14 @@ def compute_budgets(context_window, max_new_tokens=8192):
 
     返回 (total_budget, section_budgets, section_floors, recent_window)。
     """
-    # 输出预留：给 max_new_tokens 留 2 倍空间
-    output_reserve = max_new_tokens * 2
+    # 输出预留：给 max_new_tokens 留 2 倍空间，但不超过 context_window 的一半
+    # 防止 max_new_tokens > context_window 时 available_tokens 变成负数
+    output_reserve = min(max_new_tokens * 2, context_window // 2)
     available_tokens = max(1000, context_window - output_reserve)
     # 字符预算：按混合内容估算（×3，兼容中文 1.5 token/字）
     char_budget = int(available_tokens * 3)
+    # 下限 12000 确保核心 prompt 内容（规则+工具列表+示例）不被截断；
+    # ContextManager 会压缩 history/memory 等 section 来适应实际容量
     char_budget = max(12000, min(char_budget, 400000))
 
     # section 分配比例（保持与当前默认值相近的历史占比）
@@ -317,7 +343,7 @@ class ContextManager:
         selected_notes = selected_notes or []
         relevant_lines = ["Relevant memory:"]
         if selected_notes:
-            relevant_lines.extend(f"- {note['text']}" for note in selected_notes)
+            relevant_lines.extend(f"- {note.get('text', '')}" for note in selected_notes)
         else:
             relevant_lines.append("- none")
         relevant_raw = "\n".join(relevant_lines)
@@ -332,8 +358,8 @@ class ContextManager:
                 budget=len(relevant_raw),
                 rendered=relevant_raw,
                 details={
-                    "selected_notes": [note["text"] for note in selected_notes],
-                    "rendered_notes": [note["text"] for note in selected_notes],
+                    "selected_notes": [str(note.get("text", "")) for note in selected_notes],
+                    "rendered_notes": [str(note.get("text", "")) for note in selected_notes],
                     "selected_count": len(selected_notes),
                     "rendered_count": len(selected_notes),
                     "note_budget": 0,
@@ -350,7 +376,7 @@ class ContextManager:
 
     def _compute_section_floors(self):
         floors = {
-            section: max(20, int(budget) // 4)
+            section: min(max(20, int(budget) // 4), int(budget))
             for section, budget in self.section_budgets.items()
         }
         floors.update(self._section_floor_overrides)
@@ -403,7 +429,7 @@ class ContextManager:
                 break
             per_note_budget -= 1
 
-        if len(rendered) > budget and budget > 0:
+        if len(rendered) > budget > 0:
             rendered = _tail_clip(raw, budget)
             rendered_notes = [rendered]
 
@@ -476,7 +502,7 @@ class ContextManager:
                     rendered_entries = smaller_entries
         rendered = "\n".join(["Transcript:", *rendered_entries])
 
-        if len(rendered) > budget and budget > 0:
+        if len(rendered) > budget > 0:
             rendered = _tail_clip(raw, budget)
 
         return SectionRender(
@@ -604,7 +630,7 @@ class ContextManager:
             "prompt_chars": len(prompt),
             "prompt_budget_chars": self.total_budget,
             "prompt_over_budget": len(prompt) > self.total_budget,
-            "section_order": ["prefix", "memory", "relevant_memory", "history", CURRENT_REQUEST_SECTION],
+            "section_order": list(SECTION_ORDER),
             "section_budgets": {
                 section: (None if section == CURRENT_REQUEST_SECTION else int(budgets.get(section, 0)))
                 for section in SECTION_ORDER
@@ -615,7 +641,7 @@ class ContextManager:
             "relevant_memory": {
                 "limit": RELEVANT_MEMORY_LIMIT,
                 "selected_count": len(selected_notes),
-                "selected_notes": [note["text"] for note in selected_notes],
+                "selected_notes": [str(note.get("text", "")) for note in selected_notes],
                 "selected_sources": [str(note.get("source", "")).strip() for note in selected_notes],
                 "selected_kinds": [str(note.get("kind", "episodic")).strip() or "episodic" for note in selected_notes],
                 "selected_explanations": list(selected_explanations),

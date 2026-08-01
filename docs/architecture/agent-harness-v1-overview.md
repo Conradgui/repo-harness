@@ -8,17 +8,23 @@ Agent Harness v1 的核心概念仍然保留：一次任务会生成 task state�
 
 ## 当前架构记录：2026-05-29 v4 代码清理、安全加固与 Claude Code Skill 兼容
 
+> **v6 更新**：prompt 纯计算提取到 `core/prompt_builder.py`，checkpoint 纯计算提取到 `core/checkpoint_builder.py`，context window 支持环境变量扩展。详见 changelog-draft.md。
+>
+> **v7 更新**：secret 环境变量脱敏逻辑提取到 `core/secret_sanitizer.py`；sandbox hardening 跨 `auto_issue_fix` / `cli` / `tool_policy` / `workspace` / `context_manager` 落实（read_only 直接阻止 run_shell、关闭 .env 覆盖与 fail-open 回退，见 ADR-007）；`RepoHarness` 保留上述 builder 的瘦转发器。详见 changelog-draft.md。
+
 RepoHarness 的公共 API 仍然是 `RepoHarness.ask()`、`repo-harness` CLI 和 `python -m repo_harness`。REPL、public CLI scripted evidence、workers 和 release evidence 共用同一套 runtime、permission、tool policy、session events、trace/report 工件。
 
 核心链路：
 
 - CLI 读取显式参数、环境变量、项目 `.env`、项目 `.repo-harness.toml`、全局 `%USERPROFILE%\.repo-harness\config.toml`，并按固定优先级合并。
-- Runtime 构建 prompt prefix、workspace context、memory context、skills section、tool list 和 active tool profile。
+- Runtime 构建 prompt prefix、workspace context、memory context、skills section、tool list 和 active tool profile。Prompt 纯计算（文本构建、工具签名、工具过滤）提取到 `core/prompt_builder.py`，checkpoint 纯计算提取到 `core/checkpoint_builder.py`。
 - Model 输出解析为 final answer、tool calls、ask_user 或 control flow。
 - Core tool executor 统一执行 permission gate、tool policy、sandbox、write scope、artifact clipping、trace/report metadata。
 - Session event bus 记录 runtime mode、tool decisions、context usage、worker notifications、skill activity、compaction 和 evidence 相关事件。
 - Token 估算使用 CJK-aware 算法（中文字符 ~1.5 token/字，ASCII ~0.25 token/字符），通过 `context_usage.estimate_tokens()` 统一计算。
 - `SessionStore` 已提取为独立模块 `repo_harness/session_store.py`，便于独立测试和复用。
+- Context window 支持通过 `REPO_HARNESS_EXTRA_CONTEXT_WINDOWS` 环境变量扩展，用户可注册新模型无需改代码。
+- Model client 类（OpenAI/Chat Completions/Anthropic）的 `__repr__` 对 api_key 脱敏，防止通过 repr 泄露。
 
 ## Provider 和配置
 
@@ -49,7 +55,7 @@ CLI 显式参数 > process env / 项目 .env > 项目 .repo-harness.toml > 全�
 - 多 tool-call 按顺序执行，partial failure 写入 trace。
 - 长 shell 输出会裁剪展示，并把完整输出写入 run artifact。
 
-Sandbox 支持 `off`、`best_effort`、`read_only`、`required`。`required` 在后端不可用时 fail closed；Windows fallback 写入明确 metadata。v4 修复了 `excluded_commands` 可通过 shell 元字符（`$(`、`` ` ``、`\`、`${`）绕过的安全漏洞。
+Sandbox 支持 `off`、`best_effort`、`read_only`、`required`。`required` 在后端不可用时 fail closed；Windows fallback 写入明确 metadata。`read_only` 下不执行任何 shell 命令，`excluded_commands` 在该模式下不提供豁免——过滤命令字符串无法保证「只做一件事」，见 ADR-007。
 
 ## Skills、Workers 和 REPL
 

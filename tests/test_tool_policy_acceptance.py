@@ -91,3 +91,44 @@ def test_multiple_tool_calls_execute_in_order_and_record_partial_failure(tmp_pat
     failed_shell = next(event for event in trace if event.get("event") == "tool_executed" and event.get("tool_name") == "run_shell")
     assert failed_shell["tool_status"] == "error"
     assert failed_shell["tool_error_code"] == "tool_failed"
+
+
+def test_run_shell_success_reports_ok_status(tmp_path):
+    """Exit code 0 maps to tool_status='ok' with no error code."""
+    agent = build_agent(tmp_path)
+
+    result = agent.run_tool("run_shell", {"command": "echo ok", "timeout": 20})
+
+    assert "exit_code: 0" in result
+    assert agent._last_tool_result_metadata["tool_status"] == "ok"
+    assert agent._last_tool_result_metadata["tool_error_code"] == ""
+
+
+def test_run_shell_failure_with_workspace_change_reports_partial_success(tmp_path):
+    """A command that writes a file AND exits non-zero maps to partial_success."""
+    script = "open('partial.txt','w').write('data'); import sys; sys.exit(1)"
+    command = f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}"
+    agent = build_agent(tmp_path)
+
+    result = agent.run_tool("run_shell", {"command": command, "timeout": 20})
+
+    assert "exit_code: 1" in result
+    assert (tmp_path / "partial.txt").read_text(encoding="utf-8") == "data"
+    meta = agent._last_tool_result_metadata
+    assert meta["tool_status"] == "partial_success"
+    assert meta["tool_error_code"] == "tool_partial_success"
+    assert meta["workspace_changed"] is True
+    assert "partial.txt" in meta["affected_paths"]
+
+
+def test_run_shell_long_output_without_task_state_is_clipped_without_artifact(tmp_path):
+    """Long output outside an ask() cycle is clipped but not saved to disk."""
+    script = "print('y'*6000)"
+    command = f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}"
+    agent = build_agent(tmp_path)
+
+    result = agent.run_tool("run_shell", {"command": command, "timeout": 20})
+
+    assert len(result) < 1400
+    assert agent._last_tool_result_metadata["full_output_artifact"] == ""
+    assert "full output saved:" not in result

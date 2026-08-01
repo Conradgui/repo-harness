@@ -13,15 +13,25 @@ IGNORED_DIFF_SUFFIXES = (".pyc",)
 
 
 def infer_test_commands(repo_root: Path) -> tuple[str, ...]:
-    if (repo_root / "pyproject.toml").exists() or (repo_root / "pytest.ini").exists():
-        if (repo_root / "tests").exists():
-            return ("python -m pytest -q",)
+    has_python_config = (repo_root / "pyproject.toml").exists() or (repo_root / "pytest.ini").exists() or (repo_root / "setup.cfg").exists()
+    if has_python_config and ((repo_root / "tests").exists() or (repo_root / "test").exists()):
+        return ("python -m pytest -q",)
     if (repo_root / "package.json").exists():
         return ("npm test",)
     if (repo_root / "go.mod").exists():
         return ("go test ./...",)
     if (repo_root / "Cargo.toml").exists():
         return ("cargo test",)
+    if (repo_root / "pom.xml").exists():
+        return ("mvn test",)
+    if (repo_root / "build.gradle").exists() or (repo_root / "build.gradle.kts").exists():
+        return ("gradle test",)
+    if any(p.suffix == ".csproj" for p in repo_root.glob("*.csproj")) or any(p.suffix == ".sln" for p in repo_root.glob("*.sln")):
+        return ("dotnet test",)
+    if (repo_root / "Gemfile").exists() and ((repo_root / "spec").exists() or (repo_root / ".rspec").exists()):
+        return ("bundle exec rspec",)
+    if (repo_root / "CMakeLists.txt").exists():
+        return ("ctest --output-on-failure",)
     return ()
 
 
@@ -30,6 +40,8 @@ def run_shell_command(command: str, cwd: Path, timeout: int = 600) -> CommandRes
         command,
         cwd=str(cwd),
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         shell=True,
         timeout=timeout,

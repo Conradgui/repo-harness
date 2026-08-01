@@ -2,10 +2,13 @@
 
 ## 当前基线
 
-- 当前目标分支：`main`
+- 当前目标分支：`release/optimized-v1`（由 `work/optimized-v1-pending-changes` fast-forward 合回）
 - v3 最终版功能提交：`feat: complete RepoHarness v3 parity closeout`
 - v4 优化提交：`refactor: Phase 1 & Phase 2 start - code cleanup, security fix, Claude Code Skill compatibility`
-- 文档同步提交建议：`docs: sync RepoHarness v4 documentation`
+- v5 动态上下文预算：`feat: dynamic context budget`
+- v6 God Object 解体与安全加固：`refactor: extract builders, sandbox hardening`
+- v7 Builder 提取收尾、Sandbox 加固与测试质量门禁：`test: tighten weak assertions and add user scenarios`
+- 文档同步提交建议：`docs: sync RepoHarness vX documentation`
 - 参考基线：参考仓库 v3 commit `91a7c17`，v4 commit `9fca8c5`
 
 ## 公开入口

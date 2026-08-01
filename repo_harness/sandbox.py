@@ -1,10 +1,10 @@
 """Run_shell sandbox controls for RepoHarness."""
 
-from dataclasses import dataclass
 import fnmatch
 import shutil
 import subprocess
 import textwrap
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -23,6 +23,25 @@ class SandboxConfig:
         return self.mode != "off"
 
 
+SANDBOX_MODES = frozenset({"off", "read_only", "best_effort", "required"})
+
+# This filter is a convenience, not a security boundary. ADR-007 records why:
+# deciding from a command string that it can only do one thing is not
+# achievable -- three rounds of filtering were each defeated, most recently by
+# `git status/../whoami`, which contains no shell metacharacter and still runs
+# an arbitrary program through git's dashed-external dispatch.
+#
+# It survives only under best_effort, where the user has already opted out of
+# guaranteed isolation. read_only no longer consults it at all. What remains
+# here catches the obvious cases on both shells (shell=True means cmd.exe on
+# Windows and sh elsewhere), and nothing more should be claimed for it.
+SHELL_CONTROL_CHARACTERS = frozenset(";&|<>$`\\(){}!#%^\n\r")
+
+
+def _has_shell_control_character(command):
+    return any(character in SHELL_CONTROL_CHARACTERS for character in str(command))
+
+
 class SandboxRunner:
     def __init__(self, config=None):
         self.config = config or SandboxConfig()
@@ -31,12 +50,20 @@ class SandboxRunner:
     def run(self, agent, command, timeout, runner):
         mode = str(self.config.mode or "off").strip()
         backend = str(self.config.backend or "native").strip()
-        if mode == "off" or (mode != "required" and self._command_is_excluded(command)):
+        # Validate before anything else. A misspelled mode used to fall through
+        # to the exemption, so `READ_ONLY` in a config file silently became
+        # "run it unsandboxed" -- the opposite of what was written.
+        if mode not in SANDBOX_MODES:
+            raise RuntimeError(f"unsupported sandbox mode: {mode}")
+        if mode == "off":
             return None
+        # read_only is checked before the exemption: under this mode nothing
+        # runs, which is what the mode name says. The exemption used to come
+        # first, and no amount of filtering made that safe -- see ADR-007.
         if mode == "read_only":
             raise RuntimeError("sandbox read_only blocks run_shell")
-        if mode not in {"best_effort", "required"}:
-            raise RuntimeError(f"unsupported sandbox mode: {mode}")
+        if mode != "required" and self._command_is_excluded(command):
+            return None
         unavailable = self._backend_unavailable(backend)
         if unavailable:
             if hasattr(agent, "emit_session_event"):
@@ -70,9 +97,7 @@ class SandboxRunner:
     def _command_is_excluded(self, command):
         excluded = getattr(self.config, "excluded_commands", ()) or ()
         command = str(command or "").strip()
-        # 防止 shell 元字符绕过：如果命令包含子 shell 或变量展开，不跳过 sandbox
-        shell_metacharacters = ("$(", "${", "`", "\\")
-        if any(mc in command for mc in shell_metacharacters):
+        if _has_shell_control_character(command):
             return False
         return any(fnmatch.fnmatch(command, str(item)) for item in excluded)
 
@@ -122,8 +147,11 @@ class SandboxRunner:
             cwd=root,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
             env=agent.shell_env(),
+            check=False,
         )
         return format_completed_process(result)
 

@@ -1,14 +1,14 @@
 """Structured run evidence for RepoHarness scenario gates."""
 
-from dataclasses import asdict, dataclass
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import threading
+from dataclasses import asdict, dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 from ..models import FakeModelClient
 from ..runtime import RepoHarness
@@ -85,6 +85,8 @@ class RunEvidence:
             command,
             input="/help\n/exit\n",
             text=True,
+            encoding="utf-8",
+            errors="replace",
             cwd=str(self.repo_root),
             env=env,
             capture_output=True,
@@ -140,6 +142,8 @@ class RunEvidence:
             completed = subprocess.run(
                 command,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 cwd=str(self.repo_root),
                 env=self._subprocess_env(),
                 capture_output=True,

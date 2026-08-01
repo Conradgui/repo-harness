@@ -21,9 +21,39 @@ repo-harness = "repo_harness.cli:main"
 dev = [
   "pytest>=8.3.5",
   "pytest-cov>=6.0",
-  "ruff>=0.4.4",
+  "ruff>=0.16.0,<0.17.0",
 ]
 
 # Historical brand guard: packages = ["repo_harness"]
 [tool.setuptools.packages.find]
 include = ["repo_harness*"]
+
+[tool.ruff]
+target-version = "py310"
+
+# The rule set is declared explicitly. Without it ruff applies whichever
+# defaults the installed version happens to ship, so an unrelated upgrade
+# turns CI red on rules nobody chose. Every family below is here for a
+# stated reason; add to the list deliberately, not by widening a prefix.
+[tool.ruff.lint]
+select = [
+  "E4", "E7", "E9",  # pycodestyle: real errors, not line length
+  "F",               # pyflakes: undefined names, unused imports
+  "I",               # import ordering
+  "B",               # bugbear: mutable defaults, loop variable capture
+  "UP",              # pyupgrade: keep syntax current with requires-python
+  "SIM",             # simplify: collapsible branches, redundant constructs
+  "DTZ",             # naive datetimes -- run ids and session ids are timestamped
+  "PIE",             # small correctness nits
+  "RUF012",          # mutable class attribute without ClassVar
+  "PLW1510",         # subprocess.run without an explicit check=
+  "PLR1716",         # chained comparison written as two clauses
+  "S110",            # try/except/pass swallowing an error silently
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Test doubles are declared inside the test function that uses them, so a
+# mutable class attribute cannot leak between cases the way RUF012 guards
+# against. SIM117 would merge `with` blocks that are kept separate to show
+# which assertion each context belongs to.
+"tests/*" = ["S110", "RUF012", "SIM117"]

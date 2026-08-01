@@ -2,7 +2,6 @@
 
 from ..workspace import now
 
-
 PHASE_BY_EVENT = {
     "run_started": "runtime",
     "prompt_built": "prompt",

@@ -1,5 +1,5 @@
-import json
 import importlib
+import json
 import os
 import shutil
 import subprocess
@@ -16,15 +16,19 @@ from repo_harness.auto_issue_fix import (
     classify_github_error,
     handle_auto_issue_fix_repl_command,
     maintainer_trust_block_reason,
+    redact_text,
     render_evidence_templates,
     review_gates_block_reason,
     run_auto_issue_fix,
-    redact_text,
-    write_evidence,
     run_test_commands,
+    write_evidence,
 )
 from repo_harness.auto_issue_fix.runner import _build_auto_issue_fix_model_client
-from repo_harness.auto_issue_fix.workspace import changed_paths, git_diff
+from repo_harness.auto_issue_fix.workspace import (
+    changed_paths,
+    git_diff,
+    infer_test_commands,
+)
 from repo_harness.models import FakeModelClient
 
 
@@ -61,8 +65,8 @@ class FakeGhBackend:
 
     def ensure_fork_remote(self, cwd):
         fork = self.tmp_path / "fork.git"
-        subprocess.run(["git", "init", "--bare", str(fork)], check=True, capture_output=True, text=True)
-        subprocess.run(["git", "remote", "add", "fork", str(fork)], cwd=cwd, check=True, capture_output=True, text=True)
+        subprocess.run(["git", "init", "--bare", str(fork)], check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        subprocess.run(["git", "remote", "add", "fork", str(fork)], cwd=cwd, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
 
     def current_user(self):
         return "example-user"
@@ -89,11 +93,11 @@ def make_fixture_repo(tmp_path):
         "import sys\nfrom bug import value\nsys.exit(0 if value() == 22 else 1)\n",
         encoding="utf-8",
     )
-    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
     subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
     subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, check=True)
-    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True, text=True)
-    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
     return repo
 
 
@@ -321,7 +325,7 @@ def test_auto_issue_fix_cli_dry_run_writes_standard_evidence_files(tmp_path):
         "--dry-run",
     ]
 
-    completed = subprocess.run(command, cwd=os.getcwd(), env=env, text=True, capture_output=True, timeout=30, check=False)
+    completed = subprocess.run(command, cwd=os.getcwd(), env=env, text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=30, check=False)
 
     assert completed.returncode == 0, completed.stderr
     assert "Auto Issue Fix safe preview complete" in completed.stdout
@@ -588,7 +592,11 @@ def test_auto_issue_fix_repl_defaults_to_discovery_safe_preview(tmp_path):
 
     assert code == 0
     assert "Auto Issue Fix safe preview complete" in output
-    assert list((tmp_path / ".repo-harness" / "auto-issue-fix").glob("auto_issue_fix_*"))
+    evidence_root = tmp_path / ".repo-harness" / "auto-issue-fix"
+    run_dirs = list(evidence_root.glob("auto_issue_fix_*"))
+    assert run_dirs, "expected at least one auto_issue_fix_* evidence directory"
+    assert (run_dirs[0] / "run-record.json").exists()
+    assert (run_dirs[0] / "checkpoint.json").exists()
 
 
 def test_auto_issue_fix_repl_without_args_is_usage_when_not_interactive(tmp_path):
@@ -894,7 +902,7 @@ def test_auto_issue_fix_live_blocks_without_maintainer_access_confirmation(tmp_p
 def test_auto_issue_fix_live_model_client_uses_workspace_provider_config(tmp_path, monkeypatch):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    subprocess.run(["git", "init"], cwd=workspace, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "init"], cwd=workspace, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
     (workspace / ".repo-harness.toml").write_text(
         "\n".join(
             [
@@ -921,7 +929,7 @@ def test_auto_issue_fix_live_model_client_uses_workspace_provider_config(tmp_pat
 def test_auto_issue_fix_live_model_client_uses_deepseek_registry_defaults(tmp_path, monkeypatch):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    subprocess.run(["git", "init"], cwd=workspace, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "init"], cwd=workspace, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
     (workspace / ".repo-harness.toml").write_text('provider = "deepseek"\n', encoding="utf-8")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-secret")
 
@@ -935,9 +943,9 @@ def test_auto_issue_fix_live_model_client_uses_deepseek_registry_defaults(tmp_pa
 def test_auto_issue_fix_diff_helpers_include_staged_changes(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
-    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
     (repo / "staged.txt").write_text("staged\n", encoding="utf-8")
-    subprocess.run(["git", "add", "staged.txt"], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "add", "staged.txt"], cwd=repo, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
 
     assert changed_paths(repo) == ("staged.txt",)
     diff = git_diff(repo)
@@ -948,12 +956,12 @@ def test_auto_issue_fix_diff_helpers_include_staged_changes(tmp_path):
 def test_auto_issue_fix_diff_helpers_include_untracked_changes(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
-    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
     subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
     subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, check=True)
     (repo / "README.md").write_text("# Repo\n", encoding="utf-8")
-    subprocess.run(["git", "add", "README.md"], cwd=repo, check=True, capture_output=True, text=True)
-    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "add", "README.md"], cwd=repo, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
     (repo / "new_file.py").write_text("VALUE = 1\n", encoding="utf-8")
 
     assert changed_paths(repo) == ("new_file.py",)
@@ -977,3 +985,66 @@ def test_auto_issue_fix_test_logs_are_redacted(tmp_path):
     assert results[0]["status"] == "failed"
     assert "sk-test-secret" not in text
     assert "<redacted>" in text
+
+
+def test_infer_test_commands_python_with_pyproject(tmp_path):
+    (tmp_path / "pyproject.toml").write_text("[tool.pytest]\n", encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    assert infer_test_commands(tmp_path) == ("python -m pytest -q",)
+
+
+def test_infer_test_commands_python_with_setup_cfg(tmp_path):
+    (tmp_path / "setup.cfg").write_text("[pytest]\n", encoding="utf-8")
+    (tmp_path / "test").mkdir()
+    assert infer_test_commands(tmp_path) == ("python -m pytest -q",)
+
+
+def test_infer_test_commands_npm(tmp_path):
+    (tmp_path / "package.json").write_text('{"scripts": {"test": "jest"}}\n', encoding="utf-8")
+    assert infer_test_commands(tmp_path) == ("npm test",)
+
+
+def test_infer_test_commands_go(tmp_path):
+    (tmp_path / "go.mod").write_text("module example\n", encoding="utf-8")
+    assert infer_test_commands(tmp_path) == ("go test ./...",)
+
+
+def test_infer_test_commands_rust(tmp_path):
+    (tmp_path / "Cargo.toml").write_text('[package]\nname = "demo"\n', encoding="utf-8")
+    assert infer_test_commands(tmp_path) == ("cargo test",)
+
+
+def test_infer_test_commands_maven(tmp_path):
+    (tmp_path / "pom.xml").write_text("<project></project>\n", encoding="utf-8")
+    assert infer_test_commands(tmp_path) == ("mvn test",)
+
+
+def test_infer_test_commands_gradle(tmp_path):
+    (tmp_path / "build.gradle").write_text("apply plugin: 'java'\n", encoding="utf-8")
+    assert infer_test_commands(tmp_path) == ("gradle test",)
+
+
+def test_infer_test_commands_gradle_kotlin(tmp_path):
+    (tmp_path / "build.gradle.kts").write_text("plugins { java }\n", encoding="utf-8")
+    assert infer_test_commands(tmp_path) == ("gradle test",)
+
+
+def test_infer_test_commands_dotnet(tmp_path):
+    (tmp_path / "App.csproj").write_text("<Project></Project>\n", encoding="utf-8")
+    assert infer_test_commands(tmp_path) == ("dotnet test",)
+
+
+def test_infer_test_commands_ruby(tmp_path):
+    (tmp_path / "Gemfile").write_text("source 'https://rubygems.org'\n", encoding="utf-8")
+    (tmp_path / "spec").mkdir()
+    assert infer_test_commands(tmp_path) == ("bundle exec rspec",)
+
+
+def test_infer_test_commands_cmake(tmp_path):
+    (tmp_path / "CMakeLists.txt").write_text("cmake_minimum_required(VERSION 3.10)\n", encoding="utf-8")
+    assert infer_test_commands(tmp_path) == ("ctest --output-on-failure",)
+
+
+def test_infer_test_commands_unknown_returns_empty(tmp_path):
+    (tmp_path / "README.md").write_text("just a readme\n", encoding="utf-8")
+    assert infer_test_commands(tmp_path) == ()
