@@ -306,7 +306,7 @@ flowchart LR
   PC -->|allow| TP["ToolPolicy.decision()"]
   TP -->|reject| M
   TP -->|allow| EX["执行工具"]
-  EX -->|name == "run_shell"| SB["SandboxRunner（read_only 时 deny）"]
+  EX -->|name == run_shell| SB["SandboxRunner 只读模式拒绝"]
   SB --> RC["run_shell_command"]
   EX -->|其他工具| WC["WorkspaceContext / 文件工件"]
   EX --> TR["trace & report"]
