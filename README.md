@@ -67,6 +67,41 @@ candidate fact -> Review Queue -> /memory review accept/edit -> durable topics
 
 完整新手流程见 [docs/getting-started.md](docs/getting-started.md)。
 
+### 代码模块分层
+
+> 下图是"实现面"的分层视图，与上方「能力概览」表的"用户能力视角"维度不同，二者互补。
+
+```mermaid
+flowchart TD
+  subgraph Entry["入口层"]
+    CLI["cli.py"] --> RT["runtime.py (RepoHarness)"]
+    REPL["repl_facade.py"] --> RT
+    MAIN["__main__.py"] --> CLI
+  end
+  subgraph Core["核心护栏层"]
+    TE["core/tool_executor.run_tool()"]
+    PC["permissions.py (PermissionChecker)"]
+    TP["tool_policy.py (ToolPolicy)"]
+    SB["sandbox.py (SandboxRunner)"]
+    PB["core/prompt_builder.py"]
+    CB["core/checkpoint_builder.py"]
+    SS["core/secret_sanitizer.py"]
+  end
+  subgraph Ext["能力扩展层"]
+    SK["features/skills.py"]
+    AIF["auto_issue_fix/"]
+    MEM["memory.py (LayeredMemory)"]
+    EV["evaluation/run_evidence.py"]
+  end
+  RT --> TE
+  RT --> PC
+  RT --> SS
+  RT --> SK
+  RT --> AIF
+  RT --> MEM
+  RT --> EV
+```
+
 ## 安装
 
 需要 Python 3.10+。推荐使用 `uv`：
@@ -84,6 +119,18 @@ repo-harness --help
 ```
 
 ## 快速启动
+
+新手从 `uv sync` 到可恢复会话的完整路径：
+
+```mermaid
+flowchart TD
+  A["uv sync"] --> B["provider probe / setup / doctor"]
+  B --> C["repo-harness --repl"]
+  C --> D["/plan 或 ask"]
+  D --> E["工具循环（经下方护栏）"]
+  E --> F[".repo-harness 工件：task_state / trace / report"]
+  F --> G["中断后可经 RepoHarness.from_session 恢复（evaluate_resume_state）"]
+```
 
 在当前仓库里进入交互模式：
 
@@ -250,6 +297,20 @@ LiteLLM、OpenRouter、Vercel AI Gateway 这类外部 gateway 可以作为 OpenA
 ## 工具、安全和运行模式
 
 RepoHarness 的工具执行统一经过 core executor、permission gate、tool policy 和 sandbox：
+
+```mermaid
+flowchart LR
+  M["Model output"] --> TE["core/tool_executor.run_tool()"]
+  TE --> PC["PermissionChecker.check()"]
+  PC -->|deny| M
+  PC -->|allow| TP["ToolPolicy.decision()"]
+  TP -->|reject| M
+  TP -->|allow| EX["执行工具"]
+  EX -->|name == run_shell| SB["SandboxRunner 只读模式拒绝"]
+  SB --> RC["run_shell_command"]
+  EX -->|其他工具| WC["WorkspaceContext / 文件工件"]
+  EX --> TR["trace & report"]
+```
 
 - `approval_policy="ask"` 对同一 risky tool 只触发一次审批。
 - shell 普通搜索/读取会被拦截，鼓励使用结构化 `read_file` / `search`。
