@@ -325,6 +325,7 @@ uv run pytest tests/test_provider_config_acceptance.py tests/test_real_session_a
 ## 5. REPL 常用命令
 
 - `/help`：命令列表。
+- `/exit` 或 `/quit`：退出 REPL（两者等价）。
 - `/plan <topic>`：进入 plan mode，只允许读和计划相关工具。
 - `/plan-exit`：退出 plan mode。
 - `/usage`：查看 token / context 使用情况。
