@@ -1278,18 +1278,46 @@ def build_arg_parser():
     return parser
 
 
+# Top-level dispatch table for the subcommands handled before the main parser.
+# Each entry maps the leading CLI token to a (handler, needs_workspace) pair.
+# Handlers import their dependencies lazily, matching the previous inline
+# imports -- the subcommand modules are heavy and should not load on `--help`.
+def _command_memory(argv):
+    return handle_memory_command(argv)
+
+
+def _command_provider(argv):
+    from .provider_setup import run_provider_command
+
+    return run_provider_command(argv, workspace_root=Path.cwd())
+
+
+def _command_auto_issue_fix(argv):
+    from .auto_issue_fix import handle_auto_issue_fix_command
+
+    return handle_auto_issue_fix_command(argv)
+
+
+# Registered subcommands dispatched in main() before the general parser.
+# Behavior is identical to the previous if/elif chain; the table exists so the
+# dispatch surface is visible in one place and new subcommands declare a slot.
+_COMMANDS = {
+    "memory": _command_memory,
+    "provider": _command_provider,
+    "auto-issue-fix": _command_auto_issue_fix,
+}
+
+
 def main(argv=None):
     raw_argv = list(sys.argv[1:] if argv is None else argv)
-    if raw_argv and raw_argv[0] == "memory":
-        return handle_memory_command(raw_argv[1:])
-    if raw_argv and raw_argv[0] == "provider":
-        from .provider_setup import run_provider_command
+    if raw_argv and raw_argv[0] in _COMMANDS:
+        return _COMMANDS[raw_argv[0]](raw_argv[1:])
 
-        return run_provider_command(raw_argv[1:], workspace_root=Path.cwd())
-    if raw_argv and raw_argv[0] == "auto-issue-fix":
-        from .auto_issue_fix import handle_auto_issue_fix_command
+    # Diagnostic logging for the rest of the run. Quiet by default (WARNING);
+    # set REPO_HARNESS_LOG_LEVEL=DEBUG/INFO to see more on stderr.
+    from .logging_config import configure_logging
 
-        return handle_auto_issue_fix_command(raw_argv[1:])
+    configure_logging()
 
     args = build_arg_parser().parse_args(raw_argv)
 

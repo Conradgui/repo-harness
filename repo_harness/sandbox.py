@@ -61,6 +61,9 @@ class SandboxRunner:
         # runs, which is what the mode name says. The exemption used to come
         # first, and no amount of filtering made that safe -- see ADR-007.
         if mode == "read_only":
+            from .logging_config import get_logger
+
+            get_logger("sandbox").debug("run_shell blocked by read_only sandbox: %s", command)
             raise RuntimeError("sandbox read_only blocks run_shell")
         if mode != "required" and self._command_is_excluded(command):
             return None

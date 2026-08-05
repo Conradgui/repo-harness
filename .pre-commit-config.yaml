@@ -1,0 +1,17 @@
+# Pre-commit hooks for repo-harness.
+# The ruff hook must use the exact rule set declared in pyproject.toml
+# (see ADR-004: rule set is explicit, do not widen). Never add rules here
+# that are not in pyproject.toml -- an unrelated ruff upgrade would then turn
+# CI red on rules nobody chose.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.0
+    hooks:
+      - id: ruff
+        args: [check]
+      - id: ruff-format
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
