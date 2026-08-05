@@ -27,16 +27,38 @@ DOCS = REPO_ROOT / "docs"
 MARKER = re.compile(r"<!--\s*measure:([a-z_]+)\s*-->\s*\*{0,2}([\d,]+)")
 
 
-@pytest.fixture(scope="module")
-def baseline():
-    """origin/main, the single before-baseline the delivery documents quote."""
+def _merge_base():
+    """The fork point of HEAD against origin/main, used as the delta baseline.
+
+    origin/main is a floating pointer -- after the optimization branch merges
+    back it no longer represents the pre-optimization baseline, and every
+    measured delta collapses to zero. The merge-base is the immutable,
+    recomputable fork point the delivery deltas are quoted against.
+    """
     result = subprocess.run(
-        [sys.executable, "scripts/measure.py", "origin/main"],
+        ["git", "merge-base", "origin/main", "HEAD"],
         cwd=REPO_ROOT, capture_output=True, text=True,
         encoding="utf-8", errors="replace", check=False,
     )
     if result.returncode != 0:
-        pytest.skip(f"baseline unavailable: {result.stderr.strip()[:200]}")
+        return None
+    sha = result.stdout.strip()
+    return sha or None
+
+
+@pytest.fixture(scope="module")
+def baseline():
+    """The merge-base of HEAD against origin/main: the before-baseline."""
+    ref = _merge_base()
+    if not ref:
+        pytest.fail("cannot compute merge-base with origin/main; delta checks need a baseline")
+    result = subprocess.run(
+        [sys.executable, "scripts/measure.py", ref],
+        cwd=REPO_ROOT, capture_output=True, text=True,
+        encoding="utf-8", errors="replace", check=False,
+    )
+    if result.returncode != 0:
+        pytest.fail(f"baseline unavailable: {result.stderr.strip()[:200]}")
     return json.loads(result.stdout)
 
 
@@ -124,7 +146,25 @@ def test_registered_delta_matches_the_measured_change(
     doc, key, _pct, sign, claimed, measured, baseline
 ):
     """A generated value beside a hand-written difference is how the summary
-    table went arithmetically false twice. The difference is checked too."""
+    table went arithmetically false twice. The difference is checked too.
+
+    Deltas are cross-branch semantics: they quote the change from the
+    merge-base (the optimization fork point) to the current branch. On main,
+    where HEAD *is* the merge-base, there is no cross-branch delta to verify --
+    every difference would legitimately be zero, so the checks skip there.
+    """
+    if _merge_base() is None:
+        pytest.skip("not a git repo with origin/main; delta semantics unavailable")
+    import subprocess as _sp
+
+    head_result = _sp.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=REPO_ROOT, capture_output=True, text=True,
+        encoding="utf-8", errors="replace", check=False,
+    )
+    if head_result.returncode == 0 and head_result.stdout.strip() == _merge_base():
+        pytest.skip("HEAD is the merge-base with origin/main; no cross-branch delta to verify")
+
     assert key in measured and key in baseline, f"{doc} references unknown key {key}"
 
     change = measured[key] - baseline[key]

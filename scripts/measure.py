@@ -157,9 +157,30 @@ def _module_lines(root):
     return out
 
 
-def _commit_stats(root, base="origin/main"):
+def _merge_base(root):
+    """The fork point where HEAD diverged from origin/main.
+
+    origin/main is a floating pointer: once the optimization branch merges back,
+    it stops representing the pre-optimization baseline, and every measured
+    delta collapses to zero (observed on macOS/main). The merge-base is the
+    immutable, recomputable fork point the delivery deltas are measured against.
+    """
+    result = _run(["git", "merge-base", "origin/main", "HEAD"], root)
+    sha = result.stdout.strip()
+    if result.returncode != 0 or not sha:
+        raise MeasurementError(
+            f"cannot compute merge-base with origin/main: {result.stderr.strip()[:200]}"
+        )
+    return sha
+
+
+def _commit_stats(root):
+    base = _merge_base(root)
     count = _run(["git", "rev-list", "--count", f"{base}..HEAD"], root).stdout.strip()
-    return {"commits_ahead_of_main": int(count) if count.isdigit() else None}
+    return {
+        "commits_ahead_of_main": int(count) if count.isdigit() else None,
+        "baseline_sha": base,
+    }
 
 
 def measure(root, with_commits=True):

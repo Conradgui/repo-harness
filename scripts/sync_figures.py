@@ -21,7 +21,22 @@ MARKER = re.compile(r"(<!--\s*measure:([a-z_]+)\s*-->\s*\*{0,2})([\d,]+)")
 # difference next to it did not.
 DELTA = re.compile(r"(<!--\s*delta:([a-z_]+)(:pct)?\s*-->\s*)[−+\-][\d,]+(（[−+\-][\d.]+%）)?")
 
-BASELINE_REF = "origin/main"
+def _baseline_ref():
+    """The fork point of HEAD against origin/main.
+
+    origin/main is a floating pointer; after the optimization branch merges
+    back it no longer represents the pre-optimization baseline. Using the
+    merge-base keeps every delta recomputable from an immutable commit.
+    """
+    result = subprocess.run(
+        ["git", "merge-base", "origin/main", "HEAD"],
+        cwd=REPO, capture_output=True, text=True,
+        encoding="utf-8", errors="replace", check=False,
+    )
+    sha = result.stdout.strip()
+    if result.returncode != 0 or not sha:
+        raise SystemExit(f"cannot compute merge-base with origin/main: {result.stderr.strip()[:200]}")
+    return sha
 
 
 def _tracked_markdown():
@@ -61,7 +76,7 @@ def main():
             stream.reconfigure(encoding="utf-8", errors="replace")
 
     measured = _measure()
-    baseline = _measure(BASELINE_REF)
+    baseline = _measure(_baseline_ref())
 
     changed = 0
     for path in _tracked_markdown():
