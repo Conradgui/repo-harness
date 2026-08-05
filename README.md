@@ -1,5 +1,10 @@
 # RepoHarness
 
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![tests](https://img.shields.io/badge/tests-509%20passed%2C%201%20skipped-brightgreen.svg)]()
+[![lint](https://img.shields.io/badge/ruff-0%20error-brightgreen.svg)]()
+
 > Python 3.10+ | MIT License | ruff 0 error · 测试全绿
 
 一个运行在本地仓库里的 coding agent runtime。它通过受约束的工具读文件、改文件、跑命令，把会话、运行工件、记忆和审计信息留在 `.repo-harness/` 下。
@@ -37,7 +42,7 @@ provider 配置是新手最高频的卡点，而且失败信号有误导性：HT
 
 ## 版本迭代
 
-v4 / v5 的详细变更见 [changelog-draft.md](docs/maintainer-prep/changelog-draft.md)。v6 完成了 God Object 解体推进、深度审计与安全加固（builder 提取、context window 扩展、异常收窄）；v7 收尾了 builder 提取、Sandbox 加固与测试质量门禁（脱敏逻辑提取为 `core/secret_sanitizer.py`、跨模块收敛命令执行边界、收紧 5 处弱断言并新增中断恢复 / 模型错误可见性场景测试，509 passed / 1 skipped、ruff 0 error）。本轮重建的完整记录见 [交付文档](docs/delivery/README.md)。
+完整变更史见 [CHANGELOG.md](CHANGELOG.md)。v1–v7 是开发迭代代号：v6 完成 God Object 解体推进、深度审计与安全加固（builder 提取、context window 扩展、异常收窄）；v7 收尾 builder 提取、Sandbox 加固与测试质量门禁（脱敏逻辑提取为 `core/secret_sanitizer.py`、跨模块收敛命令执行边界、收紧 5 处弱断言并新增中断恢复 / 模型错误可见性场景测试）。项目尚未发布正式 release，版本按 [RELEASING.md](RELEASING.md) 的规则推进。本轮重建的完整记录见 [交付文档](docs/delivery/README.md)。
 
 ## 产品边界
 
@@ -533,11 +538,17 @@ RepoHarness 记忆系统继续以"可迁移、可审核、可解释"为核心。
 - [Auto Issue Fix 产品方案](docs/auto-issue-fix-product-plan.md)
 - [Auto Issue Fix 实现计划](docs/auto-issue-fix-implementation-plan.md)
 
-**维护者**
+**维护者与社区**
 
-- [更新日志](docs/maintainer-prep/changelog-draft.md)
-- [维护者文档入口](docs/maintainer-prep/README.md)
+- [更新日志（CHANGELOG）](CHANGELOG.md) — 完整变更史（v1–v7 开发代号 + Unreleased）
+- [贡献指南（CONTRIBUTING）](CONTRIBUTING.md) — 开发环境、质量门禁、PR 流程
+- [安全策略（SECURITY）](SECURITY.md) — 漏洞上报与威胁模型
+- [行为准则（CODE_OF_CONDUCT）](CODE_OF_CONDUCT.md)
+- [发布流程（RELEASING）](RELEASING.md) — 版本规则与发布步骤
+- [维护者文档入口](docs/maintainer-prep/README.md) — 内部维护材料
 - [Review Pack](docs/review-pack/README.md)
+
+> 内部交付与评审文档（`docs/delivery/`、`docs/review-pack/`、`docs/maintainer-prep/` 等）是维护者视角的材料，与用户文档（`docs/getting-started.md`、`docs/spec/`、`docs/architecture/`）分开维护。
 
 ## 工程约定
 

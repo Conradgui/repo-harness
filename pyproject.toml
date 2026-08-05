@@ -6,13 +6,37 @@ build-backend = "setuptools.build_meta"
 name = "repo-harness"
 version = "0.1.0"
 description = "Local repository harness for coding agents"
+readme = "README.md"
 requires-python = ">=3.10"
+license = { file = "LICENSE" }
+keywords = ["agent", "coding-agent", "llm", "cli", "automation", "sandbox", "memory"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Code Generators",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: Utilities",
+]
 dependencies = [
   "tomli>=2.0.0; python_version < '3.11'",
   "tzdata>=2025.2",
   "rich>=13.0",
   "prompt_toolkit>=3.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Conradgui/repo-harness"
+Repository = "https://github.com/Conradgui/repo-harness"
+Issues = "https://github.com/Conradgui/repo-harness/issues"
+Changelog = "https://github.com/Conradgui/repo-harness/blob/main/CHANGELOG.md"
 
 [project.scripts]
 repo-harness = "repo_harness.cli:main"
@@ -27,6 +51,10 @@ dev = [
 # Historical brand guard: packages = ["repo_harness"]
 [tool.setuptools.packages.find]
 include = ["repo_harness*"]
+
+# PEP 561: package ships type information (py.typed marker)
+[tool.setuptools.package-data]
+repo_harness = ["py.typed"]
 
 [tool.ruff]
 target-version = "py310"

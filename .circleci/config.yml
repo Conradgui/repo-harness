@@ -23,6 +23,11 @@ jobs:
       - run:
           name: Test
           command: uv run pytest -q --tb=short --cov=repo_harness --cov-report=term-missing --cov-report=html
+      # Coverage gate (ADR-006: numbers must be measured, not guessed).
+      # First green run of this matrix produces the real per-version TOTAL from
+      # the step above. Take the minimum across 3.10-3.13, then uncomment:
+      #   --cov-fail-under=<min-total>
+      # Do NOT hardcode a threshold before a baseline exists.
       - store_artifacts:
           path: htmlcov
           destination: coverage-report
