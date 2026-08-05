@@ -50,7 +50,7 @@
 
 ```bash
 uv run ruff check .        # 0 error
-uv run pytest tests/ -q    # 509 passed / 1 skipped 基线（P1 后不得少于）
+uv run pytest tests/ -q    # 520 passed / 1 skipped 基线（2026-08-05 全量复核）
 uv run pytest tests/test_docs_integrity.py tests/test_documented_snippets.py -q  # 文档一致性
 ```
 
