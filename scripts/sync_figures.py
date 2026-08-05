@@ -15,10 +15,10 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 MARKER = re.compile(r"(<!--\s*measure:([a-z_]+)\s*-->\s*\*{0,2})([\d,]+)")
 
-# `<!-- delta:source_lines -->−2,606（−15.2%）` -- the change against origin/main.
-# Generated too, because a marked cell beside a hand-written delta is how the
-# summary table went arithmetically false twice: the value updated, the
-# difference next to it did not.
+# `<!-- delta:source_lines -->−2,606（−15.2%）` -- the change against the
+# merge-base baseline (see _baseline_ref). Generated too, because a marked cell
+# beside a hand-written delta is how the summary table went arithmetically
+# false twice: the value updated, the difference next to it did not.
 DELTA = re.compile(r"(<!--\s*delta:([a-z_]+)(:pct)?\s*-->\s*)[−+\-][\d,]+(（[−+\-][\d.]+%）)?")
 
 def _baseline_ref():

@@ -123,14 +123,20 @@ def test_every_measure_marker_names_a_real_key(measured):
     assert unknown == set(), f"markers reference keys measure.py does not emit: {sorted(unknown)}"
 
 
-DELTA = re.compile(r"<!--\s*delta:([a-z_]+)(:pct)?\s*-->\s*([−+\-])([\d,]+)")
+# Matches `<!-- delta:key -->−1,234` or `<!-- delta:key:pct -->+81（+0.5%）`.
+# The optional trailing percentage is captured when a `:pct` marker is used.
+DELTA = re.compile(r"<!--\s*delta:([a-z_]+)(:pct)?\s*-->\s*([−+\-])([\d,]+)(?:（([−+\-])([\d.]+)%）)?")
+DELTA_PCT = re.compile(r"<!--\s*delta:([a-z_]+):pct\s*-->")
 
 
 def _delta_claims():
     for path, text in _marked_documents():
         doc = path.relative_to(REPO_ROOT).as_posix()
-        for key, pct, sign, raw in DELTA.findall(text):
-            yield doc, key, bool(pct), sign, int(raw.replace(",", ""))
+        for key, pct, sign, raw, _pct_sign, pct_raw in DELTA.findall(text):
+            pct_claimed = None
+            if pct_raw:
+                pct_claimed = float(pct_raw)
+            yield doc, key, bool(pct), sign, int(raw.replace(",", "")), pct_claimed
 
 
 DELTA_CLAIMS = list(_delta_claims())
@@ -138,12 +144,12 @@ DELTA_CLAIMS = list(_delta_claims())
 
 @pytest.mark.skipif(not DELTA_CLAIMS, reason="no deltas are registered yet")
 @pytest.mark.parametrize(
-    "doc,key,_pct,sign,claimed",
+    "doc,key,_pct,sign,claimed,pct_claimed",
     DELTA_CLAIMS,
-    ids=[f"{d}:Δ{k}" for d, k, _, _, _ in DELTA_CLAIMS],
+    ids=[f"{d}:Δ{k}" for d, k, _, _, _, _ in DELTA_CLAIMS],
 )
 def test_registered_delta_matches_the_measured_change(
-    doc, key, _pct, sign, claimed, measured, baseline
+    doc, key, _pct, sign, claimed, pct_claimed, measured, baseline
 ):
     """A generated value beside a hand-written difference is how the summary
     table went arithmetically false twice. The difference is checked too.
@@ -177,3 +183,10 @@ def test_registered_delta_matches_the_measured_change(
         f"{doc} states Δ{key}={claimed:,}, measured {abs(change):,}. "
         f"Run scripts/sync_figures.py."
     )
+    if pct_claimed is not None:
+        assert baseline[key], f"{doc} Δ{key} is marked :pct but baseline is zero"
+        measured_pct = round(abs(change) / baseline[key] * 100, 1)
+        assert measured_pct == pct_claimed, (
+            f"{doc} states Δ{key}={pct_claimed}%, measured {measured_pct}%. "
+            f"Run scripts/sync_figures.py."
+        )
