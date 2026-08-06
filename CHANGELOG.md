@@ -47,7 +47,7 @@
 
 ### Verification
 
-- `uv run pytest tests/ -q` — 520 passed, 1 skipped（2026-08-05 全量复核）
+- `uv run pytest tests/ -q` — 559 passed, 1 skipped（2026-08-06 全量复核；此前 520 passed 记录已更新，G1/G2/G3 新增测试后全量 560 用例）
 - `uv run ruff check .` — 0 error
 
 ---
