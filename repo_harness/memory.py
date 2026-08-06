@@ -10,6 +10,7 @@ import configparser
 import hashlib
 import json
 import re
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -23,6 +24,13 @@ MARKDOWN_SUFFIXES = {".md", ".markdown"}
 CONFIG_SUFFIXES = {".json", ".toml", ".ini", ".cfg", ".yaml", ".yml"}
 DURABLE_REVIEW_QUEUE_SCHEMA = "durable-review-queue-v1"
 DURABLE_REVIEW_QUEUE_FILE = "review-queue.jsonl"
+
+# Serializes read-modify-write on the shared review-queue.jsonl. Parent and
+# worker runtimes build separate LayeredMemory instances but point at the same
+# file (same workspace_root), so the lock must be module-level, not per
+# instance -- an instance lock would not stop a parent write from racing a
+# worker write on the same path.
+_DURABLE_REVIEW_QUEUE_LOCK = threading.RLock()
 TOKEN_PATTERN = re.compile(r"[A-Za-z0-9]+(?:[_.\\/-]+[A-Za-z0-9]+)*")
 CAMEL_ACRONYM_BOUNDARY = re.compile(r"([A-Z]+)([A-Z][a-z])")
 CAMEL_WORD_BOUNDARY = re.compile(r"([a-z0-9])([A-Z])")
@@ -283,6 +291,10 @@ class DurableMemoryReviewQueue:
         return None
 
     def enqueue(self, promotions, source=None):
+        with _DURABLE_REVIEW_QUEUE_LOCK:
+            return self._enqueue_locked(promotions, source)
+
+    def _enqueue_locked(self, promotions, source=None):
         records = self.load()
         source = dict(source or {})
         pending_keys = {
@@ -334,6 +346,10 @@ class DurableMemoryReviewQueue:
         return queued
 
     def mark(self, record_id, status, *, topic=None, text=None):
+        with _DURABLE_REVIEW_QUEUE_LOCK:
+            return self._mark_locked(record_id, status, topic=topic, text=text)
+
+    def _mark_locked(self, record_id, status, *, topic=None, text=None):
         records = self.load()
         updated = None
         for record in records:
@@ -360,6 +376,10 @@ class DurableMemoryReviewQueue:
         return updated
 
     def update_pending(self, record_id, *, topic=None, text=None):
+        with _DURABLE_REVIEW_QUEUE_LOCK:
+            return self._update_pending_locked(record_id, topic=topic, text=text)
+
+    def _update_pending_locked(self, record_id, *, topic=None, text=None):
         records = self.load()
         updated = None
         for record in records:
@@ -393,11 +413,12 @@ class DurableMemoryReviewQueue:
         return candidate
 
     def _write(self, records):
-        self.root.mkdir(parents=True, exist_ok=True)
-        tmp_path = self.path.with_suffix(self.path.suffix + ".tmp")
-        payload = "\n".join(json.dumps(record, ensure_ascii=False, sort_keys=True) for record in records)
-        tmp_path.write_text(payload.rstrip() + ("\n" if records else ""), encoding="utf-8")
-        tmp_path.replace(self.path)
+        with _DURABLE_REVIEW_QUEUE_LOCK:
+            self.root.mkdir(parents=True, exist_ok=True)
+            tmp_path = self.path.with_suffix(self.path.suffix + ".tmp")
+            payload = "\n".join(json.dumps(record, ensure_ascii=False, sort_keys=True) for record in records)
+            tmp_path.write_text(payload.rstrip() + ("\n" if records else ""), encoding="utf-8")
+            tmp_path.replace(self.path)
 
 
 def _ensure_list(value):
