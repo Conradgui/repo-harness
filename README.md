@@ -2,7 +2,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![tests](https://img.shields.io/badge/tests-520%20passed%2C%201%20skipped-brightgreen.svg)]()
+[![tests](https://img.shields.io/badge/tests-559%20passed%2C%201%20skipped-brightgreen.svg)]()
 [![lint](https://img.shields.io/badge/ruff-0%20error-brightgreen.svg)]()
 
 > Python 3.10+ | MIT License | ruff 0 error · 测试全绿

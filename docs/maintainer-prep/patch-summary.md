@@ -15,7 +15,7 @@
 - Sandbox hardening 跨 `auto_issue_fix` / `cli` / `tool_policy` / `workspace` / `context_manager` 落实。
 - 测试质量门禁：收紧 5 处弱测试（Skills 占位、重复断言、truthy glob、else-True、F841 死代码）；新增 2 类用户场景测试（中断恢复、模型错误可见性）。
 - `test_auto_issue_fix_live_runner.py` 从 import smoke 改为离线真驱动 `run_live_auto_issue_fix`。
-- 验证：`520 passed, 1 skipped`、`ruff 0 error`。详见 `changelog-draft.md`。
+- 验证：`559 passed, 1 skipped`、`ruff 0 error`（2026-08-06 全量复核）。详见 `changelog-draft.md`。
 
 ## 2026-05-25：Auto Issue Fix v2 真实执行更新
 
