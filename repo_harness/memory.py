@@ -278,6 +278,14 @@ class DurableMemoryReviewQueue:
                 continue
             if record.get("schema_version") != DURABLE_REVIEW_QUEUE_SCHEMA:
                 continue
+            # G3 migration: records written before canonical/source fields
+            # existed get canonical=text. A legacy non-ASCII record must be
+            # flagged needs_review -- never silently treated as canonical.
+            if "canonical_text" not in record:
+                record["canonical_text"] = record.get("text", "")
+                record["canonical_needs_review"] = not _is_ascii(record.get("text", ""))
+            if "source_text" not in record:
+                record["source_text"] = record.get("original_text") or record.get("text", "")
             records.append(record)
         return records
 
@@ -298,7 +306,7 @@ class DurableMemoryReviewQueue:
         records = self.load()
         source = dict(source or {})
         pending_keys = {
-            (str(record.get("topic", "")), str(record.get("text", "")))
+            (str(record.get("topic", "")), str(record.get("canonical_text", record.get("text", ""))))
             for record in records
             if record.get("status") == "pending"
         }
@@ -308,7 +316,7 @@ class DurableMemoryReviewQueue:
             if str(record.get("status", "")) in {"accepted", "rejected"}
             and str((record.get("source") or {}).get("origin", "")) == "memory-self-iteration"
             for key in {
-                (str(record.get("topic", "")), str(record.get("text", ""))),
+                (str(record.get("topic", "")), str(record.get("canonical_text", record.get("text", "")))),
                 (str(record.get("original_topic", "")), str(record.get("original_text", ""))),
             }
             if key[0] and key[1]
@@ -321,9 +329,10 @@ class DurableMemoryReviewQueue:
             text = str(text).strip()
             if topic not in DURABLE_TOPIC_DEFAULTS or not text:
                 continue
-            if (topic, text) in pending_keys:
+            canonical_text, canonical_needs_review = _canonical_fields_for(text)
+            if (topic, canonical_text) in pending_keys:
                 continue
-            if suppress_reviewed and (topic, text) in reviewed_self_iteration_keys:
+            if suppress_reviewed and (topic, canonical_text) in reviewed_self_iteration_keys:
                 continue
             created_at = now()
             record = {
@@ -332,6 +341,9 @@ class DurableMemoryReviewQueue:
                 "created_at": created_at,
                 "topic": topic,
                 "text": text,
+                "canonical_text": canonical_text,
+                "source_text": text,
+                "canonical_needs_review": canonical_needs_review,
                 "original_topic": topic,
                 "original_text": text,
                 "source": source,
@@ -339,7 +351,7 @@ class DurableMemoryReviewQueue:
             }
             records.append(record)
             queued.append(record)
-            pending_keys.add((topic, text))
+            pending_keys.add((topic, canonical_text))
             existing_ids.add(record["id"])
         if queued:
             self._write(records)
@@ -367,6 +379,11 @@ class DurableMemoryReviewQueue:
                 if not text:
                     raise ValueError("durable memory review text cannot be empty")
                 record["text"] = text
+                # G3: editing text updates the canonical form (and its review
+                # flag) but never the original source evidence.
+                canonical_text, canonical_needs_review = _canonical_fields_for(text)
+                record["canonical_text"] = canonical_text
+                record["canonical_needs_review"] = canonical_needs_review
             record["status"] = status
             record["reviewed_at"] = now()
             updated = dict(record)
@@ -395,6 +412,9 @@ class DurableMemoryReviewQueue:
                 if not text:
                     raise ValueError("durable memory review text cannot be empty")
                 record["text"] = text
+                canonical_text, canonical_needs_review = _canonical_fields_for(text)
+                record["canonical_text"] = canonical_text
+                record["canonical_needs_review"] = canonical_needs_review
             updated = dict(record)
             break
         if updated is not None:
@@ -510,6 +530,29 @@ def _canonical_note_text(text):
     for raw_token in TOKEN_PATTERN.findall(str(text)):
         parts.extend(part.lower() for part in _split_token_parts(raw_token))
     return " ".join(parts)
+
+
+def _is_ascii(text):
+    """True when the text needs no canonicalization to be ASCII-retrievable.
+
+    A text that tokenizes to nothing under the ASCII TOKEN_PATTERN cannot be
+    found by the retrieval layer, so it must be flagged for an English
+    canonical (G3 contract) rather than silently promoted into durable memory.
+    """
+    return bool(_canonical_note_text(str(text)).strip())
+
+
+def _canonical_fields_for(text):
+    """Return (canonical_text, needs_review) for a candidate's raw text.
+
+    ASCII text is its own canonical and needs no review. Non-ASCII text keeps
+    the raw text as canonical (no silent translation) but is flagged so the
+    reviewer must supply an English canonical or reject before durable memory.
+    """
+    raw = str(text)
+    if _is_ascii(raw):
+        return raw, False
+    return raw, True
 
 
 def _parse_timestamp(value):
@@ -1255,6 +1298,12 @@ class LayeredMemory:
             raise ValueError(f"unsupported durable memory topic: {final_topic}")
         if not final_text:
             raise ValueError("durable memory review text cannot be empty")
+        # G3 contract: raw non-ASCII text must never reach durable memory, or
+        # the write/retrieval gap stays open (ASCII tokenizer finds nothing).
+        # Accepting a candidate whose canonical is not ASCII-retrievable
+        # requires an English canonical via edit -- block otherwise.
+        if not _is_ascii(final_text):
+            return None, [], []
         # Promote to durable store first — if this fails, the record
         # stays pending and the user can retry without a partial commit
         # (queue marked accepted but durable store missing the content).

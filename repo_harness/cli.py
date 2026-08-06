@@ -383,6 +383,11 @@ def _review_record_label(record):
         return _compact_text(record)
     topic = str(record.get("topic", "")).strip() or "-"
     text = _compact_text(record.get("text", ""))
+    # G3: a candidate whose canonical still needs an English review is shown
+    # with an explicit marker, so the reviewer knows accept may be blocked
+    # until an English canonical is supplied.
+    if record.get("canonical_needs_review"):
+        return f"{topic}: {text} [canonical needs review: supply English text]"
     return f"{topic}: {text}"
 
 

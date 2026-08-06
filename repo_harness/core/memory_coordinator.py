@@ -79,6 +79,14 @@ class MemoryCoordinator:
         if rejection is not None:
             return rejection
         record, promoted, superseded = self.memory.accept_durable_review(record_id)
+        if record is None:
+            # G3: accept was blocked (non-ASCII canonical without an English
+            # edit). No state changed, so do not persist. Surface the reason
+            # clearly instead of claiming success.
+            return {
+                **self._memory_review_result("rejected", record),
+                "reason": "canonical text is not ASCII-retrievable; edit in an English canonical or reject",
+            }
         self._persist()
         return self._memory_review_result("accepted", record, promoted, superseded)
     def memory_review_edit(self, record_id, *, topic, text):
