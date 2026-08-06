@@ -10,7 +10,7 @@ import subprocess
 import textwrap
 from functools import partial
 
-from ..workspace import IGNORED_PATH_NAMES, clip
+from ..workspace import IGNORED_PATH_NAMES
 from .base import RegisteredTool
 
 BASE_TOOL_SPECS = {
@@ -463,8 +463,10 @@ def tool_delegate(agent, args):
     )
     # 委派的目标是“调查”，不是“放权执行”。
     # 子 agent 以只读方式运行、步数更少，最后只把结论文本返回给父 agent。
+    # child 只接收 parent 显式给出的 task——不注入 parent 的 history。parent
+    # 对话里可能有不该下放给 child 的内容，child 的上下文必须干净（只收 parent
+    # 的控制，不继承 parent 的记忆）。
     child.session["memory"]["task"] = task
-    child.session["memory"]["notes"] = [clip(agent.history_text(), 300)]
     return "delegate_result:\n" + child.ask(task)
 
 
