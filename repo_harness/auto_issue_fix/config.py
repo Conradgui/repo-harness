@@ -6,6 +6,13 @@ import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+# Verification contract shared with repo_harness/task_state.py. Kept local to
+# avoid an import cycle (auto_issue_fix config is imported by the runtime's
+# fix-turn path in some flows). Values must match task_state's constants.
+VERIFICATION_NOT_RUN = "not_run"
+VERIFICATION_PASSED = "passed"
+VERIFICATION_FAILED = "failed"
+
 AUTO_ISSUE_FIX_MODES = ("review-gated", "draft-auto")
 AUTO_REVIEW_MODES = ("required",)
 AUTO_REVIEW_VERDICTS = ("pass", "needs_fix", "block")
@@ -144,6 +151,36 @@ class AutoIssueFixRunRecord:
     baseline_status: str = ""
     workdir: str = ""
     metrics: dict = field(default_factory=dict)
+
+    @property
+    def verification_status(self) -> str:
+        """Derived from the tests that actually ran (G1 contract).
+
+        All passed -> passed; any failed -> failed; anything not_run (including
+        a dry-run stub or a skipped command) -> not_run. A command that never
+        ran must never count as verification passed.
+        """
+        if not self.tests:
+            return VERIFICATION_NOT_RUN
+        statuses = {str(item.get("status", "")) for item in self.tests}
+        if "failed" in statuses:
+            return VERIFICATION_FAILED
+        if statuses == {"passed"}:
+            return VERIFICATION_PASSED
+        return VERIFICATION_NOT_RUN
+
+    @property
+    def verification_evidence(self) -> list[dict]:
+        """The executed test results, as structured verification evidence."""
+        return [
+            {
+                "command": item.get("command", ""),
+                "returncode": item.get("returncode"),
+                "status": item.get("status", ""),
+                "output_summary": str(item.get("output_summary", "")),
+            }
+            for item in self.tests
+        ]
 
 
 @dataclass(frozen=True)

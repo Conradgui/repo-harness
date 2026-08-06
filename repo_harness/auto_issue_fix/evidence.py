@@ -82,6 +82,9 @@ def _public_record(record: AutoIssueFixRunRecord, include_local_paths: bool) -> 
         {**item, "command": _portable_text(item.get("command", ""), include_local_paths)}
         for item in data.get("tests", [])
     ]
+    # G1: expose the verification contract derived from the tests that ran.
+    data["verification_status"] = record.verification_status
+    data["verification_evidence"] = record.verification_evidence
     data["review_gates"] = [
         {
             **gate,

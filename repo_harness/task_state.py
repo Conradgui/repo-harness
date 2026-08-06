@@ -14,6 +14,14 @@ STATUS_COMPLETED = "completed"
 STATUS_STOPPED = "stopped"
 STATUS_FAILED = "failed"
 
+# Verification status answers "how far did acceptance actually get", separate
+# from how the control loop ended (status). completed alone never means the
+# user's goal was verified.
+VERIFICATION_NOT_RUN = "not_run"
+VERIFICATION_PASSED = "passed"
+VERIFICATION_FAILED = "failed"
+VERIFICATION_PARTIAL = "partial"
+
 STOP_REASON_FINAL_ANSWER_RETURNED = "final_answer_returned"
 STOP_REASON_STEP_LIMIT_REACHED = "step_limit_reached"
 STOP_REASON_RETRY_LIMIT_REACHED = "retry_limit_reached"
@@ -42,6 +50,8 @@ class TaskState:
     artifact_graph: dict = field(default_factory=dict)
     verifier_suggestions: list = field(default_factory=list)
     runtime_reminders: list = field(default_factory=list)
+    verification_status: str = VERIFICATION_NOT_RUN
+    verification_evidence: list = field(default_factory=list)
 
     @classmethod
     def create(cls, task_id, user_request, run_id=""):
@@ -67,6 +77,8 @@ class TaskState:
             artifact_graph=dict(data.get("artifact_graph", {}) or {}),
             verifier_suggestions=list(data.get("verifier_suggestions", [])),
             runtime_reminders=list(data.get("runtime_reminders", [])),
+            verification_status=str(data.get("verification_status", VERIFICATION_NOT_RUN)),
+            verification_evidence=list(data.get("verification_evidence", [])),
         )
 
     def record_attempt(self):
@@ -101,6 +113,15 @@ class TaskState:
         self.status = STATUS_COMPLETED
         self.stop_reason = STOP_REASON_FINAL_ANSWER_RETURNED
         self.final_answer = str(final_answer)
+        # Completing the control loop is not a claim that the user's goal was
+        # verified. verification_status stays not_run unless evidence shows a
+        # verification actually ran and passed.
+        return self
+
+    def mark_verification(self, status, evidence=None):
+        self.verification_status = str(status or VERIFICATION_NOT_RUN)
+        if evidence is not None:
+            self.verification_evidence = list(evidence)
         return self
 
     def to_dict(self):
@@ -120,5 +141,7 @@ class TaskState:
             "artifact_graph": dict(self.artifact_graph),
             "verifier_suggestions": list(self.verifier_suggestions),
             "runtime_reminders": list(self.runtime_reminders),
+            "verification_status": self.verification_status,
+            "verification_evidence": list(self.verification_evidence),
         }
 

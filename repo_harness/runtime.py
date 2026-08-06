@@ -954,6 +954,8 @@ class RepoHarness:
             "task_id": task_state.task_id,
             "status": task_state.status,
             "stop_reason": task_state.stop_reason,
+            "verification_status": task_state.verification_status,
+            "verification_evidence": list(task_state.verification_evidence),
             "final_answer": task_state.final_answer,
             "tool_steps": task_state.tool_steps,
             "attempts": task_state.attempts,
