@@ -97,7 +97,11 @@ class RepoHarness:
         write_scope=None,
         ask_user_callback=None,
         model_client_factory=None,
+        parent_run_id="",
+        parent_span_id="",
     ):
+        self.parent_run_id = str(parent_run_id or "")
+        self.parent_span_id = str(parent_span_id or "")
         self.model_client = model_client
         self.model_client_factory = model_client_factory
         self.workspace = workspace
@@ -203,6 +207,10 @@ class RepoHarness:
             "workspace_changed": False,
             "prefix_changed": False,
         }
+        # Trace span state: sequential per-run ids with parent links, so a
+        # run's events form a chain and child runs can name the parent span.
+        self._trace_seq = 0
+        self._last_trace_span_id = {}
 
     @classmethod
     def from_session(cls, model_client, workspace, session_store, session_id, **kwargs):
@@ -688,9 +696,20 @@ class RepoHarness:
         payload["created_at"] = now()
         payload.setdefault("phase", self._trace_phase(event))
         payload.setdefault("status", payload.get("tool_status", "ok" if "error" not in event else "error"))
-        payload.setdefault("run_id", getattr(task_state, "run_id", ""))
+        run_id = getattr(task_state, "run_id", "")
+        payload.setdefault("run_id", run_id)
         payload.setdefault("turn_id", getattr(task_state, "task_id", ""))
-        payload.setdefault("span_id", "span_" + uuid.uuid4().hex[:8])
+        # Within a run, each event links to the previous event's span (a chain).
+        # A child run additionally carries the parent run/span it inherited at
+        # construction time (parent_run_id / inherited_parent_span_id), which
+        # joins the two traces across runs.
+        previous_span = self._last_trace_span_id.get(run_id, "")
+        payload.setdefault("parent_span_id", previous_span)
+        self._trace_seq += 1
+        payload.setdefault("span_id", f"span_{self._trace_seq:06d}")
+        self._last_trace_span_id[run_id] = payload["span_id"]
+        payload.setdefault("parent_run_id", self.parent_run_id)
+        payload.setdefault("inherited_parent_span_id", self.parent_span_id)
         payload.setdefault("artifact_paths", list(payload.get("affected_paths", []) or []))
         payload.setdefault("duration_ms", int(payload.get("duration_ms", 0) or 0))
         payload.setdefault("error_type", str(payload.get("tool_error_code", "") or ""))
