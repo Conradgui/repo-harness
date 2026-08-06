@@ -203,6 +203,10 @@ class RepoHarness:
         self._last_tool_result_metadata = {}
         self._run_changed_paths = []
         self.runtime_reminders = []
+        # G2: roots already escalated to the user this run, to avoid repeated
+        # interruptions for the same blocked root cause.
+        self._blocked_upgraded_roots = set()
+        self.last_ask_user_answer = ""
         self._last_prefix_refresh = {
             "workspace_changed": False,
             "prefix_changed": False,
@@ -875,6 +879,78 @@ class RepoHarness:
         self.runtime_reminders.append(reminder)
         if self.current_task_state is not None:
             self.current_task_state.runtime_reminders = list(self.runtime_reminders)
+
+    def evaluate_blocked_state(self):
+        """Decide whether a blocked tool situation needs user escalation (G2).
+
+        Escalation is a structured runtime decision, not a prompt-level hope:
+        same root cause (tool_error_code + resource hint) blocked repeatedly
+        with no new alternative tool -> escalate. approval_denied has no safe
+        alternative and escalates on the first block. Returns an upgrade dict
+        or None.
+        """
+        reminders = list(self.runtime_reminders)
+        if not reminders:
+            return None
+
+        # Group by (tool_error_code, resource_hint); resource hint falls back
+        # to the first affected path, else the tool name.
+        roots = {}
+        for reminder in reminders:
+            code = str(reminder.get("tool_error_code", "") or "")
+            paths = reminder.get("affected_paths") or []
+            resource = str(paths[0]) if paths else str(reminder.get("tool", ""))
+            key = (code, resource)
+            entry = roots.setdefault(key, {"count": 0, "tools": []})
+            entry["count"] += 1
+            tool = str(reminder.get("tool", ""))
+            if tool not in entry["tools"]:
+                entry["tools"].append(tool)
+
+        # Irreplaceable denials: no safe alternative exists, escalate at once.
+        irreplaceable = {"approval_denied", "sandbox_read_only"}
+        for key, entry in roots.items():
+            code, _ = key
+            if code in irreplaceable:
+                if key not in self._blocked_upgraded_roots:
+                    self._blocked_upgraded_roots.add(key)
+                    return {
+                        "attempts": list(entry["tools"]),
+                        "root_cause": code,
+                        "resource": key[1],
+                        "question": f"Blocked by {code} with no safe alternative. What would you like to do?",
+                    }
+                continue
+            # Other codes: escalate when the same root blocked >= 2 times with
+            # no new alternative tool (no new information).
+            if entry["count"] >= 2 and len(entry["tools"]) == 1 and key not in self._blocked_upgraded_roots:
+                self._blocked_upgraded_roots.add(key)
+                return {
+                    "attempts": list(entry["tools"]),
+                    "root_cause": code,
+                    "resource": key[1],
+                    "question": f"Repeatedly blocked on {code} ({key[1]}) without progress. What would you like to do?",
+                }
+        return None
+
+    def upgrade_to_user(self, question, choices=None):
+        """Surface a blocked-state escalation to the user (G2).
+
+        With an ask_user callback present (interactive), call it
+        deterministically and record the answer so the user is actually asked.
+        Without a callback (worker / non-interactive / CI), do not block --
+        surface as a session event + trace for the upper layer to handle.
+        """
+        callback = getattr(self, "ask_user_callback", None)
+        if callback is not None:
+            answer = callback(question, list(choices or []))
+            self.last_ask_user_answer = answer
+            self.record({"role": "user", "content": str(answer), "created_at": now()})
+            return answer
+        self.emit_session_event("blocked_upgrade", question=question, choices=list(choices or []))
+        if self.current_task_state is not None:
+            self.emit_trace(self.current_task_state, "blocked_upgrade", {"question": question, "choices": list(choices or [])})
+        return None
 
     def ask(self, user_message):
         """执行一次完整的 agent 回合，直到产出最终答案或命中停止条件。

@@ -72,6 +72,9 @@ class Engine:
         agent.current_run_dir = agent.run_store.start_run(task_state)
         agent._run_changed_paths = []
         agent.runtime_reminders = []
+        # G2: per-run escalation state; each run may escalate each root once.
+        agent._blocked_upgraded_roots = set()
+        agent.last_ask_user_answer = ""
         agent.session_event_bus.emit(
             "turn_started",
             {
@@ -319,6 +322,14 @@ class Engine:
                         self, task_state, user_message, tool_payload
                     )
                     tool_steps += 1
+                    # G2: a blocked tool may need deterministic escalation. The
+                    # reminder list already accumulated the failure; decide here
+                    # and surface (callback when interactive, event otherwise).
+                    last_status = str(getattr(agent, "_last_tool_result_metadata", {}).get("tool_status", "") or "")
+                    if last_status in {"rejected", "error"}:
+                        upgrade = agent.evaluate_blocked_state()
+                        if upgrade is not None:
+                            agent.upgrade_to_user(upgrade["question"], choices=[])
                     if agent.abort_requested:
                         break
                 if agent.abort_requested:
