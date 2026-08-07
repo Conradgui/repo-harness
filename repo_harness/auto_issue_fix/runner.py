@@ -86,6 +86,14 @@ def run_repoharness_fix_turn(
     # agent fell back to SandboxConfig() -- mode "off" -- so a repository that
     # declared read_only had every shell command run unsandboxed here, while
     # the same declaration was honoured through the CLI.
+    sandbox_config = sandbox_config_for_directory(clone_dir)
+    # read_only must follow the declared sandbox: if the repository says
+    # read_only (or required), the fix turn is read-only for ALL tools --
+    # including write_file/patch_file, which are gated by approve() ->
+    # read_only. SandboxRunner only intercepts run_shell, so without this a
+    # read_only-declared clone could still be modified through the write
+    # tools, bypassing the repository's own boundary (fail-closed, ADR-002/007).
+    read_only = str(sandbox_config.mode or "off").strip() in {"read_only", "required"}
     agent = RepoHarness(
         model_client=model,
         workspace=WorkspaceContext.build(clone_dir),
@@ -93,8 +101,8 @@ def run_repoharness_fix_turn(
         approval_policy="auto",
         max_steps=config.max_steps,
         max_new_tokens=config.max_new_tokens,
-        read_only=False,
-        sandbox_config=sandbox_config_for_directory(clone_dir),
+        read_only=read_only,
+        sandbox_config=sandbox_config,
     )
     prompt = f"""You are running inside RepoHarness Auto Issue Fix.
 
