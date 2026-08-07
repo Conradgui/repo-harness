@@ -89,3 +89,35 @@ def test_auto_issue_fix_blocks_before_any_github_fetch(tmp_path):
         "maintainer-access block must precede any GitHub fetch; "
         f"backend methods called: {calls}"
     )
+
+
+def test_auto_issue_fix_rejects_missing_workspace_root(tmp_path):
+    missing = tmp_path / "no_such_dir"
+    cfg = AutoIssueFixConfig(
+        repo="owner/name",
+        issue=1,
+        workspace_root=missing,
+        discover=False,
+        maintainer_access_confirmed=True,
+    )
+
+    import pytest
+
+    with pytest.raises(ValueError, match="does not exist"):
+        run_live_auto_issue_fix(cfg, gh_backend=FakeBackend())
+
+
+def test_auto_issue_fix_rejects_unimplemented_resume(tmp_path):
+    cfg = AutoIssueFixConfig(
+        repo="owner/name",
+        issue=1,
+        workspace_root=tmp_path,
+        discover=False,
+        maintainer_access_confirmed=True,
+        resume="some-checkpoint-id",
+    )
+
+    import pytest
+
+    with pytest.raises(ValueError, match="resume is not implemented"):
+        run_live_auto_issue_fix(cfg, gh_backend=FakeBackend())

@@ -99,6 +99,11 @@ class AutoIssueFixConfig:
             raise ValueError("auto-issue-fix requires --repo and --issue unless --discover is set")
         if self.discover and self.repo and self.issue is not None:
             raise ValueError("--discover cannot be combined with both --repo and --issue")
+        if str(self.resume or "").strip():
+            # resume is recorded in the run record but not yet consumed to
+            # restore a checkpoint. Accepting it silently would run a fresh
+            # run the user thought was a continuation. Reject until it works.
+            raise ValueError("--resume is not implemented for auto-issue-fix yet; start a fresh run instead")
 
     def risk_notice(self) -> str:
         if self.mode == "draft-auto":

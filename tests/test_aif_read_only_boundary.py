@@ -99,3 +99,36 @@ def test_default_clone_keeps_fix_turn_writable(tmp_path, monkeypatch):
 
     kwargs = captured["kwargs"]
     assert kwargs.get("read_only") is False, "a default clone must stay writable"
+
+
+def test_required_sandbox_is_not_read_only(tmp_path, monkeypatch):
+    # "required" means "force a sandbox backend then run", not "read-only".
+    # Mapping it to read_only would prevent Auto Issue Fix from fixing a
+    # required-sandboxed repository at all.
+    (tmp_path / ".repo-harness.toml").write_text(
+        '[sandbox]\nmode = "required"\n', encoding="utf-8"
+    )
+    (tmp_path / "README.md").write_text("demo\n", encoding="utf-8")
+
+    captured = {}
+
+    class FakeAgent:
+        def __init__(self, **kwargs):
+            captured["kwargs"] = kwargs
+
+        def ask(self, prompt):
+            return "fix done"
+
+    monkeypatch.setattr("repo_harness.runtime.RepoHarness", FakeAgent)
+
+    run_repoharness_fix_turn(
+        _config(tmp_path),
+        _issue(),
+        tmp_path,
+        model_client=_FakeModel(),
+        workspace_root=tmp_path,
+    )
+
+    kwargs = captured["kwargs"]
+    assert kwargs.get("read_only") is False, "required sandbox is not read-only"
+    assert kwargs.get("sandbox_config").mode == "required"

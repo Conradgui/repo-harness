@@ -4,7 +4,12 @@
 def build_child_runtime(parent, subagent_type, write_scope):
     from ..runtime import RepoHarness
 
-    read_only = subagent_type == "Explore"
+    # A child must never be MORE privileged than its parent: an Explore child
+    # is always read-only, and a child of a read-only parent stays read-only.
+    # Otherwise a read_only parent (e.g. Auto Issue Fix on a clone that
+    # declared sandbox=read_only) could spawn a writable worker and bypass the
+    # declared boundary through write_file/patch_file.
+    read_only = subagent_type == "Explore" or bool(getattr(parent, "read_only", False))
     if subagent_type == "worker" and not write_scope:
         raise ValueError("worker write_scope must not be empty")
     model_client = _child_model_client(parent, subagent_type, write_scope)

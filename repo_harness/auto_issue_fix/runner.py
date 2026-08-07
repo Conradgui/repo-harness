@@ -88,12 +88,18 @@ def run_repoharness_fix_turn(
     # the same declaration was honoured through the CLI.
     sandbox_config = sandbox_config_for_directory(clone_dir)
     # read_only must follow the declared sandbox: if the repository says
-    # read_only (or required), the fix turn is read-only for ALL tools --
-    # including write_file/patch_file, which are gated by approve() ->
-    # read_only. SandboxRunner only intercepts run_shell, so without this a
-    # read_only-declared clone could still be modified through the write
-    # tools, bypassing the repository's own boundary (fail-closed, ADR-002/007).
-    read_only = str(sandbox_config.mode or "off").strip() in {"read_only", "required"}
+    # read_only, the fix turn is read-only for ALL tools -- including
+    # write_file/patch_file, which are gated by approve() -> read_only.
+    # SandboxRunner only intercepts run_shell, so without this a read_only
+    # clone could still be modified through the write tools, bypassing the
+    # repository's own boundary (fail-closed, ADR-002/007).
+    #
+    # "required" is NOT read-only: it means "force a sandbox backend, then
+    # run", so it stays writable. Caveat: with the native/auto backend the
+    # runner executes without isolation -- a real backend (e.g. bubblewrap)
+    # is what actually enforces it. Write tools are never sandboxed regardless
+    # of mode; they are constrained by read_only / write_scope / approve.
+    read_only = str(sandbox_config.mode or "off").strip() == "read_only"
     agent = RepoHarness(
         model_client=model,
         workspace=WorkspaceContext.build(clone_dir),
@@ -141,6 +147,11 @@ def maybe_confirm_review_gate(config: AutoIssueFixConfig, stage: str, evidence_d
 def run_live_auto_issue_fix(config: AutoIssueFixConfig, model_client=None, gh_backend=None) -> AutoIssueFixRunRecord:
     config.validate()
     workspace_root = Path(config.workspace_root or ".").resolve()
+    # Same rule as CLI build_agent (S08): a phantom workspace must not be
+    # silently created. Evidence would otherwise land in a directory the user
+    # did not mean, under a path that does not exist.
+    if not workspace_root.exists() or not workspace_root.is_dir():
+        raise ValueError(f"working directory does not exist: {workspace_root}")
     run_id = default_run_id()
     evidence_dir = Path(config.evidence_dir).resolve() if config.evidence_dir else default_evidence_dir(workspace_root, run_id)
     workdir = Path(config.workdir).resolve() if config.workdir else default_workdir(workspace_root, run_id)
