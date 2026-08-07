@@ -54,3 +54,38 @@ def test_auto_issue_fix_live_runner_blocks_without_maintainer_access(tmp_path):
     assert rec.status == "blocked"
     assert rec.tests == []
     assert rec.changed_paths == ()
+
+
+def test_auto_issue_fix_blocks_before_any_github_fetch(tmp_path):
+    """An unconfirmed run must have zero network side effects: the issue is
+    never fetched, because the maintainer-access check precedes it."""
+    calls = []
+
+    class RecordingBackend(FakeBackend):
+        def issue_view(self, repo, issue):
+            calls.append("issue_view")
+            return super().issue_view(repo, issue)
+
+        def issue_list(self, repo, limit=20):
+            calls.append("issue_list")
+            return super().issue_list(repo, limit)
+
+        def search_repos(self, query="", limit=10):
+            calls.append("search_repos")
+            return super().search_repos(query, limit)
+
+    cfg = AutoIssueFixConfig(
+        repo="owner/name",
+        issue=1,
+        workspace_root=tmp_path,
+        discover=False,
+        maintainer_access_confirmed=False,
+    )
+
+    rec = run_live_auto_issue_fix(cfg, gh_backend=RecordingBackend())
+
+    assert rec.status == "blocked"
+    assert calls == [], (
+        "maintainer-access block must precede any GitHub fetch; "
+        f"backend methods called: {calls}"
+    )

@@ -141,15 +141,13 @@ def run_live_auto_issue_fix(config: AutoIssueFixConfig, model_client=None, gh_ba
     context = LiveRunContext(config, run_id, workspace_root, evidence_dir, workdir)
 
     try:
-        context.stage = "issue"
-        issue = discover_issue(config, backend, evidence_dir) if config.discover else backend.issue_view(config.repo, int(config.issue or 0))
-        context.issue = issue
-        write_json_evidence(evidence_dir, "issue.json", issue.to_dict(), include_local_paths=config.include_local_paths)
-
+        # Maintainer access is checked before any GitHub fetch: an unconfirmed
+        # run must have zero network side effects (no gh issue view / search),
+        # not a read-only fetch followed by a block.
         if not config.maintainer_access_confirmed:
             context.fallback_reason = (
                 "maintainer access was not confirmed; Auto Issue Fix generated local evidence "
-                "but will not clone, run model tools, commit, push, or create a draft PR for an unknown third-party repository"
+                "but will not fetch the issue, clone, run model tools, commit, push, or create a draft PR for an unknown third-party repository"
             )
             context.stage = "maintainer-access-blocked"
             context.review_gates.append(
@@ -161,7 +159,12 @@ def run_live_auto_issue_fix(config: AutoIssueFixConfig, model_client=None, gh_ba
                     required_action="rerun with --confirm-maintainer-access only for repositories you maintain or are explicitly authorized to change",
                 )
             )
-            return _finalize_live_record(context, status="blocked", summary="Auto Issue Fix stopped before clone and PR creation.")
+            return _finalize_live_record(context, status="blocked", summary="Auto Issue Fix stopped before any GitHub interaction.")
+
+        context.stage = "issue"
+        issue = discover_issue(config, backend, evidence_dir) if config.discover else backend.issue_view(config.repo, int(config.issue or 0))
+        context.issue = issue
+        write_json_evidence(evidence_dir, "issue.json", issue.to_dict(), include_local_paths=config.include_local_paths)
 
         context.stage = "clone"
         if workdir.exists():

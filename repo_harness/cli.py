@@ -1176,6 +1176,13 @@ def build_agent(args):
     它是整个程序启动链路里最靠近 runtime 的装配点。`main()` 先调它，
     得到 agent 后，后面无论是 one-shot 还是 REPL 模式，都会落到 `ask()`。
     """
+    # 校验 cwd：装配 agent 需要一个真实的工作区。--cwd 指向不存在的目录时
+    # 如果静默容忍，WorkspaceContext 会把 repo_root 退化为幽灵路径，agent
+    # 在一个不存在的目录上假装工作，文件写入落到错误位置。这里显式拒绝。
+    # 注意：provider probe/doctor/setup 等诊断命令不走此装配路径，不受影响。
+    _cwd = Path(getattr(args, "cwd", "."))
+    if not _cwd.exists() or not _cwd.is_dir():
+        raise ValueError(f"working directory does not exist: {_cwd}")
     # 这里是 CLI 到 runtime 的装配点：
     # 先整理 secret 名单，再采集工作区快照，随后决定是恢复旧 session
     # 还是创建一个新的 RepoHarness 实例。
