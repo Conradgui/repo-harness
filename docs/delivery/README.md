@@ -10,6 +10,7 @@
 | [04-后续路线图.md](04-后续路线图.md) | 未完成项的方案与优先级 |
 | [E2 dogfood 复盘](04-E2-dogfood-复盘.md) | Auto Issue Fix 真实闭环 dogfood 结果与复盘 |
 | [E2 证据包](e2-dogfood-evidence/) | 28 个过程证据文件（issue/trace/diff/review gates） |
+| [多 Agent 模拟用户验证](05-多Agent模拟用户验证复盘.md) | 多 Agent 模拟用户 + Terminal 执行 + 独立验证的复盘 |
 
 决策记录见 [docs/decisions/](../decisions/README.md)。
 
