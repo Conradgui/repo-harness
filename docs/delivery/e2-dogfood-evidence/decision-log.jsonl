@@ -1,0 +1,8 @@
+{"required_action": "continue", "run_id": "auto_issue_fix_20260807-032325_3cc831", "stage": "task", "verdict": "pass"}
+{"required_action": "continue", "run_id": "auto_issue_fix_20260807-032325_3cc831", "stage": "plan", "verdict": "pass"}
+{"required_action": "continue", "run_id": "auto_issue_fix_20260807-032325_3cc831", "stage": "context", "verdict": "pass"}
+{"required_action": "continue", "run_id": "auto_issue_fix_20260807-032325_3cc831", "stage": "diff", "verdict": "pass"}
+{"required_action": "continue", "run_id": "auto_issue_fix_20260807-032325_3cc831", "stage": "tests", "verdict": "pass"}
+{"required_action": "continue", "run_id": "auto_issue_fix_20260807-032325_3cc831", "stage": "security", "verdict": "pass"}
+{"required_action": "continue", "run_id": "auto_issue_fix_20260807-032325_3cc831", "stage": "pr-readiness", "verdict": "pass"}
+{"required_action": "continue", "run_id": "auto_issue_fix_20260807-032325_3cc831", "stage": "maintainer-trust", "verdict": "pass"}

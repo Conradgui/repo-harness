@@ -1,0 +1,21 @@
+diff --git a/pricing.py b/pricing.py
+index 5813816..d037450 100644
+--- a/pricing.py
++++ b/pricing.py
+@@ -14,7 +14,7 @@ def calculate_total(price, quantity, discount_pct=0.0):
+     """
+     discounted_unit = price * (1.0 - discount_pct / 100.0)
+     total = discounted_unit * quantity
+-    return int(total)
++    return round(total)
+ 
+ 
+ def apply_bulk_discount(items):
+@@ -23,6 +23,6 @@ def apply_bulk_discount(items):
+     Bug: the check uses `> 5` instead of `>= 5`, so exactly 5 items miss the
+     discount.
+     """
+-    if len(items) > 5:
++    if len(items) >= 5:
+         return [item * 0.9 for item in items]
+     return items

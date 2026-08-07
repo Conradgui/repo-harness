@@ -1,0 +1,121 @@
+{
+  "auto_review": "required",
+  "baseline_status": "failed",
+  "branch": "repo-harness-auto-issue-fix-1",
+  "changed_paths": [
+    "pricing.py"
+  ],
+  "commit": "8362117882fb2ee672547b48bd8d4a92b808c1fa",
+  "evidence_dir": "<evidence_dir>",
+  "fallback_reason": "",
+  "issue": 1,
+  "max_review_repairs": 2,
+  "metrics": {
+    "baseline_status": "failed",
+    "changed_file_count": 1,
+    "fallback_reason": "",
+    "final_status": "completed",
+    "issue_selected": true,
+    "review_gate_verdicts": {
+      "block": 0,
+      "needs_fix": 0,
+      "pass": 8
+    },
+    "test_command_count": 1,
+    "tests_failed": 0,
+    "tests_passed": 1
+  },
+  "mode": "draft-auto",
+  "pr_url": "https://github.com/local/fixture/pull/simulated-repo-harness-auto-issue-fix-1",
+  "repo": "local/fixture",
+  "resume_from": "",
+  "review_gates": [
+    {
+      "repair_attempts": 0,
+      "required_action": "continue",
+      "stage": "task",
+      "summary": "Confirm repository, issue, goal, boundaries, and risk.",
+      "title": "Task Review",
+      "verdict": "pass"
+    },
+    {
+      "repair_attempts": 0,
+      "required_action": "continue",
+      "stage": "plan",
+      "summary": "Check the execution plan, write scope, test strategy, and fallback path.",
+      "title": "Plan Review",
+      "verdict": "pass"
+    },
+    {
+      "repair_attempts": 0,
+      "required_action": "continue",
+      "stage": "context",
+      "summary": "Confirm required files and issue background are available for execution.",
+      "title": "Context Review",
+      "verdict": "pass"
+    },
+    {
+      "repair_attempts": 0,
+      "required_action": "continue",
+      "stage": "diff",
+      "summary": "Check for unrelated edits, generated artifacts, or broad rewrites.",
+      "title": "Diff Review",
+      "verdict": "pass"
+    },
+    {
+      "repair_attempts": 0,
+      "required_action": "continue",
+      "stage": "tests",
+      "summary": "Check baseline, post-fix validation, and failure logs against the issue.",
+      "title": "Test Review",
+      "verdict": "pass"
+    },
+    {
+      "repair_attempts": 0,
+      "required_action": "continue",
+      "stage": "security",
+      "summary": "Check secrets, path leaks, risky commands, write scope, and supply-chain risk.",
+      "title": "Security Review",
+      "verdict": "pass"
+    },
+    {
+      "repair_attempts": 0,
+      "required_action": "continue",
+      "stage": "pr-readiness",
+      "summary": "Check PR body, evidence, change summary, validation, and risk notes.",
+      "title": "PR Readiness Review",
+      "verdict": "pass"
+    },
+    {
+      "repair_attempts": 0,
+      "required_action": "continue",
+      "stage": "maintainer-trust",
+      "summary": "Public PR title, body, commit message, and branch are maintainer-facing.",
+      "title": "Maintainer trust review",
+      "verdict": "pass"
+    }
+  ],
+  "run_id": "auto_issue_fix_20260807-032325_3cc831",
+  "selected_issue_url": "https://github.com/local/fixture/issues/1",
+  "stage": "completed",
+  "status": "completed",
+  "summary": "Auto Issue Fix created a draft pull request.",
+  "tests": [
+    {
+      "command": "python -m pytest test_pricing.py -q",
+      "returncode": 0,
+      "status": "passed"
+    }
+  ],
+  "verification_evidence": [
+    {
+      "command": "python -m pytest test_pricing.py -q",
+      "output_summary": "",
+      "returncode": 0,
+      "status": "passed"
+    }
+  ],
+  "verification_status": "passed",
+  "workdir": "<workdir>",
+  "workspace_path": "<workspace>"
+}

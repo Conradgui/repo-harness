@@ -1,0 +1,1 @@
+https://github.com/local/fixture/pull/simulated-repo-harness-auto-issue-fix-1

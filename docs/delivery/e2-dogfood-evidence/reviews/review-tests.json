@@ -1,0 +1,8 @@
+{
+  "repair_attempts": 0,
+  "required_action": "continue",
+  "stage": "tests",
+  "summary": "Check baseline, post-fix validation, and failure logs against the issue.",
+  "title": "Test Review",
+  "verdict": "pass"
+}

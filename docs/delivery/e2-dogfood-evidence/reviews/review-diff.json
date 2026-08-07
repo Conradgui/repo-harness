@@ -1,0 +1,8 @@
+{
+  "repair_attempts": 0,
+  "required_action": "continue",
+  "stage": "diff",
+  "summary": "Check for unrelated edits, generated artifacts, or broad rewrites.",
+  "title": "Diff Review",
+  "verdict": "pass"
+}

@@ -1,0 +1,8 @@
+{
+  "repair_attempts": 0,
+  "required_action": "continue",
+  "stage": "security",
+  "summary": "Check secrets, path leaks, risky commands, write scope, and supply-chain risk.",
+  "title": "Security Review",
+  "verdict": "pass"
+}

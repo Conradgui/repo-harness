@@ -1,0 +1,39 @@
+$ python -m pytest test_pricing.py -q
+returncode: 1
+
+STDOUT
+F.F.                                                                     [100%]
+================================== FAILURES ===================================
+___________________ test_total_with_discount_rounds_to_cent ___________________
+
+    def test_total_with_discount_rounds_to_cent():
+        # 100.00 * 3 with 10% discount should be 270.00, not 270 (integer truncation
+        # also loses fractional cents on e.g. 33.33 * 3).
+        assert calculate_total(100.0, 3, 10.0) == 270
+>       assert calculate_total(33.33, 3, 0.0) == 100  # 99.99 rounds to 100
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       assert 99 == 100
+E        +  where 99 = calculate_total(33.33, 3, 0.0)
+
+test_pricing.py:8: AssertionError
+______________ test_bulk_discount_applies_at_exactly_five_items _______________
+
+    def test_bulk_discount_applies_at_exactly_five_items():
+        items = [10, 20, 30, 40, 50]
+        result = apply_bulk_discount(items)
+>       assert result == [9.0, 18.0, 27.0, 36.0, 45.0], "bulk discount must apply at 5 items"
+E       AssertionError: bulk discount must apply at 5 items
+E       assert [10, 20, 30, 40, 50] == [9.0, 18.0, 27.0, 36.0, 45.0]
+E         
+E         At index 0 diff: 10 != 9.0
+E         Use -v to get more diff
+
+test_pricing.py:22: AssertionError
+=========================== short test summary info ===========================
+FAILED test_pricing.py::test_total_with_discount_rounds_to_cent - assert 99 =...
+FAILED test_pricing.py::test_bulk_discount_applies_at_exactly_five_items - As...
+2 failed, 2 passed in 0.10s
+
+
+STDERR
+

@@ -1,0 +1,8 @@
+{
+  "repair_attempts": 0,
+  "required_action": "continue",
+  "stage": "plan",
+  "summary": "Check the execution plan, write scope, test strategy, and fallback path.",
+  "title": "Plan Review",
+  "verdict": "pass"
+}

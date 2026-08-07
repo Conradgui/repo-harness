@@ -1,0 +1,8 @@
+{
+  "repair_attempts": 0,
+  "required_action": "continue",
+  "stage": "task",
+  "summary": "Confirm repository, issue, goal, boundaries, and risk.",
+  "title": "Task Review",
+  "verdict": "pass"
+}

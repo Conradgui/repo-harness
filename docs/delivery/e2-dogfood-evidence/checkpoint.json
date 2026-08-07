@@ -1,0 +1,11 @@
+{
+  "branch": "repo-harness-auto-issue-fix-1",
+  "commit": "8362117882fb2ee672547b48bd8d4a92b808c1fa",
+  "mode": "draft-auto",
+  "next_action": "draft PR created; review upstream PR and evidence",
+  "pr_url": "https://github.com/local/fixture/pull/simulated-repo-harness-auto-issue-fix-1",
+  "resume_from": "",
+  "run_id": "auto_issue_fix_20260807-032325_3cc831",
+  "stage": "completed",
+  "status": "completed"
+}

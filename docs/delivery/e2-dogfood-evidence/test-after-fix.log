@@ -1,0 +1,10 @@
+$ python -m pytest test_pricing.py -q
+returncode: 0
+
+STDOUT
+....                                                                     [100%]
+4 passed in 0.01s
+
+
+STDERR
+

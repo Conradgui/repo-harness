@@ -1,0 +1,8 @@
+{
+  "repair_attempts": 0,
+  "required_action": "continue",
+  "stage": "maintainer-trust",
+  "summary": "Public PR title, body, commit message, and branch are maintainer-facing.",
+  "title": "Maintainer trust review",
+  "verdict": "pass"
+}

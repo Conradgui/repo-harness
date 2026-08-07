@@ -1,0 +1,8 @@
+{
+  "repair_attempts": 0,
+  "required_action": "continue",
+  "stage": "context",
+  "summary": "Confirm required files and issue background are available for execution.",
+  "title": "Context Review",
+  "verdict": "pass"
+}

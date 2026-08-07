@@ -1,0 +1,12 @@
+{
+  "assignees": [],
+  "body": "Two pricing defects in pricing.py:\n\n1. `apply_bulk_discount` uses `if len(items) > 5` so exactly five items do not receive the 10% bulk discount. It should be `>= 5`.\n2. `calculate_total` truncates with `int(total)` so a total of 99.99 becomes 99 instead of rounding to the nearest cent (100). It should round.\n\nBoth are covered by failing tests in test_pricing.py.",
+  "labels": [
+    "bug"
+  ],
+  "number": 1,
+  "repo": "local/fixture",
+  "state": "open",
+  "title": "Bulk discount not applied at exactly five items, and totals truncate instead of rounding",
+  "url": "https://github.com/local/fixture/issues/1"
+}

@@ -1,0 +1,8 @@
+{
+  "repair_attempts": 0,
+  "required_action": "continue",
+  "stage": "pr-readiness",
+  "summary": "Check PR body, evidence, change summary, validation, and risk notes.",
+  "title": "PR Readiness Review",
+  "verdict": "pass"
+}

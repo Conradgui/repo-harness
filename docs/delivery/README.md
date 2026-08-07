@@ -8,6 +8,8 @@
 | [02-测试资料.md](02-测试资料.md) | 测试分层、设计决策、缺陷追踪、后续建议 |
 | [03-面试资料包.md](03-面试资料包.md) | 岗位定位、能力证据、高频追问、简历条目 |
 | [04-后续路线图.md](04-后续路线图.md) | 未完成项的方案与优先级 |
+| [E2 dogfood 复盘](04-E2-dogfood-复盘.md) | Auto Issue Fix 真实闭环 dogfood 结果与复盘 |
+| [E2 证据包](e2-dogfood-evidence/) | 28 个过程证据文件（issue/trace/diff/review gates） |
 
 决策记录见 [docs/decisions/](../decisions/README.md)。
 

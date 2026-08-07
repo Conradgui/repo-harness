@@ -1,0 +1,6 @@
+Fixed both defects in `pricing.py`:
+
+- **Bulk discount threshold**: changed `if len(items) > 5` → `if len(items) >= 5` so exactly 5 items receive the 10% discount.
+- **Rounding**: changed `return int(total)` → `return round(total)` so totals round to the nearest cent instead of truncating.
+
+All 4 tests in `test_pricing.py` pass (`python -m pytest -q` exits cleanly).
