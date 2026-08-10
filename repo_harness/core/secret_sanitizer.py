@@ -15,10 +15,15 @@ SENSITIVE_ENV_NAME_MARKERS = ("API_KEY", "TOKEN", "SECRET", "PASSWORD")
 
 
 class SecretSanitizer:
-    def __init__(self, secret_env_names, shell_env_allowlist, root):
+    def __init__(self, secret_env_names, shell_env_allowlist, root, extra_secret_values=None):
         self._secret_env_names = {str(name).upper() for name in (secret_env_names or ())}
         self._shell_env_allowlist = tuple(shell_env_allowlist or ())
         self._root = root
+        # Values that must be redacted but do not live in os.environ -- e.g.
+        # secrets loaded from a project .env file, which are merged separately
+        # and never exported to the process environment. Without this they
+        # would pass through tool output/session files unmasked.
+        self._extra_secret_values = {str(v) for v in (extra_secret_values or ()) if str(v).strip()}
 
     @staticmethod
     def looks_sensitive_env_name(name):
@@ -66,9 +71,13 @@ class SecretSanitizer:
 
     def redact_text(self, text):
         text = str(text)
-        for _, value in sorted(
-            self.detected_secret_env_items(), key=lambda item: len(item[1]), reverse=True
-        ):
+        values = sorted(
+            {value for _, value in self.detected_secret_env_items() if value}
+            | {v for v in self._extra_secret_values if v},
+            key=len,
+            reverse=True,
+        )
+        for value in values:
             text = text.replace(value, REDACTED_VALUE)
         return text
 

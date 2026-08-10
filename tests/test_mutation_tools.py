@@ -133,9 +133,9 @@ class TestRunShellValidation:
         with pytest.raises(ValueError, match="command must not be empty"):
             tools.tool_run_shell(agent, {"command": "   "})
 
-    @pytest.mark.parametrize("timeout", [0, -1, 121, 9999])
+    @pytest.mark.parametrize("timeout", [0, -1, 601, 9999])
     def test_rejects_a_timeout_outside_the_allowed_range(self, agent, timeout):
-        with pytest.raises(ValueError, match=r"timeout must be in \[1, 120\]"):
+        with pytest.raises(ValueError, match=r"timeout must be in \[1, 600\]"):
             tools.tool_run_shell(agent, {"command": "echo hi", "timeout": timeout})
 
 

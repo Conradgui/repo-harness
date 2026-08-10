@@ -57,6 +57,30 @@ DEFAULT_SHELL_ENV_ALLOWLIST = ("HOME", "LANG", "LC_ALL", "LC_CTYPE", "LOGNAME", 
 # big binaries on every risky tool call dominates runtime); their path is
 # recorded with a sentinel so create/delete is still detected.
 MAX_WORKSPACE_SNAPSHOT_BYTES = 1_000_000
+
+
+def _project_env_secret_values(root):
+    """Values of sensitive-looking keys in the project .env file.
+
+    The .env is merged into the effective env but never exported to
+    os.environ, so the SecretSanitizer (which scans os.environ) would not
+    catch a key that exists only there. Return those values so the sanitizer
+    can mask them in tool output / session files.
+    """
+    env_path = Path(root) / ".env"
+    if not env_path.exists():
+        return ()
+    values = []
+    for raw_line in env_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, sep, value = line.partition("=")
+        key = key.strip().removeprefix("export ").strip()
+        value = value.strip().strip("'\"")
+        if sep and key and value and SecretSanitizer.looks_sensitive_env_name(key):
+            values.append(value)
+    return tuple(values)
 DEFAULT_FEATURE_FLAGS = {
     "memory": True,
     "relevant_memory": True,
@@ -122,8 +146,14 @@ class RepoHarness:
         self.ask_user_callback = ask_user_callback
         self.shell_env_allowlist = tuple(shell_env_allowlist or DEFAULT_SHELL_ENV_ALLOWLIST)
         self.secret_env_names = {str(name).upper() for name in (secret_env_names or ())}
+        # Secrets loaded from the project .env are merged separately and never
+        # exported to os.environ, so the sanitizer would not see them. Collect
+        # their values and register them explicitly.
         self._secret_sanitizer = SecretSanitizer(
-            self.secret_env_names, self.shell_env_allowlist, self.root
+            self.secret_env_names,
+            self.shell_env_allowlist,
+            self.root,
+            extra_secret_values=_project_env_secret_values(self.root),
         )
         self.feature_flags = dict(DEFAULT_FEATURE_FLAGS)
         if feature_flags:
@@ -285,6 +315,14 @@ class RepoHarness:
 
     def available_tools(self):
         return filter_available_tools(self.tools, getattr(self, "active_tool_profile", None))
+
+    def abort_current_turn(self):
+        """Request the running turn to stop at the next safe point.
+
+        The engine checks abort_requested between tool steps / model calls;
+        setting it here lets task_stop interrupt a running worker turn.
+        """
+        self.abort_requested = True
 
     def current_runtime_identity(self):
         return {

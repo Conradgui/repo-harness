@@ -1397,6 +1397,9 @@ def main(argv=None):
             # prompts: every risky tool would be denied at runtime (EOF ->
             # no answer). Fail fast with an actionable hint instead of
             # silently running the whole turn and denying each tool.
+            # (REPL mode is not gated: slash commands are local and must stay
+            # usable under a non-interactive stdin; running tasks there still
+            # deny at approve() with an error message.)
             if not sys.stdin.isatty() and getattr(args, "approval", "ask") != "auto":
                 display.show_error(
                     "one-shot execution under a non-interactive stdin cannot approve risky tools "

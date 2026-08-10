@@ -74,6 +74,16 @@ def test_worker_can_continue_and_stop_with_notifications(tmp_path):
     assert agent.worker_manager.drain_notifications()
 
 
+def test_abort_current_turn_requests_stop(tmp_path):
+    agent = build_agent(tmp_path, ["<final>x</final>"])
+    assert agent.abort_requested is False
+    agent.abort_current_turn()
+    assert agent.abort_requested is True
+    # The engine resets it at the end of ask(), so a later turn is unaffected.
+    agent.ask("run again")
+    assert agent.abort_requested is False
+
+
 def test_plan_mode_allows_only_explore_workers(tmp_path):
     agent = build_agent(tmp_path, ["<final>explore done</final>"])
     agent.enter_plan_mode("workers")

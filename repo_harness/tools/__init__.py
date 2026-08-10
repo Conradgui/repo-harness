@@ -336,8 +336,10 @@ def tool_run_shell(agent, args):
     if not command:
         raise ValueError("command must not be empty")
     timeout = int(args.get("timeout", 20))
-    if timeout < 1 or timeout > 120:
-        raise ValueError("timeout must be in [1, 120]")
+    # Keep this in sync with validate_tool's bound: validate lets a request
+    # through, so the executor must accept the same range.
+    if timeout < 1 or timeout > 600:
+        raise ValueError("timeout must be in [1, 600]")
     shell_env = agent.shell_env()
 
     def platform_runner(command, timeout):
