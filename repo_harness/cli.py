@@ -1393,6 +1393,17 @@ def main(argv=None):
         # one-shot 模式：只跑一次 ask，不进入 REPL 循环。
         prompt = " ".join(args.prompt).strip()
         if prompt:
+            # A one-shot run on a non-interactive stdin cannot answer approval
+            # prompts: every risky tool would be denied at runtime (EOF ->
+            # no answer). Fail fast with an actionable hint instead of
+            # silently running the whole turn and denying each tool.
+            if not sys.stdin.isatty() and getattr(args, "approval", "ask") != "auto":
+                display.show_error(
+                    "one-shot execution under a non-interactive stdin cannot approve risky tools "
+                    "with the default approval policy. Re-run with --approval auto (or --trust-session), "
+                    "or use the interactive REPL (--repl)."
+                )
+                return 1
             try:
                 final = ""
                 for event in agent.engine.run_turn(prompt):

@@ -65,7 +65,8 @@ def test_worker_can_continue_and_stop_with_notifications(tmp_path):
     second = agent.worker_manager.send(first["id"], "write second")
     stopped = agent.worker_manager.stop(first["id"])
 
-    assert first["status"] == "running"
+    # Synchronous workers complete before spawn returns; status reflects reality.
+    assert first["status"] == "completed"
     assert second["status"] == "completed"
     assert stopped["status"] == "stopped"
     assert (tmp_path / "notes" / "first.txt").exists()

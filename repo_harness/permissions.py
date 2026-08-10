@@ -119,10 +119,16 @@ class PermissionChecker:
         requested = self.runtime.path(args.get("path", ""))
         for raw_scope in self.runtime.write_scope:
             scope = self.runtime.path(raw_scope)
-            try:
-                requested.relative_to(scope if scope.is_dir() else scope.parent)
-            except ValueError:
-                continue
-            if scope.is_dir() or requested == scope or scope.name == requested.name:
+            if scope.is_dir():
+                try:
+                    requested.relative_to(scope)
+                except ValueError:
+                    continue
+                return PermissionDecision.allow("write_scope", profile=profile_name)
+            # File-level scope: only an exact match is allowed. A looser
+            # "same basename under the parent directory" check would let a
+            # sibling directory shadow the scope (e.g. scope src/config.py
+            # would also admit src/other/config.py).
+            if requested == scope:
                 return PermissionDecision.allow("write_scope", profile=profile_name)
         return PermissionDecision.deny("write_scope_mismatch", "write_scope_guard", profile=profile_name)

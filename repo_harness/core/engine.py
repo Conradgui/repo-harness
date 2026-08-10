@@ -30,9 +30,17 @@ class Engine:
 
     def ask(self, user_message):
         final_answer = ""
-        for event in self.run_turn(user_message):
-            if event["type"] in {"final", "stop"}:
-                final_answer = event["content"]
+        try:
+            for event in self.run_turn(user_message):
+                if event["type"] in {"final", "stop"}:
+                    final_answer = event["content"]
+        finally:
+            # Reset the abort flag on every exit path (model error, step
+            # limit, normal finish, exception), so a later turn/session does
+            # not inherit a stale abort.
+            agent = self.runtime
+            if getattr(agent, "abort_requested", False):
+                agent.abort_requested = False
         return final_answer
 
     def drain_worker_notifications(self):

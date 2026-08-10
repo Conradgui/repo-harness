@@ -190,7 +190,7 @@ uv run repo-harness --repl
 
 ### 2.4 DeepSeek
 
-DeepSeek 是一等 provider，底层使用 Anthropic-compatible client：
+DeepSeek 是一等 provider，底层使用 Anthropic-compatible client——这是因为它官方提供 Anthropic 兼容端点（`https://api.deepseek.com/anthropic`），因此 `client` 写 `anthropic`、`base_url` 是它的 Anthropic 端点路径，都是正常的，不是配置错误：
 
 ```toml
 provider = "deepseek"
@@ -307,6 +307,14 @@ uv run repo-harness --cwd /path/to/repo
 ```bash
 uv run repo-harness "read the failing tests and suggest a focused fix"
 ```
+
+> **一次性/脚本执行注意事项**：默认 `approval=ask` 在**非交互终端**（管道、CI、脚本）下无法回答工具审批，agent 的写操作（写文件、跑命令）会被全部拒绝。非交互执行时请加 `--approval auto`：
+>
+> ```bash
+> uv run repo-harness --approval auto "read the failing tests and suggest a focused fix"
+> ```
+>
+> 交互式 REPL（`--repl`）默认 `ask` 会逐个询问，无需此参数。若在非交互下忘记加 `--approval auto`，程序会立即提示而非中途失败。
 
 只看帮助不需要 API key：
 

@@ -179,8 +179,11 @@ def validate_tool(agent, name, args):
         if not command:
             raise ValueError("command must not be empty")
         timeout = int(args.get("timeout", 20))
-        if timeout < 1 or timeout > 120:
-            raise ValueError("timeout must be in [1, 120]")
+        # Upper bound matches auto_issue_fix/workspace.run_shell_command
+        # (timeout=600); a lower bound here would reject the tool's own
+        # supported command duration.
+        if timeout < 1 or timeout > 600:
+            raise ValueError("timeout must be in [1, 600]")
         return
 
     if name == "write_file":

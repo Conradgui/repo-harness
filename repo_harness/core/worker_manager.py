@@ -45,10 +45,7 @@ class WorkerManager:
             self._start_background(task, prompt, action="spawn")
             return self._public_payload(task, status="started")
         run_worker(self, task, prompt, action="spawn")
-        payload = self._payload_with_result(task)
-        if subagent_type == "worker" and payload.get("status") == "completed":
-            payload["status"] = "running"
-        return payload
+        return self._payload_with_result(task)
 
     def send(self, worker_id, message):
         return self.continue_task(worker_id, message)

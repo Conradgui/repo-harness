@@ -52,6 +52,11 @@ from .workspace import (
 )
 
 DEFAULT_SHELL_ENV_ALLOWLIST = ("HOME", "LANG", "LC_ALL", "LC_CTYPE", "LOGNAME", "PATH", "PWD", "SHELL", "TERM", "TMPDIR", "TMP", "TEMP", "USER")
+
+# Files larger than this are not hashed into the workspace snapshot (hashing
+# big binaries on every risky tool call dominates runtime); their path is
+# recorded with a sentinel so create/delete is still detected.
+MAX_WORKSPACE_SNAPSHOT_BYTES = 1_000_000
 DEFAULT_FEATURE_FLAGS = {
     "memory": True,
     "relevant_memory": True,
@@ -743,6 +748,12 @@ class RepoHarness:
             if not path.is_file():
                 continue
             try:
+                if path.stat().st_size > MAX_WORKSPACE_SNAPSHOT_BYTES:
+                    # Large binaries dominate hashing cost on every risky tool
+                    # call; they are not agent edit targets. Track their path
+                    # with a sentinel so a create/delete is still noticed.
+                    snapshot[path.relative_to(self.root).as_posix()] = "<large>"
+                    continue
                 snapshot[path.relative_to(self.root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
             except OSError:
                 continue

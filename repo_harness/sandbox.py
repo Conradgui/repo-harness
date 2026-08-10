@@ -67,7 +67,7 @@ class SandboxRunner:
             raise RuntimeError("sandbox read_only blocks run_shell")
         if mode != "required" and self._command_is_excluded(command):
             return None
-        unavailable = self._backend_unavailable(backend)
+        unavailable = self._backend_unavailable(backend, mode=mode)
         if unavailable:
             if hasattr(agent, "emit_session_event"):
                 agent.emit_session_event(
@@ -86,7 +86,19 @@ class SandboxRunner:
             return self._run_bubblewrap(command, timeout, agent, runner)
         return runner(command, timeout)
 
-    def _backend_unavailable(self, backend):
+    def _backend_unavailable(self, backend, mode="off"):
+        if mode == "required":
+            # required means "a real isolation backend must be used". native/
+            # auto run the command with no isolation, so under required they
+            # are treated as unavailable -- failing closed instead of giving a
+            # false sense of a forced sandbox (see ADR-007).
+            if backend in {"", "native", "auto"}:
+                return "required sandbox needs a real isolation backend (bubblewrap), not native/auto"
+            if backend == "bubblewrap":
+                if self.which("bwrap") or self.which("bubblewrap"):
+                    return ""
+                return "bubblewrap not found"
+            return f"unsupported backend: {backend}"
         if backend in {"", "native"}:
             return ""
         if backend == "auto":
