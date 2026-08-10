@@ -65,3 +65,18 @@ def test_oneshot_noninteractive_auto_proceeds(monkeypatch):
             code = main(["--approval", "auto", "do the task"])
             fake_build.assert_called_once()
             assert code == 0
+
+
+def test_oneshot_noninteractive_trust_session_proceeds(monkeypatch):
+    # --trust-session is the fail-fast hint's own recommended option and is
+    # equivalent to approval=auto inside build_agent; it must not be rejected.
+    monkeypatch.setattr(sys, "stdin", _NonInteractiveStdin())
+    with patch("repo_harness.repl_display.ReplDisplay"):
+        with patch("repo_harness.cli.build_agent") as fake_build:
+            agent = fake_build.return_value
+            agent.engine.run_turn.return_value = iter(
+                [{"type": "final", "content": "done"}]
+            )
+            code = main(["--trust-session", "do the task"])
+            fake_build.assert_called_once()
+            assert code == 0

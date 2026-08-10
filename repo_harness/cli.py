@@ -1400,7 +1400,11 @@ def main(argv=None):
             # (REPL mode is not gated: slash commands are local and must stay
             # usable under a non-interactive stdin; running tasks there still
             # deny at approve() with an error message.)
-            if not sys.stdin.isatty() and getattr(args, "approval", "ask") != "auto":
+            # --trust-session sets approval to auto inside build_agent; treat
+            # it as auto here too, so the fail-fast hint's own recommended
+            # option is not rejected.
+            auto_approval = getattr(args, "approval", "ask") == "auto" or bool(getattr(args, "trust_session", False))
+            if not sys.stdin.isatty() and not auto_approval:
                 display.show_error(
                     "one-shot execution under a non-interactive stdin cannot approve risky tools "
                     "with the default approval policy. Re-run with --approval auto (or --trust-session), "
