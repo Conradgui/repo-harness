@@ -7,6 +7,7 @@ from argparse import Namespace
 from pathlib import Path
 
 from repo_harness.config import resolve_runtime_config
+from repo_harness.sandbox import SandboxConfig
 
 from .config import (
     AutoIssueFixConfig,
@@ -35,6 +36,15 @@ from .workspace import (
     infer_test_commands,
     run_test_commands,
     scan_diff_gate,
+)
+
+# 对未声明沙箱的外部 clone 的受限默认：bubblewrap 隔离 + 无网络。required
+# 模式保证后端不可用时拒绝执行命令（sandbox_unavailable 事件 +
+# RuntimeError），而不是回退裸执行（finding: clone-sandbox-default-off）。
+UNDECLARED_CLONE_SANDBOX = SandboxConfig(
+    mode="required",
+    backend="bubblewrap",
+    workspace_write=True,
 )
 
 
@@ -94,7 +104,12 @@ def run_repoharness_fix_turn(
         max_steps=config.max_steps,
         max_new_tokens=config.max_new_tokens,
         read_only=False,
-        sandbox_config=sandbox_config_for_directory(clone_dir),
+        sandbox_config=sandbox_config_for_directory(
+            clone_dir, undeclared_fallback=UNDECLARED_CLONE_SANDBOX
+        ),
+        # AIF 有独立的 review-gated 完成语义（修复 turn → 审查门 → draft
+        # PR）；这里的 final 是流程中间产物，不走主会话的完成验证门。
+        feature_flags={"verification_gate": False},
     )
     prompt = f"""You are running inside RepoHarness Auto Issue Fix.
 

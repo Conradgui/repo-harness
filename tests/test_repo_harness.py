@@ -277,6 +277,7 @@ def test_agent_accepts_xml_write_file_tool(tmp_path):
             '<tool name="write_file" path="hello.py"><content>print("hi")\n</content></tool>',
             "<final>Done.</final>",
         ],
+        feature_flags={"verification_gate": False},
     )
 
     answer = agent.ask("Create hello.py")
@@ -1678,6 +1679,7 @@ def test_write_file_trace_records_minimum_tool_contract_fields(tmp_path):
             '<tool>{"name":"write_file","args":{"path":"notes.txt","content":"hello\\n"}}</tool>',
             "<final>Done.</final>",
         ],
+        feature_flags={"verification_gate": False},
     )
 
     assert agent.ask("Create notes.txt") == "Done."
@@ -2341,6 +2343,7 @@ def test_multi_turn_tool_chain_where_result_informs_next_action(tmp_path):
             # Turn 3: final answer
             "<final>Wrote summary based on config.</final>",
         ],
+        feature_flags={"verification_gate": False},
     )
 
     result = agent.ask("Read config.txt and write a summary.")

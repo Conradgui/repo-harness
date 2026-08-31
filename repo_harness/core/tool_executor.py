@@ -2,12 +2,24 @@
 
 import re
 
+from .. import runtime_evidence
 from ..workspace import clip
 
 INLINE_TOOL_OUTPUT_LIMIT = 1000
 
 
 def run_tool(agent, name, args):
+    if getattr(agent, "abort_requested", False):
+        # 中止请求已到：正在排队的工具调用安全跳过，engine 随后走
+        # finish_stopped_run("aborted") 受控收尾（finding: abort-protocol-unreachable）。
+        agent._last_tool_result_metadata = _metadata(
+            "rejected",
+            "aborted",
+            risk_level="high",
+            read_only=False,
+        )
+        agent._record_runtime_reminder(name, agent._last_tool_result_metadata)
+        return f"error: tool {name} skipped because an abort was requested"
     tool = agent.tools.get(name)
     if tool is None:
         agent._last_tool_result_metadata = _metadata(
@@ -121,6 +133,12 @@ def run_tool(agent, name, args):
         )
         if affected_paths:
             agent._run_changed_paths.extend(path for path in affected_paths if path not in agent._run_changed_paths)
+            # 改动作废既有验证证据：完成验证门要求证据覆盖最后一次改动。
+            agent._verification_attempts = []
+        if name == "run_shell" and runtime_evidence.is_verification_command(args.get("command", "")):
+            agent._verification_attempts.append(
+                {"command": str(args.get("command", "")), "exit_code": exit_code}
+            )
         agent.record_process_note_for_tool(name, agent._last_tool_result_metadata)
         agent.tool_policy.record_result(name, args, agent._last_tool_result_metadata)
         if tool_status not in {"ok"}:
@@ -196,6 +214,12 @@ def _permission_error(agent, tool, decision):
         return f"error: plan mode only allows read-only tools or writing the active plan artifact: {agent.active_plan_path}"
     if decision.reason == "write_scope_mismatch":
         return f"error: worker write_scope does not allow {name} on this path"
+    if decision.reason == "runtime_state_write_denied":
+        return (
+            "error: .repo-harness/ is harness-owned runtime state (memory, sessions, "
+            "run records) and cannot be written by tools; durable memory is captured "
+            "from the conversation at turn end and curated through the review queue"
+        )
     if decision.reason in {"approval_denied", "tool_not_allowed"}:
         return f"error: approval denied for {name}"
     return f"error: {decision.reason}"

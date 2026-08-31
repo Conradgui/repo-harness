@@ -154,6 +154,27 @@ def compute_budgets(context_window, max_new_tokens=8192):
     return char_budget, section_budgets, section_floors, recent_window
 
 
+def _reduction_notice(reduction_log):
+    """构造预算削减的模型可见声明（finding: auto-compact-unwired）。"""
+    if not reduction_log:
+        return ""
+    parts = [
+        "{} ({}->{} chars)".format(
+            entry.get("section", "?"),
+            entry.get("before_chars", 0),
+            entry.get("after_chars", 0),
+        )
+        for entry in reduction_log
+    ]
+    return (
+        "[context notice] The prompt exceeded the context budget and these "
+        "sections were reduced: "
+        + ", ".join(parts)
+        + ". Older content may be missing; re-read files or ask again if you "
+        "need the full details."
+    )
+
+
 def _tail_clip(text, limit):
     text = str(text)
     if limit <= 0:
@@ -301,6 +322,9 @@ class ContextManager:
             if not reduced:
                 break
 
+        notice = _reduction_notice(reduction_log)
+        if notice:
+            prompt = self._assemble_prompt(rendered, notice=notice)
         metadata = self._metadata(
             prompt=prompt,
             rendered=rendered,
@@ -311,6 +335,7 @@ class ContextManager:
             user_message=user_message,
             section_texts=section_texts,
         )
+        metadata["context_reduction_notice"] = notice
         return prompt, metadata
 
     def _select_relevant_memory(self, user_message):
@@ -600,18 +625,21 @@ class ContextManager:
             return [prefix, content]
         return [f"[{item['role']}] {_tail_clip(item['content'], line_limit)}"]
 
-    def _assemble_prompt(self, rendered):
+    def _assemble_prompt(self, rendered, notice=""):
         # 顺序是刻意设计的：稳定规则放前面，最新请求放最后。
-        return "\n\n".join(
-            [
-                rendered["prefix"].rendered,
-                rendered["memory"].rendered,
-                rendered["skills"].rendered,
-                rendered["relevant_memory"].rendered,
-                rendered["history"].rendered,
-                rendered[CURRENT_REQUEST_SECTION].rendered,
-            ]
-        ).strip()
+        # 预算削减发生时在当前请求前插入显式声明：模型必须知道上下文
+        # 被截断了，而不是拿着残缺信息继续推理。
+        parts = [
+            rendered["prefix"].rendered,
+            rendered["memory"].rendered,
+            rendered["skills"].rendered,
+            rendered["relevant_memory"].rendered,
+            rendered["history"].rendered,
+        ]
+        if notice:
+            parts.append(notice)
+        parts.append(rendered[CURRENT_REQUEST_SECTION].rendered)
+        return "\n\n".join(parts).strip()
 
     def _metadata(self, prompt, rendered, budgets, reduction_log, selected_notes, selected_explanations, user_message, section_texts):
         section_metadata = {}

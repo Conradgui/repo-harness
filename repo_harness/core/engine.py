@@ -6,11 +6,14 @@ one user request into model calls, tool executions, and user-visible events.
 
 import time
 
+from .. import runtime_evidence
 from ..providers.base import complete_model
 from ..task_state import TaskState
 from ..workspace import clip, now
 from .engine_helpers import (
+    auto_compact_due,
     execute_tool_payload,
+    finish_finalization_error,
     finish_limited_run,
     finish_stopped_run,
     maintain_memory_safely,
@@ -71,7 +74,10 @@ class Engine:
         agent.current_run_id = task_state.run_id
         agent.current_run_dir = agent.run_store.start_run(task_state)
         agent._run_changed_paths = []
+        agent._verification_attempts = []
         agent.runtime_reminders = []
+        # 清掉上一轮可能残留的 abort 请求：一次中止不允许卡死后续 turn。
+        agent.abort_requested = False
         agent.session_event_bus.emit(
             "turn_started",
             {
@@ -136,6 +142,35 @@ class Engine:
                     "context_usage": prompt_metadata.get("context_usage", {}),
                 },
             )
+            usage = prompt_metadata.get("context_usage") or {}
+            if auto_compact_due(agent, usage, prompt_metadata):
+                # 上下文压力越过阈值：先压缩历史再重建 prompt，而不是任由
+                # 预算削减静默截断（finding: auto-compact-unwired）。
+                compaction = agent.compact_history(trigger="auto")
+                agent.session_event_bus.emit(
+                    "auto_compaction",
+                    {
+                        "run_id": task_state.run_id,
+                        "turn_id": task_state.task_id,
+                        "pre_tokens": compaction.get("pre_tokens", 0),
+                        "post_tokens": compaction.get("post_tokens", 0),
+                        "total_estimated_tokens": int(
+                            usage.get("total_estimated_tokens", 0) or 0
+                        )
+                        if isinstance(usage, dict)
+                        else 0,
+                    },
+                )
+                agent.emit_trace(
+                    task_state,
+                    "auto_compaction",
+                    {
+                        "trigger": "auto",
+                        "pre_tokens": compaction.get("pre_tokens", 0),
+                        "post_tokens": compaction.get("post_tokens", 0),
+                    },
+                )
+                continue
             if prompt_metadata.get("resume_status") == CHECKPOINT_PARTIAL_STALE_STATUS:
                 checkpoint = agent.create_checkpoint(
                     task_state, user_message, trigger="freshness_mismatch"
@@ -373,6 +408,38 @@ class Engine:
                 }
                 continue
 
+            # act 模式完成验证门：改动后没有验证证据的 final 不进 success
+            # 终态。与上面的 plan 门对称；模型坚持不验证时，attempts 会耗
+            # 尽并落入 model_error / retry_limit 的失败收尾。
+            if agent.runtime_mode != "plan" and agent.feature_enabled("verification_gate"):
+                notice = runtime_evidence.final_verification_notice(
+                    agent._run_changed_paths,
+                    agent._verification_attempts,
+                    agent.root,
+                )
+                if notice:
+                    agent.record({"role": "assistant", "content": notice, "created_at": now()})
+                    agent.emit_trace(
+                        task_state,
+                        "runtime_notice",
+                        {"content": notice, "status": "blocked"},
+                    )
+                    agent.session_event_bus.emit(
+                        "assistant_message",
+                        {
+                            "run_id": task_state.run_id,
+                            "kind": "runtime_notice",
+                            "content": notice,
+                        },
+                    )
+                    agent.run_store.write_task_state(task_state)
+                    yield {
+                        "type": "runtime_notice",
+                        "run_id": task_state.run_id,
+                        "content": notice,
+                    }
+                    continue
+
             agent.record({"role": "assistant", "content": final, "created_at": now()})
             if agent.runtime_mode == "plan":
                 agent.exit_plan_mode()
@@ -385,38 +452,51 @@ class Engine:
                 },
             )
             task_state.finish_success(final)
-            agent.promote_durable_memory(user_message, final)
-            maintain_memory_safely(agent, task_state, final)
-            checkpoint = agent.create_checkpoint(task_state, user_message, trigger="run_finished")
-            agent._finalize_runtime_evidence(task_state)
-            agent.run_store.write_task_state(task_state)
-            agent.emit_trace(
-                task_state,
-                "checkpoint_created",
-                {"checkpoint_id": checkpoint["checkpoint_id"], "trigger": "run_finished"},
-            )
-            agent.emit_trace(
-                task_state,
-                "run_finished",
-                {
-                    "status": task_state.status,
-                    "stop_reason": task_state.stop_reason,
-                    "final_answer": final,
-                    "run_duration_ms": int((time.monotonic() - run_started_at) * 1000),
-                },
-            )
-            agent.session_event_bus.emit(
-                "turn_finished",
-                {
-                    "run_id": task_state.run_id,
-                    "status": task_state.status,
-                    "stop_reason": task_state.stop_reason,
-                    "duration_ms": int((time.monotonic() - run_started_at) * 1000),
-                },
-            )
-            agent.run_store.write_report(
-                task_state, agent.redact_artifact(agent.build_report(task_state))
-            )
+            # 收尾链异常保护：final 已产出但持久化失败时写入失败终态，
+            # 而不是把 run 悬在 running（finding: session-persistence-not-crash-safe）。
+            try:
+                agent.promote_durable_memory(user_message, final)
+                maintain_memory_safely(agent, task_state, final)
+                checkpoint = agent.create_checkpoint(task_state, user_message, trigger="run_finished")
+                agent._finalize_runtime_evidence(task_state)
+                agent.run_store.write_task_state(task_state)
+                agent.emit_trace(
+                    task_state,
+                    "checkpoint_created",
+                    {"checkpoint_id": checkpoint["checkpoint_id"], "trigger": "run_finished"},
+                )
+                agent.emit_trace(
+                    task_state,
+                    "run_finished",
+                    {
+                        "status": task_state.status,
+                        "stop_reason": task_state.stop_reason,
+                        "final_answer": final,
+                        "run_duration_ms": int((time.monotonic() - run_started_at) * 1000),
+                    },
+                )
+                agent.session_event_bus.emit(
+                    "turn_finished",
+                    {
+                        "run_id": task_state.run_id,
+                        "status": task_state.status,
+                        "stop_reason": task_state.stop_reason,
+                        "duration_ms": int((time.monotonic() - run_started_at) * 1000),
+                    },
+                )
+                agent.run_store.write_report(
+                    task_state, agent.redact_artifact(agent.build_report(task_state))
+                )
+            except Exception as exc:
+                yield from finish_finalization_error(
+                    self,
+                    task_state,
+                    user_message,
+                    final,
+                    exc,
+                    run_started_at,
+                )
+                return
             yield from self._drain_worker_notification_events()
             yield {"type": "final", "run_id": task_state.run_id, "content": final}
             yield {

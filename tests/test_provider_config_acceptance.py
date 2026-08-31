@@ -147,6 +147,7 @@ def test_public_cli_uses_mock_openai_provider_without_live_key(tmp_path):
     _init_workspace_repo(tmp_path)
     outputs = [
         '<tool>{"name":"write_file","args":{"path":"mock.txt","content":"mock provider\\n"}}</tool>',
+        '<tool>{"name":"run_shell","args":{"command":"python -m pytest --version","timeout":60}}</tool>',
         "<final>mock provider complete</final>",
     ]
 

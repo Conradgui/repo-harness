@@ -18,6 +18,7 @@ def test_engine_streams_a_real_session_with_tool_artifacts(tmp_path):
         tmp_path,
         [
             '<tool name="write_file" path="notes/result.txt"><content>ok\n</content></tool>',
+            '<tool>{"name":"run_shell","args":{"command":"python -m pytest --version","timeout":60}}</tool>',
             "<final>Wrote it.</final>",
         ],
     )
@@ -26,6 +27,10 @@ def test_engine_streams_a_real_session_with_tool_artifacts(tmp_path):
 
     assert [event["type"] for event in events] == [
         "turn_started",
+        "model_requested",
+        "model_parsed",
+        "tool_call",
+        "tool_result",
         "model_requested",
         "model_parsed",
         "tool_call",
@@ -54,22 +59,22 @@ def test_engine_streams_a_real_session_with_tool_artifacts(tmp_path):
 
 
 def test_engine_records_provider_error_as_failed_run(tmp_path):
-    agent = build_agent(
-        tmp_path,
-        [
-            ProviderError(
-                "rate limited",
-                provider="openai",
-                model="gpt-test",
-                base_url="https://example.test/v1",
-                code="rate_limited",
-                http_status=429,
-                retryable=True,
-                attempts=3,
-                retry_count=2,
-            )
-        ],
-    )
+    # retryable 瞬时错误现在会重试一次（finding: provider-recovery-unwired），
+    # 注入两次让 run 走 "重试后仍失败" 路径，元数据断言保持原意。
+    def _rate_limited():
+        return ProviderError(
+            "rate limited",
+            provider="openai",
+            model="gpt-test",
+            base_url="https://example.test/v1",
+            code="rate_limited",
+            http_status=429,
+            retryable=True,
+            attempts=3,
+            retry_count=2,
+        )
+
+    agent = build_agent(tmp_path, [_rate_limited(), _rate_limited()])
 
     events = list(agent.engine.run_turn("call a rate limited provider"))
 

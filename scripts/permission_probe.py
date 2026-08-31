@@ -50,6 +50,20 @@ SCENARIOS = (
     ("plan mode", {"runtime_mode": "plan", "active_plan_path": "plan.md"}),
 )
 
+# Harness state (.repo-harness/) is governance data -- durable memory, review
+# queues, sessions, run records. Every configuration must deny tool writes
+# there; the only writers are harness modules themselves. The one exception is
+# the active plan artifact, written in plan mode through the plan path.
+STATE_DIR_SCENARIOS = (
+    ("default (approval=ask)", {}),
+    ("approval=auto", {"approval_policy": "auto"}),
+    ("write_scope matches", {"write_scope": (".repo-harness/memory",)}),
+    (
+        "plan mode + plan path",
+        {"runtime_mode": "plan", "active_plan_path": ".repo-harness/plans/p-plan.md"},
+    ),
+)
+
 # run_shell is governed by the sandbox mode rather than by write_scope.
 SHELL_SCENARIOS = (
     ("sandbox off", {"sandbox_mode": "off"}),
@@ -95,7 +109,7 @@ def main():
         )
     else:
         print()
-    root = Path(tempfile.mkdtemp(prefix="rh-probe-"))
+    root = Path(tempfile.mkdtemp(prefix="rh-probe-")).resolve()
     (root / "src").mkdir(exist_ok=True)
 
     rows = []
@@ -104,6 +118,18 @@ def main():
             checker = PermissionChecker(ProbeRuntime(root, **kwargs))
             decision = checker.check(tool, {"path": "src/app.py"})
             rows.append((f"{label} / {tool}", decision.decision, decision.reason))
+
+    for label, kwargs in STATE_DIR_SCENARIOS:
+        for tool in TOOLS:
+            runtime = ProbeRuntime(root, **kwargs)
+            path = (
+                runtime.path(kwargs.get("active_plan_path", ""))
+                if label.startswith("plan mode")
+                else runtime.path(".repo-harness/memory/topics/note.md")
+            )
+            checker = PermissionChecker(runtime)
+            decision = checker.check(tool, {"path": str(path)})
+            rows.append((f"state-dir: {label} / {tool}", decision.decision, decision.reason))
 
     for label, kwargs in SHELL_SCENARIOS:
         checker = PermissionChecker(ProbeRuntime(root, approval_policy="auto", **kwargs))
@@ -117,15 +143,26 @@ def main():
         print(f"{label.ljust(width)}  {decision:8}  {reason}")
 
     write_rows = rows[: len(SCENARIOS) * len(TOOLS)]
-    shell_rows = rows[len(SCENARIOS) * len(TOOLS):]
+    state_dir_rows = rows[
+        len(SCENARIOS) * len(TOOLS) : len(SCENARIOS) * len(TOOLS) + len(STATE_DIR_SCENARIOS) * len(TOOLS)
+    ]
+    shell_rows = rows[
+        len(SCENARIOS) * len(TOOLS) + len(STATE_DIR_SCENARIOS) * len(TOOLS) :
+    ]
     write_allowed = [r for r in write_rows if r[1] == "allow"]
+    state_dir_allowed = [r for r in state_dir_rows if r[1] == "allow"]
     shell_allowed = [r for r in shell_rows if r[1] == "allow"]
 
     print(f"\nwrite allowed in {len(write_allowed)} of {len(write_rows)} scenarios")
+    print(
+        f"harness-state writes allowed in {len(state_dir_allowed)} of {len(state_dir_rows)}"
+        " scenarios (plan artifact excepted)"
+    )
     print(f"shell allowed in {len(shell_allowed)} of {len(shell_rows)} scenarios")
     # A branch where nothing can be written is not a coding agent -- that is the
-    # condition this probe exists to detect.
-    return 0 if write_allowed else 1
+    # condition this probe exists to detect. A branch where harness state is
+    # writable is not a governed agent -- that is what the state-dir rows detect.
+    return 0 if write_allowed and not state_dir_allowed else 1
 
 
 if __name__ == "__main__":

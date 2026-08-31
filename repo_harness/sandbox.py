@@ -13,6 +13,9 @@ class SandboxConfig:
     mode: str = "off"
     backend: str = "native"
     workspace_write: bool = True
+    # 沙箱内的最小默认是无网络：出网能力必须显式开启
+    # （finding: clone-sandbox-default-off）。
+    allow_network: bool = False
     excluded_commands: tuple[str, ...] = ()
     extra_readonly_paths: tuple[str, ...] = ()
     deny_read: tuple[str, ...] = ()
@@ -107,9 +110,11 @@ class SandboxRunner:
             return runner(command, timeout)
         root = Path(agent.root)
         bind_mode = "--bind" if self.config.workspace_write else "--ro-bind"
-        argv = [
-            backend_path,
-            "--die-with-parent",
+        argv = [backend_path, "--die-with-parent"]
+        if not getattr(self.config, "allow_network", False):
+            # 网络隔离是沙箱的最小默认：出网必须显式声明（finding: clone-sandbox-default-off）。
+            argv.append("--unshare-net")
+        argv.extend([
             "--proc",
             "/proc",
             "--dev",
@@ -129,7 +134,7 @@ class SandboxRunner:
             bind_mode,
             str(root),
             str(root),
-        ]
+        ])
         for path in self.config.extra_readonly_paths:
             argv.extend(["--ro-bind", path, path])
         for path in (*self.config.deny_read, *self.config.deny_write):

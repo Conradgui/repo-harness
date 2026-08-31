@@ -12,6 +12,8 @@ import urllib.parse
 import urllib.request
 from http.client import RemoteDisconnected
 
+from .providers.errors import ProviderError
+
 RETRYABLE_HTTP_CODES = {408, 409, 425, 429, 500, 502, 503, 504}
 
 
@@ -87,17 +89,36 @@ class OllamaModelClient:
                 data = json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"Ollama request failed with HTTP {exc.code}: {body}") from exc
+            raise ProviderError(
+                f"Ollama request failed with HTTP {exc.code}: {body}",
+                provider="ollama",
+                model=self.model,
+                base_url=self.host,
+                code=f"http_{exc.code}",
+                http_status=exc.code,
+                retryable=exc.code in RETRYABLE_HTTP_CODES,
+            ) from exc
         except urllib.error.URLError as exc:
-            raise RuntimeError(
+            raise ProviderError(
                 "Could not reach Ollama.\n"
                 "Make sure `ollama serve` is running and the model is available.\n"
                 f"Host: {self.host}\n"
-                f"Model: {self.model}"
+                f"Model: {self.model}",
+                provider="ollama",
+                model=self.model,
+                base_url=self.host,
+                code="network_error",
+                retryable=True,
             ) from exc
 
         if data.get("error"):
-            raise RuntimeError(f"Ollama error: {data['error']}")
+            raise ProviderError(
+                f"Ollama error: {data['error']}",
+                provider="ollama",
+                model=self.model,
+                base_url=self.host,
+                code="backend_error",
+            )
         return data.get("response", "")
 
 
@@ -339,7 +360,17 @@ class OpenAICompatibleModelClient:
                     retry_count += 1
                     time.sleep(0.5 * (attempt + 1))
                     continue
-                raise RuntimeError(f"OpenAI-compatible request failed with HTTP {exc.code}: {body}") from exc
+                raise ProviderError(
+                    f"OpenAI-compatible request failed with HTTP {exc.code}: {body}",
+                    provider="openai-compatible",
+                    model=self.model,
+                    base_url=self.base_url,
+                    code=f"http_{exc.code}",
+                    http_status=exc.code,
+                    retryable=exc.code in RETRYABLE_HTTP_CODES,
+                    attempts=attempts_used,
+                    retry_count=retry_count,
+                ) from exc
             except (urllib.error.URLError, RemoteDisconnected) as exc:
                 self.last_completion_metadata = _provider_metadata(
                     "openai-compatible",
@@ -352,10 +383,17 @@ class OpenAICompatibleModelClient:
                     retry_count += 1
                     time.sleep(0.5 * (attempt + 1))
                     continue
-                raise RuntimeError(
+                raise ProviderError(
                     "Could not reach the OpenAI-compatible backend.\n"
                     f"Base URL: {self.base_url}\n"
-                    f"Model: {self.model}"
+                    f"Model: {self.model}",
+                    provider="openai-compatible",
+                    model=self.model,
+                    base_url=self.base_url,
+                    code="network_error",
+                    retryable=True,
+                    attempts=attempts_used,
+                    retry_count=retry_count,
                 ) from exc
 
         # 有些兼容后端返回普通 JSON，有些返回 SSE。
@@ -380,16 +418,39 @@ class OpenAICompatibleModelClient:
                 }
             if text:
                 return text
-            raise RuntimeError("OpenAI-compatible error: could not extract text from event stream response")
+            raise ProviderError(
+                "OpenAI-compatible error: could not extract text from event stream response",
+                provider="openai-compatible",
+                model=self.model,
+                base_url=self.base_url,
+                code="empty_response",
+                retryable=True,
+                attempts=attempts_used,
+                retry_count=retry_count,
+            )
 
         try:
             data = json.loads(body_text)
         except json.JSONDecodeError as exc:
-            raise RuntimeError(
-                "OpenAI-compatible error: backend returned non-JSON content that could not be parsed"
+            raise ProviderError(
+                "OpenAI-compatible error: backend returned non-JSON content that could not be parsed",
+                provider="openai-compatible",
+                model=self.model,
+                base_url=self.base_url,
+                code="invalid_response",
+                attempts=attempts_used,
+                retry_count=retry_count,
             ) from exc
         if data.get("error"):
-            raise RuntimeError(f"OpenAI-compatible error: {data['error']}")
+            raise ProviderError(
+                f"OpenAI-compatible error: {data['error']}",
+                provider="openai-compatible",
+                model=self.model,
+                base_url=self.base_url,
+                code="backend_error",
+                attempts=attempts_used,
+                retry_count=retry_count,
+            )
         self.last_completion_metadata = {
             **_provider_metadata(
                 "openai-compatible",
@@ -482,7 +543,17 @@ class ChatCompletionsCompatibleModelClient:
                     retry_count += 1
                     time.sleep(0.5 * (attempt + 1))
                     continue
-                raise RuntimeError(f"Chat Completions-compatible request failed with HTTP {exc.code}: {body}") from exc
+                raise ProviderError(
+                    f"Chat Completions-compatible request failed with HTTP {exc.code}: {body}",
+                    provider="chat-completions-compatible",
+                    model=self.model,
+                    base_url=self.base_url,
+                    code=f"http_{exc.code}",
+                    http_status=exc.code,
+                    retryable=exc.code in RETRYABLE_HTTP_CODES,
+                    attempts=attempts_used,
+                    retry_count=retry_count,
+                ) from exc
             except (urllib.error.URLError, RemoteDisconnected) as exc:
                 self.last_completion_metadata = _provider_metadata(
                     "chat-completions-compatible",
@@ -495,20 +566,41 @@ class ChatCompletionsCompatibleModelClient:
                     retry_count += 1
                     time.sleep(0.5 * (attempt + 1))
                     continue
-                raise RuntimeError(
+                raise ProviderError(
                     "Could not reach the Chat Completions-compatible backend.\n"
                     f"Base URL: {self.base_url}\n"
-                    f"Model: {self.model}"
+                    f"Model: {self.model}",
+                    provider="chat-completions-compatible",
+                    model=self.model,
+                    base_url=self.base_url,
+                    code="network_error",
+                    retryable=True,
+                    attempts=attempts_used,
+                    retry_count=retry_count,
                 ) from exc
 
         try:
             data = json.loads(body_text)
         except json.JSONDecodeError as exc:
-            raise RuntimeError(
-                "Chat Completions-compatible error: backend returned non-JSON content that could not be parsed"
+            raise ProviderError(
+                "Chat Completions-compatible error: backend returned non-JSON content that could not be parsed",
+                provider="chat-completions-compatible",
+                model=self.model,
+                base_url=self.base_url,
+                code="invalid_response",
+                attempts=attempts_used,
+                retry_count=retry_count,
             ) from exc
         if data.get("error"):
-            raise RuntimeError(f"Chat Completions-compatible error: {data['error']}")
+            raise ProviderError(
+                f"Chat Completions-compatible error: {data['error']}",
+                provider="chat-completions-compatible",
+                model=self.model,
+                base_url=self.base_url,
+                code="backend_error",
+                attempts=attempts_used,
+                retry_count=retry_count,
+            )
         self.last_completion_metadata = {
             **_provider_metadata(
                 "chat-completions-compatible",
@@ -522,7 +614,16 @@ class ChatCompletionsCompatibleModelClient:
         text = _extract_chat_completions_text(data)
         if text:
             return text
-        raise RuntimeError("Chat Completions-compatible error: could not extract text from response")
+        raise ProviderError(
+            "Chat Completions-compatible error: could not extract text from response",
+            provider="chat-completions-compatible",
+            model=self.model,
+            base_url=self.base_url,
+            code="empty_response",
+            retryable=True,
+            attempts=attempts_used,
+            retry_count=retry_count,
+        )
 
 
 def _extract_anthropic_text(data):
@@ -605,7 +706,17 @@ class AnthropicCompatibleModelClient:
                     retry_count += 1
                     time.sleep(0.5 * (attempt + 1))
                     continue
-                raise RuntimeError(f"Anthropic-compatible request failed with HTTP {exc.code}: {body}") from exc
+                raise ProviderError(
+                    f"Anthropic-compatible request failed with HTTP {exc.code}: {body}",
+                    provider="anthropic-compatible",
+                    model=self.model,
+                    base_url=self.base_url,
+                    code=f"http_{exc.code}",
+                    http_status=exc.code,
+                    retryable=exc.code in RETRYABLE_HTTP_CODES,
+                    attempts=attempts_used,
+                    retry_count=retry_count,
+                ) from exc
             except (urllib.error.URLError, RemoteDisconnected) as exc:
                 self.last_completion_metadata = _provider_metadata(
                     "anthropic-compatible",
@@ -618,20 +729,41 @@ class AnthropicCompatibleModelClient:
                     retry_count += 1
                     time.sleep(0.5 * (attempt + 1))
                     continue
-                raise RuntimeError(
+                raise ProviderError(
                     "Could not reach the Anthropic-compatible backend.\n"
                     f"Base URL: {self.base_url}\n"
-                    f"Model: {self.model}"
+                    f"Model: {self.model}",
+                    provider="anthropic-compatible",
+                    model=self.model,
+                    base_url=self.base_url,
+                    code="network_error",
+                    retryable=True,
+                    attempts=attempts_used,
+                    retry_count=retry_count,
                 ) from exc
 
         try:
             data = json.loads(body_text)
         except json.JSONDecodeError as exc:
-            raise RuntimeError(
-                "Anthropic-compatible error: backend returned non-JSON content that could not be parsed"
+            raise ProviderError(
+                "Anthropic-compatible error: backend returned non-JSON content that could not be parsed",
+                provider="anthropic-compatible",
+                model=self.model,
+                base_url=self.base_url,
+                code="invalid_response",
+                attempts=attempts_used,
+                retry_count=retry_count,
             ) from exc
         if data.get("error"):
-            raise RuntimeError(f"Anthropic-compatible error: {data['error']}")
+            raise ProviderError(
+                f"Anthropic-compatible error: {data['error']}",
+                provider="anthropic-compatible",
+                model=self.model,
+                base_url=self.base_url,
+                code="backend_error",
+                attempts=attempts_used,
+                retry_count=retry_count,
+            )
         text = _extract_anthropic_text(data)
         if text:
             self.last_completion_metadata = _provider_metadata(
@@ -642,5 +774,14 @@ class AnthropicCompatibleModelClient:
                 retry_count,
             )
             return text
-        raise RuntimeError("Anthropic-compatible error: could not extract text from response")
+        raise ProviderError(
+            "Anthropic-compatible error: could not extract text from response",
+            provider="anthropic-compatible",
+            model=self.model,
+            base_url=self.base_url,
+            code="empty_response",
+            retryable=True,
+            attempts=attempts_used,
+            retry_count=retry_count,
+        )
 

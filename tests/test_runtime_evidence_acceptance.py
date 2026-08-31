@@ -25,6 +25,7 @@ def test_runtime_evidence_graph_and_verifier_suggestions_are_reported(tmp_path):
         tmp_path,
         [
             '<tool>{"name":"write_file","args":{"path":"src/api.py","content":"@app.get(\\"/api/items\\")\\ndef list_items():\\n    return fetch(\\"/api/users\\")\\n"}}</tool>',
+            '<tool>{"name":"run_shell","args":{"command":"python -m pytest --version","timeout":60}}</tool>',
             "<final>Wrote API file.</final>",
         ],
     )

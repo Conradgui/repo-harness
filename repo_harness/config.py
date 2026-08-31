@@ -265,6 +265,7 @@ def _resolve_sandbox(args, data, process_env):
         mode=str(mode).strip(),
         backend=str(backend).strip(),
         workspace_write=bool(sandbox_data.get("workspace_write", True)),
+        allow_network=bool(sandbox_data.get("allow_network", False)),
         excluded_commands=tuple(str(item) for item in sandbox_data.get("excluded_commands", []) or []),
         extra_readonly_paths=tuple(str(item) for item in filesystem.get("extra_readonly_paths", []) or []),
         deny_read=tuple(str(item) for item in filesystem.get("deny_read", []) or []),
@@ -272,7 +273,7 @@ def _resolve_sandbox(args, data, process_env):
     )
 
 
-def sandbox_config_for_directory(directory):
+def sandbox_config_for_directory(directory, *, undeclared_fallback=None):
     """Sandbox settings declared by a repository, independent of CLI args.
 
     Auto Issue Fix builds an agent for a cloned repository without going
@@ -283,8 +284,23 @@ def sandbox_config_for_directory(directory):
     The environment is deliberately empty: REPO_HARNESS_SANDBOX from the
     ambient environment must not decide the isolation level for code that was
     just cloned from somewhere else.
+
+    When the directory declares no [sandbox] settings at all and
+    `undeclared_fallback` is provided, the fallback applies: autonomous
+    callers (Auto Issue Fix) fail safe on clones that declare nothing instead
+    of inheriting the mode-"off" default. An explicit declaration -- including
+    mode = "off" -- is always honoured as written.
     """
     data, _ = _load_toml(Path(directory) / CONFIG_FILE_NAME)
+    # 判定看的是显式 mode，而不是 [sandbox] 段是否存在：一个只写了
+    # workspace_write 的残缺声明不是 mode 声明，fail-safe 默认仍然生效。
+    declared_mode = (
+        isinstance(data, dict)
+        and isinstance(data.get("sandbox"), dict)
+        and data["sandbox"].get("mode")
+    )
+    if undeclared_fallback is not None and not declared_mode:
+        return undeclared_fallback
 
     class _NoArgs:
         sandbox = None

@@ -57,6 +57,7 @@ DEFAULT_FEATURE_FLAGS = {
     "relevant_memory": True,
     "context_reduction": True,
     "prompt_cache": True,
+    "verification_gate": True,
 }
 CHECKPOINT_NONE_STATUS = "no-checkpoint"
 CHECKPOINT_FULL_VALID_STATUS = "full-valid"
@@ -190,7 +191,7 @@ class RepoHarness:
         self.session_path = self.session_store.save(self.session)
         self.current_run_id = ""
         self.current_turn_id = ""
-        self._trusted_tools = set()
+        self._trusted_targets = set()
         self._display = None
         self.current_run_dir = None
         self.abort_requested = False
@@ -198,6 +199,7 @@ class RepoHarness:
         self.last_completion_metadata = {}
         self._last_tool_result_metadata = {}
         self._run_changed_paths = []
+        self._verification_attempts = []
         self.runtime_reminders = []
         self._last_prefix_refresh = {
             "workspace_changed": False,
@@ -586,6 +588,22 @@ class RepoHarness:
         usage["auto_compacted"] = bool(metadata.get("auto_compacted", False)) if isinstance(metadata, dict) else False
         usage["budget_reductions"] = list(metadata.get("budget_reductions", [])) if isinstance(metadata, dict) else []
         return usage
+
+    def abort_current_turn(self, reason="user"):
+        """请求受控中止当前 turn。
+
+        置位 abort_requested：engine 在循环头 / 模型返回后 / 工具批执行中
+        检查该标志并走 finish_stopped_run("aborted") 受控收尾；正在排队的
+        工具调用会被 run_tool 的前置检查安全跳过。此前该标志没有任何置位
+        代码，engine 的 aborted 收尾路径不可达（finding: abort-protocol-unreachable）。
+        """
+        self.abort_requested = True
+        self.emit_session_event(
+            "abort_requested",
+            reason=str(reason),
+            run_id=str(getattr(self, "current_run_id", "") or ""),
+        )
+        return {"abort_requested": True, "reason": str(reason)}
 
     def compact_history(self, trigger="manual"):
         pre_text = self.history_text()
@@ -998,13 +1016,20 @@ class RepoHarness:
             return True
         if self.approval_policy == "never":
             return False
-        # 会话级信任：已确认的工具本次会话内自动放行
-        if name in self._trusted_tools:
+        # 会话级信任绑定到 (tool, path)：批准写一个路径只覆盖同工具对同一
+        # 路径的后续写入，write_file 的授权不延伸到 patch_file，也不延伸
+        # 到其它路径。run_shell 没有可绑定的参数边界，a(llow) 只对当次命
+        # 令生效，下一条命令重新进入审批。
+        target = self._approval_target(name, args)
+        if target is not None and target in self._trusted_targets:
             return True
 
         # Rich 风格输入（如果 display 可用）
         display = getattr(self, "_display", None)
-        args_summary = json.dumps(args, ensure_ascii=True)[:80]
+        # 审批提示必须展示完整参数：用户批准的是他看到的东西。截断到
+        # 80 字符曾把长命令与深路径在提示里切掉，用户在关键参数不可见
+        # 的情况下做出了批准决定。
+        args_summary = json.dumps(args, ensure_ascii=True)
         if display:
             answer = display.prompt_choice(
                 f"approve {name} {args_summary}?",
@@ -1012,7 +1037,9 @@ class RepoHarness:
             )
         else:
             try:
-                answer = input(f"approve {name} {args_summary}? [y/N/a(llow this session)] ")
+                answer = input(
+                    f"approve {name} {args_summary}? [y/N/a(llow this path for the session)] "
+                )
             except EOFError:
                 return False
             answer = answer.strip().lower()
@@ -1020,9 +1047,40 @@ class RepoHarness:
         if answer in {"y", "yes"}:
             return True
         if answer in {"a", "all", "always"}:
-            self._trusted_tools.add(name)
+            if target is not None:
+                self._trusted_targets.add(target)
+                self.emit_session_event(
+                    "approval_escalated",
+                    tool=name,
+                    path=target[1],
+                )
             return True
         return False
+
+    def _approval_target(self, name, args):
+        """把 a(llow) 升级绑定到具体写入目标；非路径工具返回 None。
+
+        信任键使用 workspace 相对 posix 路径，让 "./x"、绝对路径与裸相
+        对路径指向同一目标；路径逃逸 workspace 时退化为解析后的绝对路
+        径，宁可让不同写法重新提示，也不能把不同目标合并成同一个键。
+        """
+        if name not in {"write_file", "patch_file"}:
+            return None
+        raw = str(args.get("path", "") or "")
+        if not raw:
+            return None
+        try:
+            resolved = self.path(raw)
+            key = resolved.relative_to(Path(self.root).resolve()).as_posix()
+        except ValueError:
+            key = Path(raw).resolve().as_posix()
+        return (name, key)
+
+    def revoke_session_approvals(self):
+        """撤销本会话所有 a(llow) 路径信任，返回被撤销的目标列表。"""
+        revoked = sorted(f"{tool} {path}" for tool, path in self._trusted_targets)
+        self._trusted_targets.clear()
+        return revoked
 
     @staticmethod
     def parse(raw):

@@ -25,6 +25,9 @@ def build_child_runtime(parent, subagent_type, write_scope):
         write_scope=list(write_scope or ()),
         ask_user_callback=getattr(parent, "ask_user_callback", None),
         model_client_factory=getattr(parent, "model_client_factory", None),
+        # Worker 的 final 是给父代理的子任务汇报，不是任务完成宣告；产物
+        # 由父代理消费并在父 turn 过完成验证门，门在完成宣告层收口。
+        feature_flags={**getattr(parent, "feature_flags", {}), "verification_gate": False},
     )
     child.tool_profiles = dict(parent.tool_profiles)
     child.set_tool_profile("readonly" if read_only else "worker")

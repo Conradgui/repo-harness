@@ -312,7 +312,9 @@ flowchart LR
   EX --> TR["trace & report"]
 ```
 
-- `approval_policy="ask"` 对同一 risky tool 只触发一次审批。
+- `approval_policy="ask"` 的 a(llow) 升级按 (tool, path) 绑定：同一写入路径免重复提示，换路径或换工具重新审批；`run_shell` 每条命令单独审批，审批提示展示完整参数。
+- `/untrust` 撤销本会话全部 a(llow) 升级，升级动作写入 `approval_escalated` 审计事件。
+- act 模式完成验证门默认开启：改动后没跑过验证命令的 final 会被拦截并引导先验证（`verification_gate` feature flag 可关，见 [ADR-008](docs/decisions/008-act-完成宣告需要验证证据.md)）。
 - shell 普通搜索/读取会被拦截，鼓励使用结构化 `read_file` / `search`。
 - 修改既有文件前需要 fresh read；重复工具调用会进入 guard。
 - 多 tool-call 按模型输出顺序执行，partial failure 会进入 trace。
@@ -347,6 +349,8 @@ REPL 基于 `rich` 库提供增强的终端交互体验：
 - `/help`：查看命令。
 - `/plan <topic>`、`/plan-exit`、`/mode`：进入/退出 plan mode。
 - `/usage`、`/model [name]`、`/history`、`/context`、`/compact`、`/working-memory`：查看运行状态。
+- `/stop`：请求安全中止当前 turn（排队中的工具会被跳过，run 以 aborted 终态落盘）。
+- `/untrust`：撤销本会话全部 a(llow) 路径审批升级。
 - `/skills`、`/skill <name> [args]`：发现并调用 skills。
 - `/auto-issue-fix [args]`：进入 Auto Issue Fix；在普通 REPL 中不带参数会启动引导式输入，显式加 `--dry-run` 才只生成预演证据。
 - `/agents`、`/subagent explore <task>`、`/subagent worker --scope <path> <task>`：启动受限 worker。
@@ -509,6 +513,8 @@ Pending review queue 不进入 prompt memory、不参与 `/memory_explain`，也
 - `self_iteration_rejections`：记录自动整理拒绝项。
 - `.repo-harness/memory/review-queue.jsonl`：Review Queue 文件。
 - `durable-review-queue-v1`：Review Queue schema。
+
+`/memory review` 期间输入流关闭（EOF/Ctrl-D）或按 Ctrl-C 会离开 review，候选保留在队列里，下次 `/memory review` 继续；不会卡在提示循环里。
 - Pending queue：待审队列，不进入 prompt memory、`/memory_explain` 或 `safe-transfer`。
 - `score_breakdown` 与 `selected_explanations`：Explainable Retrieval 的解释字段。
 

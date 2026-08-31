@@ -13,6 +13,8 @@
 | [ADR-005](005-保留薄转发与活功能.md) | 保留 tool-proxy 薄转发与 memory_pack 活功能 | 已执行 |
 | [ADR-006](006-交付数字必须可复现.md) | 交付文档中的数字必须由脚本产出 | 约束，长期生效 |
 | [ADR-007](007-read-only-不再有豁免.md) | `read_only` 下不再接受 `excluded_commands` 豁免 | 已执行 |
+| [ADR-008](008-act-完成宣告需要验证证据.md) | act 模式 final 过完成验证门，改动后无验证证据不进 success | 已执行 |
+| [ADR-009](009-自主场景的外部clone默认受限沙箱.md) | AIF 对未声明沙箱的外部 clone 默认受限沙箱（required+bubblewrap+断网） | 已执行 |
 
 ## 状态含义
 

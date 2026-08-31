@@ -330,6 +330,8 @@ uv run pytest tests/test_provider_config_acceptance.py tests/test_real_session_a
 - `/usage`：查看 token / context 使用情况。
 - `/model [name]`：查看或临时切换当前模型，不写配置文件。
 - `/history`、`/context`、`/compact`、`/working-memory`：查看或整理上下文。
+- `/stop`：请求安全中止当前 turn（Ctrl-C 同样走受控中止）。
+- `/untrust`：撤销本会话全部 a(llow) 路径审批升级。
 - `/skills`、`/skill <name> [args]`：使用 skills。
 - `/agents`、`/subagent explore <task>`、`/subagent worker --scope <path> <task>`：管理 worker。
 - `/memory review`：审核长期记忆候选。

@@ -35,6 +35,7 @@ from .models import (
 from .provider_registry import provider_choices
 from .runtime import RepoHarness
 from .session_store import SessionStore
+from .task_state import STATUS_RUNNING, STOP_REASON_INTERRUPTED
 from .workspace import WorkspaceContext, middle
 
 DEFAULT_SECRET_ENV_NAMES = (
@@ -87,9 +88,11 @@ HELP_DETAILS = textwrap.dedent(
     /history  Show compact session history.
     /context  Show context usage estimates.
     /compact  Manually compact session history.
+    /stop    Request a safe abort of the current turn.
     /working-memory  Show working memory.
     /memory_pack  Export, import, inspect, or validate memory packs.
     /session Show the path to the saved session file.
+    /untrust Revoke session a(llow) approvals granted to write paths.
     /reset   Clear the current session history and memory.
     /exit    Exit the agent.
     """
@@ -358,6 +361,79 @@ def _memory_self_iteration_text(agent):
     return "Memory self-iteration:\n- unavailable"
 
 
+def _build_prompt_session(cwd):
+    """构建 REPL 的 prompt_toolkit 会话；非 tty 或不可用时返回 None。"""
+    if not sys.stdin.isatty():
+        return None
+    try:
+        from prompt_toolkit import PromptSession
+        from prompt_toolkit.completion import WordCompleter
+        from prompt_toolkit.history import FileHistory
+
+        slash_commands = [
+            "/help", "/skills", "/skill", "/plan", "/plan-exit", "/mode",
+            "/usage", "/model", "/history", "/context", "/compact",
+            "/working-memory", "/memory", "/memory_explain", "/remember",
+            "/memory review", "/memory organize", "/agents", "/subagent",
+            "/auto-issue-fix", "/session", "/untrust", "/reset", "/exit", "/quit",
+        ]
+        completer = WordCompleter(slash_commands, ignore_case=True)
+        history_file = Path(cwd) / ".repo-harness" / "input_history"
+        history_file.parent.mkdir(parents=True, exist_ok=True)
+        return PromptSession(
+            history=FileHistory(str(history_file)),
+            completer=completer,
+        )
+    except Exception:
+        # prompt_toolkit raises custom exception types (e.g.
+        # NoConsoleScreenBufferError) that don't inherit from OSError when the
+        # terminal cannot be driven; broad catch is intentional so the REPL
+        # falls back to input() in any such environment.
+        return None
+
+
+def _persist_interrupted_state(agent):
+    """真实中断（Ctrl-C）时的最小收尾保证。
+
+    turn 消费循环被 KeyboardInterrupt 打断时，generator 已被抛弃，
+    收尾链不会执行——session 必须落盘，悬在 running 的 run 写入
+    interrupted 终态，否则 resume 与用户都会看到一个永不结束的 run。
+    """
+    try:
+        task_state = getattr(agent, "current_task_state", None)
+        if task_state is not None and task_state.status == STATUS_RUNNING:
+            task_state.stop(
+                STOP_REASON_INTERRUPTED,
+                final_answer="Interrupted by user (Ctrl-C).",
+            )
+            agent.run_store.write_task_state(task_state)
+        agent.session_path = agent.session_store.save(agent.session)
+    except Exception as exc:
+        # 中断兜底自身不允许再抛：降级为可见告警而不是静默丢失。
+        print(f"warning: failed to persist interrupted state: {exc}", file=sys.stderr)
+
+
+def _abort_and_drain(agent, events):
+    """KeyboardInterrupt 后的受控中止：请求 abort 并消费剩余事件。
+
+    返回 True 表示 engine 自己走到了终态（aborted 收尾完成）；False 表示
+    生成器已死（Ctrl-C 落在了 engine 内部执行中），调用方需要退回
+    _persist_interrupted_state 中断兜底。
+    """
+    try:
+        agent.abort_current_turn()
+    except Exception:
+        return False
+    reached_terminal = False
+    try:
+        for event in events:
+            if event.get("type") == "turn_finished":
+                reached_terminal = True
+    except (Exception, KeyboardInterrupt):
+        return False
+    return reached_terminal
+
+
 def _memory_self_iteration_notice(agent):
     if not hasattr(agent, "memory_self_iteration_status"):
         return ""
@@ -473,7 +549,22 @@ def run_memory_review(agent, display=None):
                     ["accept", "edit", "reject", "skip", "quit"],
                 )
             else:
-                action = input("accept/edit/reject/skip/quit> ").strip().lower()
+                try:
+                    action = input("accept/edit/reject/skip/quit> ").strip().lower()
+                except EOFError:
+                    action = ""
+
+            # 空输入 = EOF 或被 prompt_choice 吞掉的 Ctrl-C：输入流已不可
+            # 用，继续问只会刷屏死循环（e2e 在管道环境下复现）。离开
+            # review，候选保留在队列里，下次 /memory review 继续。
+            if not action:
+                if display:
+                    display.show_warning(
+                        "input closed; leaving memory review (candidates stay queued)"
+                    )
+                else:
+                    print("input closed; leaving memory review (candidates stay queued)")
+                return
 
             if action in {"accept", "a"}:
                 result = agent.memory_review_accept(record.get("id", ""))
@@ -692,6 +783,9 @@ def handle_repl_command(agent, user_input, *, interactive=False, input_func=inpu
         return True, False, "Working memory:\n" + agent.memory_text()
     if user_input == "/compact":
         return True, False, _format_compaction(agent.compact_history(trigger="manual"))
+    if user_input == "/stop":
+        agent.abort_current_turn()
+        return True, False, "abort requested: current turn will stop after in-flight work"
     if user_input == "/memory":
         return True, False, agent.memory_text()
     if user_input == "/memory organize":
@@ -709,6 +803,11 @@ def handle_repl_command(agent, user_input, *, interactive=False, input_func=inpu
         return False, False, ""
     if user_input == "/session":
         return True, False, str(agent.session_path)
+    if user_input == "/untrust":
+        revoked = agent.revoke_session_approvals()
+        if not revoked:
+            return True, False, "no session approvals to revoke"
+        return True, False, "revoked session approvals:\n" + "\n".join(revoked)
     if user_input == "/reset":
         agent.reset()
         return True, False, "session reset"
@@ -1313,33 +1412,12 @@ def main(argv=None):
     agent._display = display
     display.show_welcome(agent)
 
-    # prompt_toolkit: 行编辑、历史、slash 命令补全
-    _pt_session = None
-    try:
-        from prompt_toolkit import PromptSession
-        from prompt_toolkit.completion import WordCompleter
-        from prompt_toolkit.history import FileHistory
-
-        _slash_commands = [
-            "/help", "/skills", "/skill", "/plan", "/plan-exit", "/mode",
-            "/usage", "/model", "/history", "/context", "/compact",
-            "/working-memory", "/memory", "/memory_explain", "/remember",
-            "/memory review", "/memory organize", "/agents", "/subagent",
-            "/auto-issue-fix", "/session", "/reset", "/exit", "/quit",
-        ]
-        _pt_completer = WordCompleter(_slash_commands, ignore_case=True)
-        _pt_history_file = Path(agent.workspace.cwd) / ".repo-harness" / "input_history"
-        _pt_history_file.parent.mkdir(parents=True, exist_ok=True)
-        _pt_session = PromptSession(
-            history=FileHistory(str(_pt_history_file)),
-            completer=_pt_completer,
-        )
-    except Exception:
-        # prompt_toolkit raises custom exception types (e.g.
-        # NoConsoleScreenBufferError) that don't inherit from OSError when the
-        # terminal cannot be driven; broad catch is intentional so the REPL
-        # falls back to input() in any such environment.
-        _pt_session = None
+    # prompt_toolkit: 行编辑、历史、slash 命令补全。
+    # 非 tty 时必须为 None：REPL 的所有输入（主循环与 review/审批等交互
+    # 提示）要共用同一个读取器——pt 在管道 stdin 上会预读缓冲，把后续
+    # 行从裸 input() 手里抢走再当作 REPL 消息吐出（e2e 在 /memory review
+    # 上复现：accept 行被 pt 吞掉、review 拿到 EOF、accept 变成对话）。
+    _pt_session = _build_prompt_session(agent.workspace.cwd)
 
     def _read_input(prompt_text):
         # prompt_toolkit fails on terminals it cannot drive (no tty, some CI
@@ -1353,14 +1431,23 @@ def main(argv=None):
         # one-shot 模式：只跑一次 ask，不进入 REPL 循环。
         prompt = " ".join(args.prompt).strip()
         if prompt:
+            final = ""
+            events = agent.engine.run_turn(prompt)
             try:
-                final = ""
-                for event in agent.engine.run_turn(prompt):
+                for event in events:
                     if event["type"] in {"final", "stop"}:
                         final = event["content"]
                 display.show_response(final)
             except RuntimeError as exc:
                 display.show_error(str(exc))
+                return 1
+            except KeyboardInterrupt:
+                # Ctrl-C 转受控中止：优先让 engine 自己走 aborted 终态。
+                if _abort_and_drain(agent, events):
+                    display.show_error("Turn aborted safely.")
+                    return 1
+                display.show_error("Interrupted.")
+                _persist_interrupted_state(agent)
                 return 1
         return 0
 
@@ -1408,8 +1495,9 @@ def main(argv=None):
 
         # 普通消息：消费事件流，实时显示工具调用和结果
         display.show_user_input(user_input)
+        events = agent.engine.run_turn(user_input)
         try:
-            for event in agent.engine.run_turn(user_input):
+            for event in events:
                 etype = event.get("type", "")
                 if etype == "tool_call":
                     display.show_tool_call(event.get("name", "?"), event.get("args", {}))
@@ -1432,5 +1520,13 @@ def main(argv=None):
                 print(notice)
         except RuntimeError as exc:
             display.show_error(str(exc))
+        except KeyboardInterrupt:
+            # Ctrl-C 转受控中止：让 engine 走 aborted 终态而不是抛弃 turn；
+            # 生成器已被打断时退回中断持久化兜底。
+            if _abort_and_drain(agent, events):
+                display.show_error("Turn aborted safely.")
+            else:
+                display.show_error("Interrupted; state saved.")
+                _persist_interrupted_state(agent)
 
 

@@ -1,4 +1,8 @@
-"""Provider error shape shared by runtime engine and tests."""
+"""Provider error shape shared by model adapters, runtime engine and tests.
+
+适配层把网络/HTTP/解析失败统一抛 ProviderError；engine 按 retryable 分流：
+可重试错误每个 code 给一次 turn 级重试，耗尽后走受控 model_error 收尾。
+"""
 
 
 class ProviderError(RuntimeError):

@@ -140,7 +140,13 @@ class TestAutoIssueFixWiring:
         )
         assert seen["sandbox_config"].mode == "read_only"
 
-    def test_a_clone_without_a_declaration_gets_the_default(self, tmp_path, monkeypatch):
+    def test_a_clone_without_a_declaration_gets_the_restricted_default(self, tmp_path, monkeypatch):
+        """An undeclared clone fails safe: the restricted sandbox default applies.
+
+        The old assertion locked in mode "off" as the expected default for
+        Auto Issue Fix clones -- the finding called this out directly: a
+        high-quality test locking in an unsafe default value.
+        """
         from repo_harness.auto_issue_fix import runner as aif_runner
         from repo_harness.auto_issue_fix.config import (
             AutoIssueFixConfig,
@@ -168,7 +174,8 @@ class TestAutoIssueFixWiring:
             model_client=object(),
         )
 
-        assert seen["sandbox_config"].mode == "off"
+        assert seen["sandbox_config"].mode == "required"
+        assert seen["sandbox_config"].backend == "bubblewrap"
 
 
 @pytest.mark.parametrize("mode", ["READ_ONLY", "Read_Only", "readonly", "typo", ""])

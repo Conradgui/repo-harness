@@ -118,6 +118,7 @@ class RunEvidence:
         workspace = self._prepare_workspace("public-cli-task-smoke")
         outputs = [
             '<tool>{"name":"write_file","args":{"path":"cli-task.txt","content":"RepoHarness CLI evidence\\n"}}</tool>',
+            '<tool>{"name":"run_shell","args":{"command":"python -m pytest --version","timeout":60}}</tool>',
             "<final>public cli task complete</final>",
         ]
         server = _MockOpenAIResponsesServer(outputs)
@@ -194,6 +195,7 @@ class RunEvidence:
             model_client=FakeModelClient(
                 [
                     '<tool>{"name":"write_file","args":{"path":"src/result.txt","content":"RepoHarness scripted evidence\\n"}}</tool>',
+                    '<tool>{"name":"run_shell","args":{"command":"python -m pytest --version","timeout":60}}</tool>',
                     "<final>scripted evidence complete</final>",
                 ]
             ),

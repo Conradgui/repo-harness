@@ -53,8 +53,12 @@ class PermissionChecker:
                 "sandbox_guard",
                 profile=profile_name,
             )
-        if tool.name in {"write_file", "patch_file"} and getattr(self.runtime, "write_scope", ()):
-            return self._check_write_scope(tool, args, profile_name)
+        if tool.name in {"write_file", "patch_file"}:
+            state_dir_denial = self._runtime_state_write_denied(args, profile_name)
+            if state_dir_denial is not None:
+                return state_dir_denial
+            if getattr(self.runtime, "write_scope", ()):
+                return self._check_write_scope(tool, args, profile_name)
         if tool.read_only:
             return PermissionDecision.allow("read_only", profile=profile_name)
         if getattr(self.runtime, "read_only", False):
@@ -114,6 +118,37 @@ class PermissionChecker:
                 profile=profile_name,
             )
         return PermissionDecision.allow("plan_artifact_write", profile=profile_name)
+
+    def _runtime_state_write_denied(self, args, profile_name):
+        """``.repo-harness/`` is harness-owned runtime state, never tool-writable.
+
+        Durable memory, review queues, sessions, run records and skills live
+        there. The harness writes them only through its own modules (memory
+        governance, run store, session store, plan mode), so a model tool
+        writing this directory bypasses every governance chain -- including
+        secret filtering -- and the written notes reach later prompts through
+        memory recall. The guard is evaluated before write_scope on purpose:
+        no explicit scope grant may re-open a governance directory, the same
+        way plan-mode artifacts stay writable only through the plan path above.
+        """
+        try:
+            requested = self.runtime.path(args.get("path", ""))
+        except ValueError:
+            # Path escapes the workspace; write_scope and the tool layer
+            # reject it with their own reasons. Do not shadow that here.
+            return None
+        # requested comes back resolved from runtime.path(); resolve the state
+        # dir too, otherwise a symlinked workspace root (e.g. /var -> /private/var
+        # on macOS) makes every state-dir path look "outside" and the guard
+        # silently approves the write.
+        state_dir = (Path(self.runtime.root) / ".repo-harness").resolve()
+        if requested == state_dir or state_dir in requested.parents:
+            return PermissionDecision.deny(
+                "runtime_state_write_denied",
+                "state_dir_write_guard",
+                profile=profile_name,
+            )
+        return None
 
     def _check_write_scope(self, tool, args, profile_name):
         requested = self.runtime.path(args.get("path", ""))

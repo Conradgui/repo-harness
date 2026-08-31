@@ -79,6 +79,7 @@ def test_multiple_tool_calls_execute_in_order_and_record_partial_failure(tmp_pat
             '<tool>{"name":"write_file","args":{"path":"second.txt","content":"two\\n"}}</tool>',
             "<final>multi done</final>",
         ],
+        feature_flags={"verification_gate": False},
     )
 
     assert agent.ask("run multiple tools") == "multi done"
