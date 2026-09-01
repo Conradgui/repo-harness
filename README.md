@@ -1,6 +1,6 @@
 # RepoHarness
 
-> Python 3.10+ | MIT License | ruff 0 error · 测试全绿
+> Python 3.10+ | MIT License | ruff 0 error 
 
 一个运行在本地仓库里的 coding agent runtime。它通过受约束的工具读文件、改文件、跑命令，把会话、运行工件、记忆和审计信息留在 `.repo-harness/` 下。
 
